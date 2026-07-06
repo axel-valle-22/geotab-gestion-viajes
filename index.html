@@ -260,6 +260,8 @@ function resetForm(){
 }
 
 function setupEvents(){
+  if (window.__gvEventsBound) { return; }
+  window.__gvEventsBound = true;
   document.querySelectorAll('.gv-tab-btn').forEach(function(btn){
     btn.addEventListener('click', function(){ showTab(btn.getAttribute('data-tab')); });
   });
