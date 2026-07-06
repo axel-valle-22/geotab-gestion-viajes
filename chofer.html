@@ -1,0 +1,414 @@
+<!-- Gestion de Viajes DP - App del chofer (MyGeotab Drive) -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mi Viaje</title>
+</head>
+<body>
+<div id="gv-app">
+<div id="gv-style-container"></div>
+<div id="gv-header">
+<h1>Mi Viaje</h1>
+<p>DoloresParra S.A. - Chofer</p>
+</div>
+<div id="gv-select-driver-box" class="gv-select-driver" style="display:none">
+<label>No se detecto automaticamente tu usuario. Seleccioná tu nombre para continuar:</label>
+<select id="gv-select-driver"><option value="">Seleccionar...</option></select>
+</div>
+<div id="gv-driver-content">
+<p style="text-align:center;color:#6b7280;padding:40px">Cargando tus viajes...</p>
+</div>
+</div>
+<script src="common.js"></script>
+<script>
+(function(){
+'use strict';
+
+var gApi = null;
+var gDriver = null;
+var gConductores = [];
+var gPollTimer = null;
+
+function puedeIniciar(v){
+  var g = v.gerenciamiento;
+  if(!g || !g.resultado) return false;
+  if(g.resultado === 'rojo') return false;
+  if(g.resultado === 'verde') return true;
+  return g.autorizadoPor === 'supervisor';
+}
+
+function misViajes(){
+  if(!gDriver) return [];
+  return GV.Storage.getViajes().filter(function(v){ return v.conductorId === gDriver.id && v.estado !== 'cancelado'; });
+}
+
+function renderDriverView(){
+  var box = document.getElementById('gv-driver-content');
+  if(!box) return;
+  if(!gDriver){
+    box.innerHTML = '<p style="text-align:center;color:#6b7280;padding:40px">Seleccioná tu nombre arriba para ver tus viajes.</p>';
+    return;
+  }
+  var viajes = misViajes().sort(function(a,b){ return new Date(a.fechaSalida) - new Date(b.fechaSalida); });
+  var pendientes = viajes.filter(function(v){ return v.estado === 'planificado' || v.estado === 'demorado'; });
+  var enCurso = viajes.filter(function(v){ return v.estado === 'en_curso'; });
+  var historial = viajes.filter(function(v){ return v.estado === 'completado'; }).slice(-5).reverse();
+
+  var html = '';
+
+  enCurso.concat(pendientes).forEach(function(v){
+    html += renderViajeCard(v);
+  });
+
+  if(!enCurso.length && !pendientes.length){
+    html += '<p style="text-align:center;color:#6b7280;padding:40px">No tenes viajes programados por el momento.</p>';
+  }
+
+  if(historial.length){
+    html += '<h3 style="color:#6b7280;font-size:.9rem;margin:20px 0 10px">Viajes completados recientes</h3>';
+    historial.forEach(function(v){ html += renderViajeCard(v, true); });
+  }
+
+  box.innerHTML = html;
+
+  box.querySelectorAll('[data-action="gerenciar"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ abrirWizard(btn.getAttribute('data-id')); });
+  });
+  box.querySelectorAll('[data-action="iniciar"]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      GV.Storage.updateViaje(btn.getAttribute('data-id'), { estado: 'en_curso', iniciadoEn: new Date().toISOString() }).then(function(){ renderDriverView(); });
+    });
+  });
+  box.querySelectorAll('[data-action="completar"]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      GV.Storage.updateViaje(btn.getAttribute('data-id'), { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderDriverView(); });
+    });
+  });
+}
+
+function renderViajeCard(v, compact){
+  var g = v.gerenciamiento;
+  var origenTxt = v.origen ? v.origen.direccion : '';
+  var destinoTxt = v.destino ? v.destino.direccion : '';
+  var stops = (v.paradas || []).map(function(p){
+    return '<span class="gv-stop-chip gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(p.direccion) + ' (' + p.duracionMin + ' min)</span>';
+  }).join('');
+
+  var banner = '';
+  var actions = '';
+
+  if(!compact){
+    if(v.estado === 'en_curso'){
+      actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar Viaje</button>';
+    } else if(!g || !g.resultado){
+      banner = '<div class="gv-banner gv-banner-info"><h3>Tenes un viaje programado</h3><p>Antes de iniciar, debes completar el Gerenciamiento de Viaje (obligatorio).</p></div>';
+      actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="gerenciar" data-id="' + v.id + '">Iniciar Gerenciamiento de Viaje</button>';
+    } else if(g.resultado === 'rojo'){
+      banner = '<div class="gv-banner gv-banner-danger"><h3>NO ESTAS AUTORIZADO A VIAJAR</h3><p>' + GV.escapeHtml((g.motivos||[]).join('; ')) + '</p></div>';
+    } else if(g.resultado === 'amarillo' && g.rechazado){
+      banner = '<div class="gv-banner gv-banner-danger"><h3>Solicitud rechazada</h3><p>El supervisor rechazo la autorizacion. Contactate para reprogramar el viaje.</p></div>';
+    } else if(g.resultado === 'amarillo' && g.autorizadoPor !== 'supervisor'){
+      banner = '<div class="gv-banner gv-banner-warn"><h3>Esperando autorizacion del supervisor</h3><p>No podes salir hasta recibir la aprobacion. Esta pantalla se actualiza automaticamente.</p></div>';
+    } else if(puedeIniciar(v)){
+      banner = '<div class="gv-banner gv-banner-ok"><h3>Autorizado para viajar</h3><p>Ya podes iniciar el viaje.</p></div>';
+      actions = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="iniciar" data-id="' + v.id + '">Iniciar Viaje</button>';
+    }
+  }
+
+  return '<div class="gv-driver-trip">' + banner +
+    '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.vehiculo||'?') + '</div><span class="gv-status gv-s-' + v.estado + '">' + GV.statusLabel(v.estado) + '</span></div>' +
+    '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt) + '</div>' +
+    (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
+    (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
+    (actions ? '<div class="gv-trip-actions">' + actions + '</div>' : '') +
+    '</div>';
+}
+
+/* ---------------- Wizard de Gerenciamiento de Viaje ---------------- */
+function abrirWizard(viajeId){
+  var viaje = GV.Storage.getViaje(viajeId);
+  if(!viaje) return;
+
+  var respuestas = {
+    durmioPoco: null, horasDespiertoMas16: null, alcoholMedicacion: null, noApto: null,
+    motivo: null, motivoOtro: '',
+    checklist: { alarmaRetroceso: null, kitAntiderrame: null, parabrisas: null, espejos: null, neumaticos: null, verificacion360: null },
+    checklistObs: '',
+    clima: null, rutaConocida: null, comunicacion: null
+  };
+
+  var steps = ['aviso', 'motivo', 'checklist', 'riesgos', 'resultado'];
+  var stepIdx = 0;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'gv-modal-overlay';
+  overlay.innerHTML = '<div class="gv-modal" id="gv-wizard-modal"></div>';
+  document.body.appendChild(overlay);
+  var modal = overlay.querySelector('#gv-wizard-modal');
+
+  function progressHtml(){
+    var n = steps.length - 1;
+    var html = '<div class="gv-wizard-progress">';
+    for(var i=0;i<n;i++){ html += '<span class="' + (i <= stepIdx ? 'gv-done' : '') + '"></span>'; }
+    return html + '</div>';
+  }
+
+  function renderStep(){
+    var body = '';
+    if(steps[stepIdx] === 'aviso'){
+      body = '<h3>Aviso de seguridad vial</h3>' +
+        '<div class="gv-banner gv-banner-warn"><p>El conductor debera notificar a su supervisor y NO REALIZAR EL VIAJE si:</p></div>' +
+        '<div class="gv-check-row"><span>Dormiste menos de 6 horas la jornada anterior</span><div class="gv-radio-pair" data-q="durmioPoco"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
+        '<div class="gv-check-row"><span>Llevas despierto o de viaje mas de 16 horas</span><div class="gv-radio-pair" data-q="horasDespiertoMas16"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
+        '<div class="gv-check-row"><span>Consumiste alcohol o medicacion/drogas que afecten tus reflejos en las ultimas 12 horas</span><div class="gv-radio-pair" data-q="alcoholMedicacion"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
+        '<div class="gv-check-row"><span>Consideras que no estas apto para realizar el viaje</span><div class="gv-radio-pair" data-q="noApto"><button data-v="no">No</button><button data-v="si">Si</button></div></div>';
+    } else if(steps[stepIdx] === 'motivo'){
+      var motivos = ['Viaje a un puesto de trabajo','Visita a un cliente','Transporte de personal','Transporte de carga o acarreo','Fin de la jornada laboral'];
+      body = '<h3>Indica un motivo de viaje</h3><div class="gv-motivo-list">' +
+        motivos.map(function(m){
+          return '<label><input type="radio" name="gv-motivo" value="' + m + '"' + (respuestas.motivo === m ? ' checked' : '') + '> ' + m + '</label>';
+        }).join('') +
+        '<label>Es por otro motivo:<input type="text" id="gv-motivo-otro" placeholder="Escribi el motivo..." value="' + GV.escapeHtml(respuestas.motivoOtro) + '"></label>' +
+        '</div>';
+    } else if(steps[stepIdx] === 'checklist'){
+      var items = [
+        ['alarmaRetroceso','Alarma de retroceso'], ['kitAntiderrame','Kit antiderrame'],
+        ['parabrisas','Parabrisas en condiciones'], ['espejos','Espejos retrovisores en condiciones'],
+        ['neumaticos','Neumaticos en condiciones'], ['verificacion360','Verificacion 360 del vehiculo confirmando ausencia de situaciones de riesgo']
+      ];
+      body = '<h3>Controles y Checklist Vehicular<span class="gv-req">*</span></h3>' +
+        items.map(function(it){
+          return '<div class="gv-check-row"><span>' + it[1] + '</span><div class="gv-radio-pair" data-q="chk_' + it[0] + '"><button data-v="no">No</button><button data-v="si">Si</button></div></div>';
+        }).join('') +
+        '<div class="gv-form-row" style="margin-top:10px"><label>Observacion adicional</label><textarea id="gv-checklist-obs" rows="2">' + GV.escapeHtml(respuestas.checklistObs) + '</textarea></div>';
+    } else if(steps[stepIdx] === 'riesgos'){
+      var climas = ['Soleado / nublado','Lluvia / barro / viento','Tormentas fuertes / niebla','Nieve / heladas'];
+      body = '<h3>Evaluacion de Riesgos<span class="gv-req">*</span></h3><div class="gv-motivo-list">' +
+        climas.map(function(c){ return '<label><input type="radio" name="gv-clima" value="' + c + '"' + (respuestas.clima === c ? ' checked' : '') + '> ' + c + '</label>'; }).join('') +
+        '</div>' +
+        '<div class="gv-check-row"><span>Conoces la ruta a recorrer</span><div class="gv-radio-pair" data-q="rutaConocida"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
+        '<div class="gv-check-row"><span>Contas con comunicacion disponible (radio/celular)</span><div class="gv-radio-pair" data-q="comunicacion"><button data-v="no">No</button><button data-v="si">Si</button></div></div>';
+    } else if(steps[stepIdx] === 'resultado'){
+      var r = calcularResultado();
+      var cls = r.resultado === 'verde' ? 'gv-result-verde' : (r.resultado === 'amarillo' ? 'gv-result-amarillo' : 'gv-result-rojo');
+      var titulo = r.resultado === 'verde' ? 'Gerenciamiento Verde' : (r.resultado === 'amarillo' ? 'Gerenciamiento Amarillo' : 'Gerenciamiento Rojo');
+      var msg = r.resultado === 'verde' ? 'Autorizacion automatica: podes salir inmediatamente sin esperar aprobacion.' :
+                r.resultado === 'amarillo' ? 'Requiere autorizacion del supervisor: no podes salir hasta recibir la aprobacion.' :
+                'El sistema bloqueo el viaje automaticamente. NO ESTAS AUTORIZADO A VIAJAR.';
+      body = '<div class="gv-result-box ' + cls + '"><h2>' + titulo + '</h2><p>' + msg + '</p>' +
+        (r.motivos.length ? '<p style="font-size:.85rem;margin-top:10px">' + GV.escapeHtml(r.motivos.join(' | ')) + '</p>' : '') + '</div>';
+    }
+    modal.innerHTML = progressHtml() + body + '<div class="gv-modal-actions" id="gv-wizard-actions"></div>';
+    wireStep();
+  }
+
+function wireStep(){
+  modal.querySelectorAll('.gv-radio-pair').forEach(function(pair){
+    var q = pair.getAttribute('data-q');
+    var val = q.indexOf('chk_') === 0 ? respuestas.checklist[q.slice(4)] : respuestas[q];
+    pair.querySelectorAll('button').forEach(function(b){
+      if(b.getAttribute('data-v') === val) b.classList.add(b.getAttribute('data-v') === 'si' ? 'gv-r-no-sel' : 'gv-r-yes-sel');
+    });
+    pair.querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click', function(){
+        var v = b.getAttribute('data-v');
+        if(q.indexOf('chk_') === 0){ respuestas.checklist[q.slice(4)] = v; } else { respuestas[q] = v; }
+        pair.querySelectorAll('button').forEach(function(x){ x.classList.remove('gv-r-yes-sel','gv-r-no-sel'); });
+        b.classList.add(v === 'si' ? 'gv-r-no-sel' : 'gv-r-yes-sel');
+        renderActions();
+      });
+    });
+  });
+
+  if(steps[stepIdx] === 'motivo'){
+    modal.querySelectorAll('input[name="gv-motivo"]').forEach(function(r){
+      r.addEventListener('change', function(){ respuestas.motivo = r.value; renderActions(); });
+    });
+    var otro = document.getElementById('gv-motivo-otro');
+    if(otro) otro.addEventListener('input', function(){ respuestas.motivoOtro = otro.value; if(otro.value){ respuestas.motivo = 'Otro'; } renderActions(); });
+  }
+  if(steps[stepIdx] === 'checklist'){
+    var obs = document.getElementById('gv-checklist-obs');
+    if(obs) obs.addEventListener('input', function(){ respuestas.checklistObs = obs.value; });
+  }
+  if(steps[stepIdx] === 'riesgos'){
+    modal.querySelectorAll('input[name="gv-clima"]').forEach(function(r){
+      r.addEventListener('change', function(){ respuestas.clima = r.value; renderActions(); });
+    });
+  }
+
+  renderActions();
+}
+
+function stepValido(){
+  var s = steps[stepIdx];
+  if(s === 'aviso') return respuestas.durmioPoco && respuestas.horasDespiertoMas16 && respuestas.alcoholMedicacion && respuestas.noApto;
+  if(s === 'motivo') return !!respuestas.motivo;
+  if(s === 'checklist'){
+    var c = respuestas.checklist;
+    return Object.keys(c).every(function(k){ return c[k]; });
+  }
+  if(s === 'riesgos') return !!respuestas.clima && respuestas.rutaConocida && respuestas.comunicacion;
+  return true;
+}
+
+function renderActions(){
+  var actions = document.getElementById('gv-wizard-actions');
+  if(!actions) return;
+  var isLast = steps[stepIdx] === 'resultado';
+  var html = '';
+  html += '<button type="button" class="gv-btn gv-btn-sec" id="gv-wizard-cancel">Cancelar</button>';
+  if(stepIdx > 0 && !isLast){ html += '<button type="button" class="gv-btn gv-btn-sec" id="gv-wizard-prev">Anterior</button>'; }
+  if(!isLast){ html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-next"' + (stepValido() ? '' : ' disabled') + '>Continuar</button>'; }
+  else { html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-finish">Finalizar</button>'; }
+  actions.innerHTML = html;
+
+  var cancelBtn = document.getElementById('gv-wizard-cancel');
+  if(cancelBtn) cancelBtn.addEventListener('click', cerrarWizard);
+  var prevBtn = document.getElementById('gv-wizard-prev');
+  if(prevBtn) prevBtn.addEventListener('click', function(){ stepIdx--; renderStep(); });
+  var nextBtn = document.getElementById('gv-wizard-next');
+  if(nextBtn) nextBtn.addEventListener('click', function(){ if(stepValido()){ stepIdx++; renderStep(); } });
+  var finishBtn = document.getElementById('gv-wizard-finish');
+  if(finishBtn) finishBtn.addEventListener('click', finalizarWizard);
+}
+
+function calcularResultado(){
+  var motivos = [];
+  var rojo = false, amarillo = false;
+  if(respuestas.horasDespiertoMas16 === 'si'){ rojo = true; motivos.push('Horas despierto/conduccion superan el limite seguro'); }
+  if(respuestas.alcoholMedicacion === 'si'){ rojo = true; motivos.push('Consumo de alcohol o medicacion en las ultimas 12hs'); }
+  if(respuestas.noApto === 'si'){ rojo = true; motivos.push('El conductor declara no estar en condiciones de manejar'); }
+  if(respuestas.durmioPoco === 'si' && !rojo){ amarillo = true; motivos.push('Durmio menos de 6 horas'); }
+  var c = respuestas.checklist;
+  Object.keys(c).forEach(function(k){ if(c[k] === 'no'){ amarillo = true; motivos.push('Checklist vehicular con item en No: ' + k); } });
+  if(respuestas.clima === 'Tormentas fuertes / niebla' || respuestas.clima === 'Nieve / heladas'){ amarillo = true; motivos.push('Condicion climatica de riesgo: ' + respuestas.clima); }
+  if(respuestas.rutaConocida === 'no'){ amarillo = true; motivos.push('Ruta no conocida'); }
+  if(respuestas.comunicacion === 'no'){ amarillo = true; motivos.push('Sin comunicacion disponible'); }
+
+  var resultado = rojo ? 'rojo' : (amarillo ? 'amarillo' : 'verde');
+  return { resultado: resultado, motivos: motivos };
+}
+
+function cerrarWizard(){ overlay.remove(); }
+
+function finalizarWizard(){
+  var r = calcularResultado();
+  var gerenciamiento = {
+    resultado: r.resultado,
+    motivos: r.motivos,
+    respuestas: respuestas,
+    completadoEn: new Date().toISOString(),
+    autorizadoPor: r.resultado === 'verde' ? 'auto' : null,
+    rechazado: false
+  };
+  GV.Storage.updateViaje(viaje.id, { gerenciamiento: gerenciamiento }).then(function(){
+    if(r.resultado === 'amarillo'){
+      GV.Storage.addAlerta({
+        id: 'al_auth_' + viaje.id, tipo: 'autorizacion',
+        mensaje: 'Solicitud de autorizacion: ' + viaje.conductor + ' (' + viaje.vehiculo + ') - ' + r.motivos.join('; '),
+        fecha: new Date().toISOString(), viajeId: viaje.id
+      });
+    } else if(r.resultado === 'rojo'){
+      GV.Storage.addAlerta({
+        id: 'al_rojo_' + viaje.id, tipo: 'info',
+        mensaje: viaje.conductor + ' fue bloqueado para viajar (gerenciamiento rojo): ' + r.motivos.join('; '),
+        fecha: new Date().toISOString(), viajeId: viaje.id
+      });
+    }
+    cerrarWizard();
+    renderDriverView();
+  });
+}
+
+renderStep();
+}
+
+/* ---------------- Identificacion del chofer ---------------- */
+function cargarConductoresYIdentificar(api){
+  return new Promise(function(resolve){
+    api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
+      gConductores = (users || []).map(function(u){ return { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name }; });
+      var sel = document.getElementById('gv-select-driver');
+      if(sel){
+        sel.innerHTML = '<option value="">Seleccionar...</option>' + gConductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
+      }
+      GV.getSession(api).then(function(session){
+        var match = null;
+        if(session && session.userName){
+          match = gConductores.find(function(c){ return c.name && c.name.toLowerCase() === session.userName.toLowerCase(); });
+        }
+        if(match){
+          gDriver = match;
+        } else {
+          var box = document.getElementById('gv-select-driver-box');
+          if(box) box.style.display = 'block';
+        }
+        resolve();
+      });
+    }, function(){ resolve(); });
+  });
+}
+
+function setupEvents(){
+  var sel = document.getElementById('gv-select-driver');
+  if(sel){
+    sel.addEventListener('change', function(){
+      gDriver = gConductores.find(function(c){ return c.id === sel.value; }) || null;
+      renderDriverView();
+    });
+  }
+}
+
+function doInit(api){
+  gApi = api;
+  GV.injectCSS('gv-style-container');
+  setupEvents();
+
+  GV.Storage.init(api).then(function(){
+    if(api){
+      cargarConductoresYIdentificar(api).then(function(){ renderDriverView(); });
+    } else {
+      renderDriverView();
+    }
+    GV.Storage.onChange(function(){ renderDriverView(); });
+  });
+
+  if(api){
+    gPollTimer = setInterval(function(){ GV.Storage.refresh().then(function(){ renderDriverView(); }); }, 20000);
+  }
+}
+
+window.initialize = function(api, state, callback){
+  doInit(api);
+  if(typeof callback === 'function') callback();
+};
+
+if(typeof geotab !== 'undefined' && geotab.addin){
+  geotab.addin.GestionViajesDPChofer = function(){
+    return {
+      initialize: function(api, state, callback){ doInit(api); if(typeof callback === 'function') callback(); },
+      focus: function(){}, blur: function(){}
+    };
+  };
+}
+
+setTimeout(function(){
+  if(typeof window._gvInitDone === 'undefined'){
+    window._gvInitDone = true;
+    doInit(null);
+  }
+}, 800);
+
+var _origInit = window.initialize;
+window.initialize = function(api, state, callback){
+  window._gvInitDone = true;
+  return _origInit.apply(this, arguments);
+};
+
+})();
+</script>
+</body>
+</html>
