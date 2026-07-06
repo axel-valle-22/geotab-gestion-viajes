@@ -293,7 +293,13 @@ GV.pickLocation = function(opts){
         resolve(result);
       });
 
-      setTimeout(function(){ try{ map.invalidateSize(); }catch(e){} }, 150);
+      function gvFixMapSize(){ try{ map.invalidateSize(false); }catch(e){} }
+      if (window.requestAnimationFrame) { requestAnimationFrame(function(){ requestAnimationFrame(gvFixMapSize); }); }
+      setTimeout(gvFixMapSize, 60);
+      setTimeout(gvFixMapSize, 150);
+      setTimeout(gvFixMapSize, 350);
+      setTimeout(gvFixMapSize, 700);
+      setTimeout(gvFixMapSize, 1200);
     });
   });
 };
