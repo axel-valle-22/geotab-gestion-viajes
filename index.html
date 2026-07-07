@@ -84,6 +84,8 @@ var gState = { conductores: [], vehiculos: [], zonas: [] };
 var gApi = null;
 var gTrackMap = null;
 var gTrackLayer = null;
+var gTrackInterval = null;
+var gTrackRenderGen = 0;
 
 function showTab(name){
   document.querySelectorAll('.gv-tab-btn').forEach(function(b){
@@ -92,7 +94,7 @@ function showTab(name){
   document.querySelectorAll('.gv-tab-content').forEach(function(c){
     c.classList.toggle('gv-show', c.id === 'gv-tab-' + name);
   });
-  if(name === 'seguimiento'){ renderTracking(); }
+  if(name === 'seguimiento'){ renderTracking(); if(!gTrackInterval){ gTrackInterval = setInterval(renderTracking, 15000); } } else { if(gTrackInterval){ clearInterval(gTrackInterval); gTrackInterval = null; } }
 }
 
 function renderStats(){
@@ -365,6 +367,8 @@ function renderTracking(){
       gTrackLayer = L.layerGroup().addTo(gTrackMap);
     }
     gTrackLayer.clearLayers();
+    gTrackRenderGen++;
+    var myGen = gTrackRenderGen;
     setTimeout(function(){ try{ gTrackMap.invalidateSize(); }catch(e){} }, 100);
 
     var activos = GV.Storage.getViajes().filter(function(v){ return v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado'; });
@@ -379,7 +383,18 @@ function renderTracking(){
       if(v.origen) pts.push([v.origen.lat, v.origen.lng]);
       (v.paradas||[]).forEach(function(p){ pts.push([p.lat, p.lng]); });
       if(v.destino) pts.push([v.destino.lat, v.destino.lng]);
-      if(pts.length > 1){ L.polyline(pts, { color: '#1a56db', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(gTrackLayer); }
+      if(pts.length > 1){
+              var __fallbackLine = L.polyline(pts, { color: '#1a56db', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
+              (function(fallbackLine, gen){
+                GV.getRoute(pts.map(function(p){ return { lat: p[0], lng: p[1] }; })).then(function(route){
+                  if(gen !== gTrackRenderGen) return;
+                  if(route && route.coords && route.coords.length > 1){
+                    if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
+                    L.polyline(route.coords, { color: '#1a56db', weight: 4, opacity: .8 }).addTo(gTrackLayer);
+                  }
+                });
+              })(__fallbackLine, myGen);
+            }
       pts.forEach(function(p){ bounds.push(p); });
       if(v.origen) L.circleMarker([v.origen.lat, v.origen.lng], {radius:6, color:'#059669', fillColor:'#059669', fillOpacity:1}).bindTooltip('Origen: ' + v.origen.direccion).addTo(gTrackLayer);
       if(v.destino) L.circleMarker([v.destino.lat, v.destino.lng], {radius:6, color:'#dc2626', fillColor:'#dc2626', fillOpacity:1}).bindTooltip('Destino: ' + v.destino.direccion).addTo(gTrackLayer);
