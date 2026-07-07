@@ -337,6 +337,23 @@ GV.getSession = function(api){
 };
 
 /* ---------------- Almacenamiento compartido (AddInData + respaldo localStorage) ---------------- */
+/* ---------------- Ruteo real por calles (OSRM) ---------------- */
+GV.getRoute = function(points){
+  return new Promise(function(resolve){
+    try{
+      if(!points || points.length < 2){ resolve(null); return; }
+      var coordStr = points.map(function(p){ return p.lng + ',' + p.lat; }).join(';');
+      var url = 'https://router.project-osrm.org/route/v1/driving/' + coordStr + '?overview=full&geometries=geojson';
+      fetch(url).then(function(r){ return r.json(); }).then(function(data){
+        if(data && data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].geometry && data.routes[0].geometry.coordinates){
+          var coords = data.routes[0].geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+          resolve({ coords: coords, distance: data.routes[0].distance, duration: data.routes[0].duration });
+        } else { resolve(null); }
+      }).catch(function(){ resolve(null); });
+    }catch(e){ resolve(null); }
+  });
+};
+
 GV.Storage = (function(){
   var _api = null;
   var _addInId = null;
