@@ -414,6 +414,7 @@ function renderTracking(){
 }
 
 function doInit(api){
+  window._gvInitDone = true;
   gApi = api;
   GV.injectCSS('gv-style-container');
   setupEvents();
