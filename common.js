@@ -22,6 +22,12 @@ GV.fmtDate = function(d){
   return dt.toLocaleDateString('es-AR') + ' ' + dt.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
 };
 
+GV.dateStr = function(d){
+var dt = d instanceof Date ? d : new Date(d);
+if(isNaN(dt.getTime())) return '';
+return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+};
+
 GV.statusLabel = function(s){
   return {planificado:'Planificado',en_curso:'En Curso',completado:'Completado',demorado:'Demorado',cancelado:'Cancelado'}[s] || s;
 };
@@ -129,7 +135,23 @@ GV.CSS = ""
 + '.gv-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}'
 + '.gv-motivo-list label{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;cursor:pointer;font-size:.88rem}'
 + '.gv-motivo-list input{width:auto}'
-+ '.gv-select-driver{margin-bottom:16px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:.85rem}';
++ '.gv-select-driver{margin-bottom:16px;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:.85rem}'
++ '.gv-view-btn.gv-active{background:#1a56db;color:#fff;border-color:#1a56db}'
++ '.gv-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}'
++ '.gv-cal-dow{text-align:center;font-size:.72rem;font-weight:700;color:#6b7280;padding:4px 0}'
++ '.gv-cal-day{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:6px;min-height:62px;cursor:pointer;transition:all .15s}'
++ '.gv-cal-day:hover{border-color:#1a56db}'
++ '.gv-cal-day.gv-cal-empty{background:transparent;border:none;cursor:default}'
++ '.gv-cal-day.gv-cal-today{border-color:#1a56db;box-shadow:0 0 0 2px rgba(26,86,219,.15)}'
++ '.gv-cal-day.gv-cal-sel{background:#eff6ff;border-color:#1a56db}'
++ '.gv-cal-daynum{font-size:.76rem;font-weight:700;color:#374151}'
++ '.gv-cal-count{font-size:1.05rem;font-weight:700;color:#1a56db;margin-top:6px}'
++ '.gv-cal-sub{font-size:.66rem;color:#6b7280;margin-top:2px}'
++ '.gv-filter-chip{display:inline-flex;align-items:center;gap:8px;background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a;border-radius:20px;padding:6px 12px;font-size:.82rem;margin-bottom:10px}'
++ '.gv-det-table{width:100%;border-collapse:collapse;font-size:.82rem}'
++ '.gv-det-table th{text-align:left;color:#6b7280;border-bottom:1px solid #e5e7eb;padding:6px 4px}'
++ '.gv-det-table td{padding:6px 4px;border-bottom:1px solid #f3f4f6}'
++ '.gv-site-marker-lbl{color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}';
 
 GV.injectCSS = function(containerId){
   var el = document.getElementById(containerId || 'gv-style-container');
@@ -339,19 +361,31 @@ GV.getSession = function(api){
 /* ---------------- Almacenamiento compartido (AddInData + respaldo localStorage) ---------------- */
 /* ---------------- Ruteo real por calles (OSRM) ---------------- */
 GV.getRoute = function(points){
-  return new Promise(function(resolve){
-    try{
-      if(!points || points.length < 2){ resolve(null); return; }
-      var coordStr = points.map(function(p){ return p.lng + ',' + p.lat; }).join(';');
-      var url = 'https://router.project-osrm.org/route/v1/driving/' + coordStr + '?overview=full&geometries=geojson';
-      fetch(url).then(function(r){ return r.json(); }).then(function(data){
-        if(data && data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].geometry && data.routes[0].geometry.coordinates){
-          var coords = data.routes[0].geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
-          resolve({ coords: coords, distance: data.routes[0].distance, duration: data.routes[0].duration });
-        } else { resolve(null); }
-      }).catch(function(){ resolve(null); });
-    }catch(e){ resolve(null); }
-  });
+return new Promise(function(resolve){
+try{
+if(!points || points.length < 2){ resolve(null); return; }
+var coordStr = points.map(function(p){ return p.lng + ',' + p.lat; }).join(';');
+var url = 'https://router.project-osrm.org/route/v1/driving/' + coordStr + '?overview=full&geometries=geojson&steps=false';
+fetch(url).then(function(r){ return r.json(); }).then(function(data){
+if(data && data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].geometry && data.routes[0].geometry.coordinates){
+var route = data.routes[0];
+var coords = route.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+var legs = (route.legs || []).map(function(lg){ return { distance: lg.distance, duration: lg.duration }; });
+resolve({ coords: coords, distance: route.distance, duration: route.duration, legs: legs });
+} else { resolve(null); }
+}).catch(function(){ resolve(null); });
+}catch(e){ resolve(null); }
+});
+};
+
+/* ---------------- Historial de posiciones (LogRecord) ---------------- */
+GV.getHistory = function(api, deviceId, fromISO, toISO){
+return new Promise(function(resolve){
+if(!api || !deviceId){ resolve([]); return; }
+api.call('Get', { typeName: 'LogRecord', search: { deviceSearch: { id: deviceId }, fromDate: fromISO, toDate: toISO } }, function(res){
+resolve((res || []).slice().sort(function(a,b){ return new Date(a.dateTime) - new Date(b.dateTime); }));
+}, function(){ resolve([]); });
+});
 };
 
 GV.Storage = (function(){
