@@ -528,6 +528,7 @@ overlay.innerHTML =
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + '</div>' +
+(v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#1a56db;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 (v.vehiculoId ? '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-det-recent" checked> Solo posiciones ultimas 4hs</label>' : '') +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
 (v.vehiculoId ? '<input type="range" id="gv-det-slider" min="0" max="0" value="0" style="width:100%;margin-bottom:14px" disabled>' : '') +
@@ -535,9 +536,9 @@ overlay.innerHTML =
 '</div>';
 document.body.appendChild(overlay);
 
-var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [];
+var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null;
 
-function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} overlay.remove(); }
+function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
@@ -602,6 +603,28 @@ itinEl.innerHTML = '<p style="color:#6b7280;font-size:.85rem">Faltan datos de or
 }
 
 if(gApi && v.vehiculoId){
+var liveEl = document.getElementById('gv-det-live');
+function updateLivePosition(){
+gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
+if(!res || !res.length || res[0].latitude == null){ if(liveEl && !detLiveMarker) liveEl.textContent = 'Sin datos de posicion en vivo.'; return; }
+var r = res[0];
+var pos = [r.latitude, r.longitude];
+var speed = Math.round(r.speed || 0);
+var estadoMov = speed > 2 ? 'En movimiento' : 'Detenido';
+var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR') : new Date().toLocaleString('es-AR');
+if(!detLiveMarker){
+var icon = L.divIcon({ className: '', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] });
+detLiveMarker = L.marker(pos, { icon: icon, zIndexOffset: 1000 }).addTo(detLayer);
+detMap.fitBounds(bounds.concat([pos]), {padding:[30,30]});
+} else {
+detLiveMarker.setLatLng(pos);
+}
+detLiveMarker.bindTooltip('En vivo: ' + estadoMov + ' - ' + speed + ' km/h<br>' + when);
+if(liveEl) liveEl.innerHTML = '&#9679; Posicion en vivo: ' + estadoMov + ' - ' + speed + ' km/h (actualizado ' + when + ')';
+}, function(){ if(liveEl && !detLiveMarker) liveEl.textContent = 'No se pudo obtener la posicion en vivo.'; });
+}
+updateLivePosition();
+detInterval = setInterval(updateLivePosition, 15000);
 var chk = document.getElementById('gv-det-recent');
 var slider = document.getElementById('gv-det-slider');
 var histMarker = null;
