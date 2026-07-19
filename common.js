@@ -153,7 +153,7 @@ GV.CSS = ""
 + '.gv-det-table td{padding:6px 4px;border-bottom:1px solid #f3f4f6}'
 + '.gv-site-marker-lbl{color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}'
 + '.gv-live-marker-lbl{background:#1a56db;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4);animation:gvLivePulse 1.6s infinite}'
-+ '@keyframes gvLivePulse{0%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}50%{box-shadow:0 0 0 8px rgba(26,86,219,.05),0 1px 4px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}}';
++ '@keyframes gvLivePulse{0%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}50%{box-shadow:0 0 0 8px rgba(26,86,219,.05),0 1px 4px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}}'+'.gv-vehicle-marker{transition:transform 1s linear}';
 
 GV.injectCSS = function(containerId){
   var el = document.getElementById(containerId || 'gv-style-container');
