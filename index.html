@@ -448,7 +448,7 @@ function renderTracking(){
         if(res && res.length && res[0].latitude){
           var pos = [res[0].latitude, res[0].longitude];
           bounds.push(pos);
-          L.marker(pos, { title: v.vehiculo }).bindTooltip(v.conductor + ' - ' + v.vehiculo).addTo(gTrackLayer);
+          L.marker(pos, { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo).addTo(gTrackLayer);
         }
         pending--;
         if(pending <= 0 && bounds.length){ gTrackMap.fitBounds(bounds, {padding:[30,30]}); }
@@ -614,7 +614,7 @@ var speed = Math.round(r.speed || 0);
 var estadoMov = speed > 2 ? 'En movimiento' : 'Detenido';
 var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR') : new Date().toLocaleString('es-AR');
 if(!detLiveMarker){
-var icon = L.divIcon({ className: '', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] });
+var icon = L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] });
 detLiveMarker = L.marker(pos, { icon: icon, zIndexOffset: 1000 }).addTo(detLayer);
 detMap.fitBounds(bounds.concat([pos]), {padding:[30,30]});
 } else {
@@ -633,7 +633,7 @@ function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
 if(histMarker){ detHistLayer.removeLayer(histMarker); }
-histMarker = L.marker([r.latitude, r.longitude]).addTo(detHistLayer);
+histMarker = L.marker([r.latitude, r.longitude], { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 900 }).addTo(detHistLayer);
 var when = new Date(r.dateTime).toLocaleString('es-AR');
 histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.speed||0) + ' km/h').openTooltip();
 }
