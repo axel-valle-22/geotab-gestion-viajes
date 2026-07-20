@@ -107,7 +107,7 @@ GV.CSS = ""
 + '.gv-tipo-toggle{display:flex;gap:8px;margin-bottom:12px}'
 + '.gv-tipo-toggle button{flex:1;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb;cursor:pointer;font-weight:600;font-size:.85rem}'
 + '.gv-tipo-toggle button.gv-sel-carga{background:#dbeafe;border-color:#1a56db;color:#1a56db}'
-+ '.gv-tipo-toggle button.gv-sel-descarga{background:#fef3c7;border-color:#d97706;color:#92400e}' + '.gv-tipo-toggle button.{background:#ede9fe;border-color:#7c3aed;color:#5b21b6}'
++ '.gv-tipo-toggle button.gv-sel-descarga{background:#fef3c7;border-color:#d97706;color:#92400e}' + '.gv-tipo-toggle button.gv-sel-ambos{background:#ede9fe;border-color:#7c3aed;color:#5b21b6}'
 + '.gv-banner{border-radius:10px;padding:16px 18px;margin-bottom:16px}'
 + '.gv-banner h3{margin:0 0 6px;font-size:1rem}'
 + '.gv-banner p{margin:0;font-size:.88rem}'
