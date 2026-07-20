@@ -32,7 +32,7 @@ GV.statusLabel = function(s){
   return {planificado:'Planificado',en_curso:'En Curso',completado:'Completado',demorado:'Demorado',cancelado:'Cancelado'}[s] || s;
 };
 
-GV.tipoParadaLabel = function(t){ return t === 'descarga' ? 'Descarga' : 'Carga'; };
+GV.tipoParadaLabel = function(t){ return t === 'descarga' ? 'Descarga' : (t === 'ambos' ? 'Carga y Descarga' : 'Carga'); };
 
 GV.distKm = function(a,b){
   if(!a || !b || typeof a.lat !== 'number' || typeof b.lat !== 'number') return null;
@@ -72,7 +72,7 @@ GV.CSS = ""
 + '.gv-stops{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}'
 + '.gv-stop-chip{background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;padding:3px 8px;font-size:.78rem;color:#374151}'
 + '.gv-stop-chip.gv-carga{border-color:#1a56db;color:#1a56db;background:#eff6ff}'
-+ '.gv-stop-chip.gv-descarga{border-color:#d97706;color:#92400e;background:#fffbeb}'
++ '.gv-stop-chip.gv-descarga{border-color:#d97706;color:#92400e;background:#fffbeb}' + '.gv-stop-chip.gv-ambos{border-color:#7c3aed;color:#5b21b6;background:#f5f3ff}'
 + '.gv-trip-actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap}'
 + '.gv-btn{padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:500;transition:all .2s}'
 + '.gv-btn:disabled{opacity:.5;cursor:not-allowed}'
@@ -96,7 +96,7 @@ GV.CSS = ""
 + '.gv-stop-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:6px}'
 + '.gv-stop-item span{flex:1;font-size:.85rem}.gv-stop-remove{background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;padding:0 4px}'
 + '.gv-stop-badge{font-size:.7rem;font-weight:700;padding:2px 6px;border-radius:4px}'
-+ '.gv-stop-badge.gv-carga{background:#dbeafe;color:#1e40af}.gv-stop-badge.gv-descarga{background:#fef3c7;color:#92400e}'
++ '.gv-stop-badge.gv-carga{background:#dbeafe;color:#1e40af}.gv-stop-badge.gv-descarga{background:#fef3c7;color:#92400e}.gv-stop-badge.gv-ambos{background:#ede9fe;color:#5b21b6}'
 + '.gv-modal-overlay{position:fixed;inset:0;background:rgba(17,24,39,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}'
 + '.gv-modal{background:#fff;border-radius:12px;max-width:540px;width:100%;max-height:92vh;overflow:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)}'
 + '.gv-modal h3{margin:0 0 14px;color:#1a56db;font-size:1.1rem}'
@@ -107,7 +107,7 @@ GV.CSS = ""
 + '.gv-tipo-toggle{display:flex;gap:8px;margin-bottom:12px}'
 + '.gv-tipo-toggle button{flex:1;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb;cursor:pointer;font-weight:600;font-size:.85rem}'
 + '.gv-tipo-toggle button.gv-sel-carga{background:#dbeafe;border-color:#1a56db;color:#1a56db}'
-+ '.gv-tipo-toggle button.gv-sel-descarga{background:#fef3c7;border-color:#d97706;color:#92400e}'
++ '.gv-tipo-toggle button.gv-sel-descarga{background:#fef3c7;border-color:#d97706;color:#92400e}' + '.gv-tipo-toggle button.gv-sel-ambos{background:#ede9fe;border-color:#7c3aed;color:#5b21b6}'
 + '.gv-banner{border-radius:10px;padding:16px 18px;margin-bottom:16px}'
 + '.gv-banner h3{margin:0 0 6px;font-size:1rem}'
 + '.gv-banner p{margin:0;font-size:.88rem}'
@@ -213,10 +213,9 @@ GV.pickLocation = function(opts){
       if(opts.withStopFields){
         stopFieldsHtml =
           '<div class="gv-tipo-toggle">' +
-            '<button type="button" id="gv-tipo-carga" class="gv-sel-carga">Carga</button>' +
-            '<button type="button" id="gv-tipo-descarga">Descarga</button>' +
-          '</div>' +
-          '<div class="gv-form-row"><label>Tiempo estimado de la tarea (minutos)<span class="gv-req">*</span></label>' +
+            '<button type="button" id="gv-tipo-carga">Carga</button>' +
+            '<button type="button" id="gv-tipo-descarga">Descarga</button>' + '<button type="button" id="gv-tipo-ambos">Ambos</button>' +
+gv-sel-ambos          '<div class="gv-form-row"><label>Tiempo programado para carga/descarga (minutos)<span class="gv-req">*</span></label>' +
           '<input type="number" id="gv-map-duracion" min="0" step="5" value="30"></div>';
       }
       overlay.innerHTML =
@@ -298,9 +297,9 @@ GV.pickLocation = function(opts){
 
       if(opts.withStopFields){
         var bc = document.getElementById('gv-tipo-carga');
-        var bd = document.getElementById('gv-tipo-descarga');
-        bc.addEventListener('click', function(){ tipo = 'carga'; bc.classList.add('gv-sel-carga'); bd.classList.remove('gv-sel-descarga'); });
-        bd.addEventListener('click', function(){ tipo = 'descarga'; bd.classList.add('gv-sel-descarga'); bc.classList.remove('gv-sel-carga'); });
+        var bd = document.getElementById('gv-tipo-descarga'); var ba = document.getElementById('gv-tipo-ambos'); function selectTipo(t){ tipo = t; bc.classList.toggle('gv-sel-carga', t==='carga'); bd.classList.toggle('gv-sel-descarga', t==='descarga'); ba.classList.toggle('gv-sel-ambos', t==='ambos'); }
+        bc.addEventListener('click', function(){ selectTipo('carga'); });
+        bd.addEventListener('click', function(){ selectTipo('descarga'); }); ba.addEventListener('click', function(){ selectTipo('ambos'); }); if(opts.initial && opts.initial.tipo){ selectTipo(opts.initial.tipo); } else { selectTipo('carga'); } if(opts.initial && typeof opts.initial.duracionMin === 'number'){ document.getElementById('gv-map-duracion').value = opts.initial.duracionMin; }
       }
 
       function cleanup(){ try{ map.remove(); }catch(e){} overlay.remove(); }
