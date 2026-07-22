@@ -48,7 +48,7 @@ GV.escapeHtml = function(s){
   });
 };
 
-/* ---------------- CSS compartido ---------------- */
+GV.fmtDurMin = function(ms){ if(ms == null || isNaN(ms) || ms < 0) return '0min'; var totalMin = Math.floor(ms/60000); var h = Math.floor(totalMin/60), m = totalMin%60; return h > 0 ? (h + 'h ' + m + 'min') : (m + 'min'); }; /* ---------------- CSS compartido ---------------- */
 GV.CSS = ""
 + '#gv-app{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:960px;margin:0 auto;padding:16px;color:#222}'
 + '#gv-header{background:linear-gradient(135deg,#1a56db,#7e3af2);color:#fff;padding:20px 24px;border-radius:12px;margin-bottom:16px}'
@@ -153,7 +153,7 @@ GV.CSS = ""
 + '.gv-det-table td{padding:6px 4px;border-bottom:1px solid #f3f4f6}'
 + '.gv-site-marker-lbl{color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}'
 + '.gv-live-marker-lbl{background:#1a56db;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4);animation:gvLivePulse 1.6s infinite}'
-+ '@keyframes gvLivePulse{0%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}50%{box-shadow:0 0 0 8px rgba(26,86,219,.05),0 1px 4px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}}'+'.gv-vehicle-marker{transition:transform 1s linear}';
++ '@keyframes gvLivePulse{0%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}50%{box-shadow:0 0 0 8px rgba(26,86,219,.05),0 1px 4px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 4px rgba(26,86,219,.3),0 1px 4px rgba(0,0,0,.4)}}'+'.gv-vehicle-marker{transition:transform 1s linear}'+'.gv-live-banner{display:inline-block;padding:4px 10px;border-radius:6px;font-size:.78rem;font-weight:700;margin:4px 0}'+'.gv-live-moving{background:#d1fae5;color:#065f46}'+'.gv-live-stopped{background:#fef3c7;color:#78350f}'+'.gv-live-nocomm{background:#fee2e2;color:#991b1b}'+'.gv-live-unknown{background:#f3f4f6;color:#6b7280}';
 
 GV.injectCSS = function(containerId){
   var el = document.getElementById(containerId || 'gv-style-container');
