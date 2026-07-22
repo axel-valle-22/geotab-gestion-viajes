@@ -92,7 +92,7 @@ var gTrackInterval = null;
 var gTrackRenderGen = 0;
 var gPanelView = 'lista';
 var gCalMonth = new Date(); gCalMonth.setDate(1);
-var gCalSelectedDay = null;
+var gCalSelectedDay = null; var gVehicleState = {}; var gLiveStatusCache = {};
 
 function showTab(name){
   document.querySelectorAll('.gv-tab-btn').forEach(function(b){
@@ -174,7 +174,7 @@ if(cf) cf.addEventListener('click', function(){ gCalSelectedDay = null; renderTr
     return '<div class="gv-trip-card">' +
       '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div></div>' +
-      '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt) + '</div>' +
+      '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt) + '</div>' + ((v.estado==='en_curso'||v.estado==='demorado') ? ('<div class="gv-live-banner gv-live-' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].cls)||'unknown') + '">' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].label)||'Obteniendo estado en vivo...') + '</div>') : '') +
       (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
       (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
       '<div class="gv-trip-actions">' + actions + '</div></div>';
@@ -215,7 +215,7 @@ function checkDelays(){
   if(changed){ GV.Storage.updateViaje(null, {}); }
 }
 
-function siteListFor(v){ var arr = []; if(v.origen && v.origen.tipo) arr.push({ id:'origen', label:'Origen (' + (v.origen.direccion||'') + ')', lat:v.origen.lat, lng:v.origen.lng, tipo:v.origen.tipo, dur:v.origen.duracionMin||0 }); (v.paradas||[]).forEach(function(p,i){ if(p.tipo) arr.push({ id:'parada'+i, label:'Parada '+(i+1)+' ('+(p.direccion||'')+')', lat:p.lat, lng:p.lng, tipo:p.tipo, dur:p.duracionMin||0 }); }); if(v.destino && v.destino.tipo) arr.push({ id:'destino', label:'Destino (' + (v.destino.direccion||'') + ')', lat:v.destino.lat, lng:v.destino.lng, tipo:v.destino.tipo, dur:v.destino.duracionMin||0 }); return arr; } function checkDwellAlerts(){ if(!gApi) return; var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId; }); activos.forEach(function(v){ gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){ if(!res || !res.length || res[0].latitude == null) return; var r = res[0]; var speed = r.speed || 0; var sites = siteListFor(v); if(!sites.length) return; var atSite = null; sites.forEach(function(s){ var d = GV.distKm({lat:r.latitude,lng:r.longitude},{lat:s.lat,lng:s.lng}); if(d != null && d*1000 <= 150){ atSite = s; } }); var dw = v.dwellState || null; if(atSite && speed <= 2){ if(!dw || dw.siteId !== atSite.id){ GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: new Date().toISOString(), alertado: false } }); } else if(dw && !dw.alertado){ var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000; if(atSite.dur && elapsedMin > atSite.dur){ var aid = 'al_' + v.id + '_' + atSite.id + '_dwell'; GV.Storage.addAlerta({ id: aid, tipo:'demora_carga', mensaje: v.conductor + ' - ' + v.vehiculo + ': demora en ' + GV.tipoParadaLabel(atSite.tipo) + ' en ' + atSite.label + ' (lleva ' + Math.round(elapsedMin) + ' min, programado ' + atSite.dur + ' min)', fecha: new Date().toISOString(), viajeId: v.id }); GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: dw.arrivedAt, alertado: true } }); } } } else if(dw){ GV.Storage.updateViaje(v.id, { dwellState: null }); } }, function(){}); }); } function loadMasterData(api){
+function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime = rec && rec.dateTime ? new Date(rec.dateTime).getTime() : now; var commAge = now - fixTime; var speed = (rec && rec.speed) || 0; if(commAge > 10*60*1000){ return { cls:'nocomm', label:'Sin comunicacion hace ' + GV.fmtDurMin(commAge) }; } var st = gVehicleState[deviceId] || (gVehicleState[deviceId] = {}); if(speed > 3){ st.stoppedSince = null; return { cls:'moving', label:'Circulando a ' + Math.round(speed) + ' km/h' }; } if(!st.stoppedSince){ st.stoppedSince = now; } return { cls:'stopped', label:'Detenido hace ' + GV.fmtDurMin(now - st.stoppedSince) }; } function siteListFor(v){ var arr = []; if(v.origen && v.origen.tipo) arr.push({ id:'origen', label:'Origen (' + (v.origen.direccion||'') + ')', lat:v.origen.lat, lng:v.origen.lng, tipo:v.origen.tipo, dur:v.origen.duracionMin||0 }); (v.paradas||[]).forEach(function(p,i){ if(p.tipo) arr.push({ id:'parada'+i, label:'Parada '+(i+1)+' ('+(p.direccion||'')+')', lat:p.lat, lng:p.lng, tipo:p.tipo, dur:p.duracionMin||0 }); }); if(v.destino && v.destino.tipo) arr.push({ id:'destino', label:'Destino (' + (v.destino.direccion||'') + ')', lat:v.destino.lat, lng:v.destino.lng, tipo:v.destino.tipo, dur:v.destino.duracionMin||0 }); return arr; } function checkDwellAlerts(){ if(!gApi) return; var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId; }); activos.forEach(function(v){ gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){ if(!res || !res.length || res[0].latitude == null) return; var r = res[0]; var __st = classifyVehicleStatus(v.vehiculoId, r); gLiveStatusCache[v.id] = __st; if(gPanelView === 'lista'){ renderTrips(); } var speed = r.speed || 0; var sites = siteListFor(v); if(!sites.length) return; var atSite = null; sites.forEach(function(s){ var d = GV.distKm({lat:r.latitude,lng:r.longitude},{lat:s.lat,lng:s.lng}); if(d != null && d*1000 <= 150){ atSite = s; } }); var dw = v.dwellState || null; if(atSite && speed <= 2){ if(!dw || dw.siteId !== atSite.id){ var __sr = Object.assign({}, v.sitiosReal || {}); if(!__sr[atSite.id]) __sr[atSite.id] = {}; if(!__sr[atSite.id].ingreso) __sr[atSite.id].ingreso = new Date().toISOString(); GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: new Date().toISOString(), alertado: false }, sitiosReal: __sr }); } else if(dw && !dw.alertado){ var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000; if(atSite.dur && elapsedMin > atSite.dur){ var aid = 'al_' + v.id + '_' + atSite.id + '_dwell'; GV.Storage.addAlerta({ id: aid, tipo:'demora_carga', mensaje: v.conductor + ' - ' + v.vehiculo + ': demora en ' + GV.tipoParadaLabel(atSite.tipo) + ' en ' + atSite.label + ' (lleva ' + Math.round(elapsedMin) + ' min, programado ' + atSite.dur + ' min)', fecha: new Date().toISOString(), viajeId: v.id }); GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: dw.arrivedAt, alertado: true } }); } } } else if(dw){ var __sr2 = Object.assign({}, v.sitiosReal || {}); if(!__sr2[dw.siteId]) __sr2[dw.siteId] = {}; __sr2[dw.siteId].egreso = new Date().toISOString(); GV.Storage.updateViaje(v.id, { dwellState: null, sitiosReal: __sr2 }); } }, function(){}); }); } function loadMasterData(api){
   var loading = document.getElementById('gv-loading');
   if(loading) loading.style.display = 'block';
   var done = 0;
@@ -435,7 +435,7 @@ function renderTracking(){
     if(listEl){
       listEl.innerHTML = activos.map(function(v){
         return '<div class="gv-trip-card"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
-          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?v.origen.direccion:'') + ' &rarr; ' + GV.escapeHtml(v.destino?v.destino.direccion:'') + '</div></div>';
+          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?v.origen.direccion:'') + ' &rarr; ' + GV.escapeHtml(v.destino?v.destino.direccion:'') + '</div>' + '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div>';
       }).join('');
     }
 
@@ -448,7 +448,7 @@ function renderTracking(){
         if(res && res.length && res[0].latitude){
           var pos = [res[0].latitude, res[0].longitude];
           bounds.push(pos);
-          L.marker(pos, { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo).addTo(gTrackLayer);
+          var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-live-banner gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; } L.marker(pos, { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
         }
         pending--;
         if(pending <= 0 && bounds.length){ gTrackMap.fitBounds(bounds, {padding:[30,30]}); }
@@ -526,7 +526,7 @@ overlay.innerHTML =
 '<div class="gv-modal" style="max-width:760px">' +
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</h3>' +
-'<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
+((v.estado==='en_curso'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Dar por finalizado este viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + '</div>' +
 (v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#1a56db;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
@@ -540,7 +540,7 @@ document.body.appendChild(overlay);
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null;
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } overlay.remove(); }
-document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
+document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); closeDetalle(); }); }); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
 GV.loadLeaflet().then(function(L){
@@ -550,9 +550,9 @@ detLayer = L.layerGroup().addTo(detMap);
 detHistLayer = L.layerGroup().addTo(detMap);
 
 var pts = [];
-if(v.origen) pts.push({ lat: v.origen.lat, lng: v.origen.lng, label: 'O', color: '#059669', dir: v.origen.direccion, tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null });
-(v.paradas||[]).forEach(function(p, i){ pts.push({ lat: p.lat, lng: p.lng, label: String(i+1), color: '#d97706', dir: p.direccion, tipo: p.tipo, dur: p.duracionMin }); });
-if(v.destino) pts.push({ lat: v.destino.lat, lng: v.destino.lng, label: 'D', color: '#dc2626', dir: v.destino.direccion, tipo: v.destino.tipo || null, dur: v.destino.duracionMin || null });
+if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, label: 'O', color: '#059669', dir: v.origen.direccion, tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null });
+(v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, label: String(i+1), color: '#d97706', dir: p.direccion, tipo: p.tipo, dur: p.duracionMin }); });
+if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, label: 'D', color: '#dc2626', dir: v.destino.direccion, tipo: v.destino.tipo || null, dur: v.destino.duracionMin || null });
 
 var bounds = [];
 pts.forEach(function(p){
@@ -578,15 +578,15 @@ var ingreso = new Date(t);
 var egreso = ingreso;
 if(p.tipo && p.dur){ egreso = new Date(ingreso.getTime() + p.dur * 60000); }
 t = egreso;
-rows.push({ label: p.label, dir: p.dir, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null });
+var __real = (v.sitiosReal && v.sitiosReal[p.id]) || {}; rows.push({ label: p.label, dir: p.dir, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __real.ingreso ? new Date(__real.ingreso) : null, realOut: __real.egreso ? new Date(__real.egreso) : null });
 });
-itinEl.innerHTML = '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Permanece</th><th>Egreso est.</th></tr></thead><tbody>' +
+itinEl.innerHTML = '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Permanece</th><th>Egreso est.</th><th>Ingreso real</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + r.ingreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) + '</td>' +
 '<td>' + (r.dwell ? r.dwell + ' min' : '-') + '</td>' +
-'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) + '</td></tr>';
+'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) + '</td>' + '<td>' + (r.realIn ? r.realIn.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '-') + '</td>' + '<td>' + (r.realOut ? r.realOut.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '-') + '</td></tr>';
 }).join('') + '</tbody></table>';
 }
 
