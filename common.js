@@ -223,10 +223,10 @@ GV.pickLocation = function(opts){
           '<h3>' + GV.escapeHtml(opts.title || 'Seleccionar ubicacion') + '</h3>' +
           '<div class="gv-search-row">' +
             '<input type="text" id="gv-map-search" placeholder="Buscar direccion...">' +
-            '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
+            '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' + '</div>' + '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="max-height:130px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px"></div>' +
           '</div>' +
           '<div id="gv-map-picker" class="gv-map-box"></div>' +
-          '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
+          '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' + '<div class="gv-search-row"><input type="text" id="gv-site-name" placeholder="Nombre para guardar este sitio (opcional)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-site-save-btn">Guardar sitio</button></div>' +
           stopFieldsHtml +
           '<div class="gv-modal-actions">' +
             '<button type="button" class="gv-btn gv-btn-sec" id="gv-map-cancel">Cancelar</button>' +
@@ -244,7 +244,7 @@ GV.pickLocation = function(opts){
 
       var marker = null;
       var current = null;
-      var tipo = 'carga';
+      var tipo = 'carga'; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer"><span>' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); }
 
       function setMarker(lat, lng){
         if(marker){ map.removeLayer(marker); }
@@ -290,7 +290,7 @@ GV.pickLocation = function(opts){
           }
         });
       }
-      document.getElementById('gv-map-search-btn').addEventListener('click', doSearch);
+      document.getElementById('gv-map-search-btn').addEventListener('click', doSearch); var siteSearchEl = document.getElementById('gv-site-search'); if(siteSearchEl) siteSearchEl.addEventListener('input', function(){ renderSiteList(siteSearchEl.value); }); renderSiteList(''); var siteSaveBtn = document.getElementById('gv-site-save-btn'); if(siteSaveBtn) siteSaveBtn.addEventListener('click', function(){ if(!current) return; var nameEl = document.getElementById('gv-site-name'); var nombre = (nameEl && nameEl.value.trim()) || current.direccion || 'Sitio sin nombre'; var siteObj = { id: GV.genId('site'), nombre: nombre, direccion: current.direccion || '', lat: current.lat, lng: current.lng }; if(opts.withStopFields){ siteObj.tipo = tipo; var durInp = document.getElementById('gv-map-duracion'); siteObj.duracionMin = durInp ? (parseInt(durInp.value,10) || 0) : 0; } GV.Storage.addSitio(siteObj).then(function(){ if(nameEl) nameEl.value=''; renderSiteList(siteSearchEl ? siteSearchEl.value : ''); }); });
       document.getElementById('gv-map-search').addEventListener('keydown', function(e){
         if(e.key === 'Enter'){ e.preventDefault(); doSearch(); }
       });
@@ -393,7 +393,7 @@ GV.Storage = (function(){
   var _api = null;
   var _addInId = null;
   var _addInDataId = null;
-  var _data = { viajes: [], alertas: [] };
+  var _data = { viajes: [], alertas: [], sitios: [] };
   var _listeners = [];
   var REPO_MARK = 'geotab-gestion-viajes';
 
@@ -403,7 +403,7 @@ GV.Storage = (function(){
       if(raw){
         var d = JSON.parse(raw);
         _data.viajes = d.viajes || [];
-        _data.alertas = d.alertas || [];
+        _data.alertas = d.alertas || []; _data.sitios = d.sitios || [];
       }
     }catch(e){ _data = { viajes: [], alertas: [] }; }
   }
@@ -437,7 +437,7 @@ GV.Storage = (function(){
           var details = typeof rec.details === 'string' ? JSON.parse(rec.details) : rec.details;
           if(details){
             _data.viajes = details.viajes || [];
-            _data.alertas = details.alertas || [];
+            _data.alertas = details.alertas || []; _data.sitios = details.sitios || [];
             saveToLS();
           }
         }catch(e){}
@@ -473,7 +473,7 @@ GV.Storage = (function(){
     notify();
     return new Promise(function(resolve){
       if(!_api || !_addInId){ resolve(false); return; }
-      var detailsStr = JSON.stringify({ viajes: _data.viajes, alertas: _data.alertas });
+      var detailsStr = JSON.stringify({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios });
       if(_addInDataId){
         _api.call('Set', { typeName: 'AddInData', entity: { id: _addInDataId, addInId: _addInId, details: detailsStr } },
           function(){ resolve(true); }, function(){ resolve(false); });
@@ -489,7 +489,7 @@ GV.Storage = (function(){
     refresh: refresh,
     onChange: function(fn){ _listeners.push(fn); },
     getViajes: function(){ return _data.viajes; },
-    getAlertas: function(){ return _data.alertas; },
+    getAlertas: function(){ return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
     addViaje: function(v){ _data.viajes.push(v); return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; });
