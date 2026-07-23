@@ -180,7 +180,7 @@ GV.loadLeaflet = function(){
   return GV._leafletPromise;
 };
 
-/* ---------------- Geocoding (Nominatim / OpenStreetMap) ---------------- */
+GV.FIREBASE_CONFIG = { apiKey: "AIzaSyC8e7EGfwvxZkCkmqG59OA2yRTcsAXkamE", authDomain: "gestion-de-viajes-f5f65.firebaseapp.com", projectId: "gestion-de-viajes-f5f65", storageBucket: "gestion-de-viajes-f5f65.firebasestorage.app", messagingSenderId: "147508872002", appId: "1:147508872002:web:ca2d0c8ee51eca0f81fedb", measurementId: "G-ECF2NS0YBY" }; GV.loadFirebase = function(){ if(GV._firebasePromise) return GV._firebasePromise; GV._firebasePromise = new Promise(function(resolve, reject){ if(window.firebase && window.firebase.firestore){ resolve(window.firebase); return; } var s1 = document.createElement('script'); s1.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'; s1.onload = function(){ var s2 = document.createElement('script'); s2.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'; s2.onload = function(){ resolve(window.firebase); }; s2.onerror = function(){ reject(new Error('No se pudo cargar Firebase Firestore')); }; document.head.appendChild(s2); }; s1.onerror = function(){ reject(new Error('No se pudo cargar Firebase App')); }; document.head.appendChild(s1); }); return GV._firebasePromise; }; /* ---------------- Geocoding (Nominatim / OpenStreetMap) ---------------- */
 GV.geocodeSearch = function(q){
   if(!q) return Promise.resolve([]);
   return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q))
@@ -395,7 +395,7 @@ GV.Storage = (function(){
   var _addInDataId = null;
   var _data = { viajes: [], alertas: [], sitios: [] };
   var _listeners = [];
-  var REPO_MARK = 'geotab-gestion-viajes';
+  var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
 
   function loadFromLS(){
     try{
@@ -449,7 +449,7 @@ GV.Storage = (function(){
   }
 
   function init(api){
-    _api = api;
+    _api = api; initFirebase()['catch'](function(){});
     loadFromLS();
     return new Promise(function(resolve){
       if(!api){ resolve(_data); return; }
@@ -468,7 +468,7 @@ GV.Storage = (function(){
     });
   }
 
-  function persist(){
+  function persist(){ if(_fbReady && _fbDocRef){ _fbDocRef.set({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios }).catch(function(){}); }
     saveToLS();
     notify();
     return new Promise(function(resolve){
