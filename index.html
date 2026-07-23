@@ -10,7 +10,7 @@
 <body>
 <div id="gv-app">
 <div id="gv-style-container"></div>
-<div id="gv-header">
+<div id="gv-header"><img src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transportes Dolores Parra" style="height:48px;margin-bottom:8px;display:block">
 <h1>Gestion de Viajes</h1>
 <p>DoloresParra S.A. - Panel de Coordinacion</p>
 </div>
@@ -29,7 +29,7 @@
 <div class="gv-stat-card"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
 <div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="lista" id="gv-view-lista">Lista</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="calendario" id="gv-view-calendario">Calendario</button></div>
-<div id="gv-calendar-wrap" style="display:none;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:#1a56db;font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
+<div id="gv-calendar-wrap" style="display:none;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:#00AEEF;font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
 <div id="gv-trip-list"></div>
@@ -68,7 +68,7 @@
 
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-<h2 style="margin:0;color:#1a56db;font-size:1.1rem">Seguimiento en tiempo real</h2>
+<h2 style="margin:0;color:#00AEEF;font-size:1.1rem">Seguimiento en tiempo real</h2>
 <button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button>
 </div>
 <div id="gv-track-map" style="height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
@@ -413,13 +413,13 @@ function renderTracking(){
       (v.paradas||[]).forEach(function(p){ pts.push([p.lat, p.lng]); });
       if(v.destino) pts.push([v.destino.lat, v.destino.lng]);
       if(pts.length > 1){
-              var __fallbackLine = L.polyline(pts, { color: '#1a56db', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
+              var __fallbackLine = L.polyline(pts, { color: '#00AEEF', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
               (function(fallbackLine, gen){
                 GV.getRoute(pts.map(function(p){ return { lat: p[0], lng: p[1] }; })).then(function(route){
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
-                    L.polyline(route.coords, { color: '#1a56db', weight: 4, opacity: .8 }).addTo(gTrackLayer);
+                    L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(gTrackLayer);
                   }
                 });
               })(__fallbackLine, myGen);
@@ -529,7 +529,7 @@ overlay.innerHTML =
 ((v.estado==='en_curso'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Dar por finalizado este viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + '</div>' +
-(v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#1a56db;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
+(v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#00AEEF;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 (v.vehiculoId ? '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-det-recent" checked> Solo posiciones ultimas 4hs</label>' : '') +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
 (v.vehiculoId ? '<input type="range" id="gv-det-slider" min="0" max="0" value="0" style="width:100%;margin-bottom:14px" disabled>' : '') +
@@ -593,9 +593,9 @@ return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
 if(route && route.coords){
-L.polyline(route.coords, { color: '#1a56db', weight: 4, opacity: .8 }).addTo(detLayer);
+L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(detLayer);
 } else {
-L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#1a56db', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
+L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00AEEF', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
 }
 renderItinerario(route);
 });
@@ -645,7 +645,7 @@ detHistPts = recs;
 detHistLayer.clearLayers();
 if(recs.length){
 var line = recs.map(function(r){ return [r.latitude, r.longitude]; });
-L.polyline(line, { color: '#7e3af2', weight: 3, opacity: .6 }).addTo(detHistLayer);
+L.polyline(line, { color: '#0077A3', weight: 3, opacity: .6 }).addTo(detHistLayer);
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;
