@@ -296,13 +296,13 @@ var calNextBtn = document.getElementById('gv-cal-next');
 if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()+1); renderCalendar(); });
 
   document.getElementById('gv-btn-origen').addEventListener('click', function(){
-    GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: true }).then(function(res){
+    GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: false }).then(function(res){
       if(res){ gOrigen = res; document.getElementById('gv-origen-txt').textContent = res.direccion + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
     });
   });
 
   document.getElementById('gv-btn-destino').addEventListener('click', function(){
-    GV.pickLocation({ title: 'Punto de destino', initial: gDestino, withStopFields: true }).then(function(res){
+    GV.pickLocation({ title: 'Punto de destino', initial: gDestino, withStopFields: false }).then(function(res){
       if(res){ gDestino = res; document.getElementById('gv-destino-txt').textContent = res.direccion + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
     });
   });
