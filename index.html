@@ -565,7 +565,7 @@ setTimeout(function(){ try{ detMap.invalidateSize(); }catch(e){} }, 100);
 
 var itinEl = document.getElementById('gv-det-itin');
 
-function renderItinerario(route){
+function renderItinerario(route, fullHist){
 var rows = [];
 var t = new Date(v.fechaSalida);
 var accDist = 0;
@@ -578,15 +578,15 @@ var ingreso = new Date(t);
 var egreso = ingreso;
 if(p.tipo && p.dur){ egreso = new Date(ingreso.getTime() + p.dur * 60000); }
 t = egreso;
-var __real = (v.sitiosReal && v.sitiosReal[p.id]) || {}; rows.push({ label: p.label, dir: p.dir, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __real.ingreso ? new Date(__real.ingreso) : null, realOut: __real.egreso ? new Date(__real.egreso) : null });
+var __real = (v.sitiosReal && v.sitiosReal[p.id]) || {}; var __histReal = null; if(p.tipo && fullHist && fullHist.length){ var __inside=false, __in=null, __out=null; for(var __hi=0; __hi<fullHist.length; __hi++){ var __hr = fullHist[__hi]; var __d = GV.distKm({lat:__hr.latitude,lng:__hr.longitude},{lat:p.lat,lng:p.lng}); var __within = (__d != null && __d*1000 <= GV.SITE_GEOFENCE_M); if(__within && !__inside){ __inside=true; if(!__in) __in = __hr.dateTime; } else if(!__within && __inside){ __inside=false; __out = __hr.dateTime; } } if(__in){ __histReal = { ingreso: __in, egreso: __out }; } } var __realIn = (__histReal && __histReal.ingreso) ? __histReal.ingreso : __real.ingreso; var __realOut = (__histReal && __histReal.egreso) ? __histReal.egreso : __real.egreso; rows.push({ label: p.label, dir: p.dir, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null });
 });
 itinEl.innerHTML = '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Permanece</th><th>Egreso est.</th><th>Ingreso real</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
-'<td>' + r.ingreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) + '</td>' +
+'<td>' + r.ingreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' +
 '<td>' + (r.dwell ? r.dwell + ' min' : '-') + '</td>' +
-'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) + '</td>' + '<td>' + (r.realIn ? r.realIn.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '-') + '</td>' + '<td>' + (r.realOut ? r.realOut.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '-') + '</td></tr>';
+'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' + '<td>' + (r.realIn ? r.realIn.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td>' + '<td>' + (r.realOut ? r.realOut.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td></tr>';
 }).join('') + '</tbody></table>';
 }
 
@@ -597,7 +597,7 @@ L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(det
 } else {
 L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00AEEF', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
 }
-renderItinerario(route);
+(function(){ var __histP = (gApi && v.vehiculoId) ? GV.getHistory(gApi, v.vehiculoId, new Date(v.fechaSalida).toISOString(), new Date(v.completadoEn || Date.now()).toISOString()) : Promise.resolve([]); __histP.then(function(fullHist){ renderItinerario(route, fullHist); }); })();
 });
 } else if(itinEl) {
 itinEl.innerHTML = '<p style="color:#6b7280;font-size:.85rem">Faltan datos de origen/destino para el itinerario.</p>';
@@ -612,7 +612,7 @@ var r = res[0];
 var pos = [r.latitude, r.longitude];
 var speed = Math.round(r.speed || 0);
 var estadoMov = speed > 2 ? 'En movimiento' : 'Detenido';
-var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR') : new Date().toLocaleString('es-AR');
+var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR',{hour12:false}) : new Date().toLocaleString('es-AR',{hour12:false});
 if(!detLiveMarker){
 var icon = L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] });
 detLiveMarker = L.marker(pos, { icon: icon, zIndexOffset: 1000 }).addTo(detLayer);
@@ -634,7 +634,7 @@ var r = detHistPts[idx];
 if(!r) return;
 if(histMarker){ detHistLayer.removeLayer(histMarker); }
 histMarker = L.marker([r.latitude, r.longitude], { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 900 }).addTo(detHistLayer);
-var when = new Date(r.dateTime).toLocaleString('es-AR');
+var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
 histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.speed||0) + ' km/h').openTooltip();
 }
 function loadHist(){
