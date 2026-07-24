@@ -19,7 +19,7 @@ GV.fmtDate = function(d){
   if(!d) return '';
   var dt = d instanceof Date ? d : new Date(d);
   if(isNaN(dt.getTime())) return '';
-  return dt.toLocaleDateString('es-AR') + ' ' + dt.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+  return dt.toLocaleDateString('es-AR') + ' ' + dt.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
 };
 
 GV.dateStr = function(d){
