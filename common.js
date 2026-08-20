@@ -180,6 +180,29 @@ GV.loadLeaflet = function(){
   return GV._leafletPromise;
 };
 
+/* ---------------- Capas base del mapa (satelite/hibrido como en el Mapa de Geotab) ---------------- */
+/* Geotab usa Google Maps (vista hibrida: satelite + calles) en su interfaz nativa. Como esa
+ * clave de API es privada de Geotab y esta restringida a su dominio, replicamos el mismo look
+ * (satelite + etiquetas de calles) con Esri World Imagery, que es gratuito y no requiere API key. */
+GV.addBaseLayers = function(map){
+  var L = window.L;
+  var satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, GIS User Community'
+  });
+  var etiquetas = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19
+  });
+  var hibrido = L.layerGroup([satelite, etiquetas]);
+  var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  });
+  hibrido.addTo(map);
+  L.control.layers({ 'Satelite': hibrido, 'Calles': calles }, null, { position: 'topright', collapsed: true }).addTo(map);
+  return { hibrido: hibrido, calles: calles };
+};
+
 GV.FIREBASE_CONFIG = { apiKey: "AIzaSyC8e7EGfwvxZkCkmqG59OA2yRTcsAXkamE", authDomain: "gestion-de-viajes-f5f65.firebaseapp.com", projectId: "gestion-de-viajes-f5f65", storageBucket: "gestion-de-viajes-f5f65.firebasestorage.app", messagingSenderId: "147508872002", appId: "1:147508872002:web:ca2d0c8ee51eca0f81fedb", measurementId: "G-ECF2NS0YBY" }; GV.loadFirebase = function(){ if(GV._firebasePromise) return GV._firebasePromise; GV._firebasePromise = new Promise(function(resolve, reject){ if(window.firebase && window.firebase.firestore){ resolve(window.firebase); return; } var s1 = document.createElement('script'); s1.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'; s1.onload = function(){ var s2 = document.createElement('script'); s2.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'; s2.onload = function(){ resolve(window.firebase); }; s2.onerror = function(){ reject(new Error('No se pudo cargar Firebase Firestore')); }; document.head.appendChild(s2); }; s1.onerror = function(){ reject(new Error('No se pudo cargar Firebase App')); }; document.head.appendChild(s1); }); return GV._firebasePromise; }; /* ---------------- Geocoding (Nominatim / OpenStreetMap) ---------------- */
 GV.geocodeSearch = function(q){
   if(!q) return Promise.resolve([]);
@@ -237,10 +260,7 @@ GV.pickLocation = function(opts){
 
       var initial = (opts.initial && typeof opts.initial.lat === 'number') ? opts.initial : { lat: -38.951, lng: -68.059 };
       var map = L.map('gv-map-picker').setView([initial.lat, initial.lng], opts.initial ? 15 : 11);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
+      GV.addBaseLayers(map);
 
       var marker = null;
       var current = null;
