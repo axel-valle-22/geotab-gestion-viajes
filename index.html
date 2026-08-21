@@ -623,6 +623,7 @@ var rows = [];
 var t = new Date(v.fechaSalida);
 var accDist = 0;
 var __histCursor = 0;
+var __seqBroken = false;
 pts.forEach(function(p, i){
 if(i > 0 && route && route.legs && route.legs[i-1]){
 t = new Date(t.getTime() + route.legs[i-1].duration * 1000);
@@ -633,7 +634,7 @@ var egreso = ingreso;
 if(p.tipo && p.dur){ egreso = new Date(ingreso.getTime() + p.dur * 60000); }
 t = egreso;
 var __realIn = null, __realOut = null;
-if(p.tipo && fullHist && fullHist.length){
+if(!__seqBroken && fullHist && fullHist.length){
 var __inside=false, __in=null, __out=null, __hi=__histCursor;
 for(; __hi<fullHist.length; __hi++){
 var __hr = fullHist[__hi];
@@ -642,7 +643,7 @@ var __within = (__d != null && __d*1000 <= GV.SITE_GEOFENCE_M);
 if(__within && !__inside){ __inside=true; __in = __hr.dateTime; }
 else if(!__within && __inside){ __out = __hr.dateTime; break; }
 }
-if(__in){ __realIn = __in; __realOut = __out; __histCursor = __hi < fullHist.length ? __hi : fullHist.length; }
+if(__in){ __realIn = __in; __realOut = __out; __histCursor = __hi < fullHist.length ? __hi : fullHist.length; } else { __seqBroken = true; }
 }
 if(!p.tipo){ var __real0 = (v.sitiosReal && v.sitiosReal[p.id]) || {}; __realIn = __realIn || __real0.ingreso; __realOut = __realOut || __real0.egreso; }
 rows.push({ label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null });
@@ -689,7 +690,7 @@ L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(det
 } else {
 L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00AEEF', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
 }
-(function(){ var __histP = (gApi && v.vehiculoId) ? GV.getHistory(gApi, v.vehiculoId, new Date(v.fechaSalida).toISOString(), new Date(v.completadoEn || Date.now()).toISOString()) : Promise.resolve([]); __histP.then(function(fullHist){ renderItinerario(route, fullHist); }); })();
+(function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? GV.getHistory(gApi, v.vehiculoId, __dayStart.toISOString(), new Date(v.completadoEn || Date.now()).toISOString()) : Promise.resolve([]); __histP.then(function(fullHist){ renderItinerario(route, fullHist); }); })();
 });
 } else if(itinEl) {
 itinEl.innerHTML = '<p style="color:#6b7280;font-size:.85rem">Faltan datos de origen/destino para el itinerario.</p>';
@@ -731,7 +732,8 @@ histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.sp
 }
 function loadHist(){
 var to = new Date();
-var from = chk.checked ? new Date(to.getTime() - 4*3600*1000) : new Date(v.fechaSalida);
+var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
+var from = chk.checked ? new Date(to.getTime() - 4*3600*1000) : __dayStart2;
 GV.getHistory(gApi, v.vehiculoId, from.toISOString(), to.toISOString()).then(function(recs){
 detHistPts = recs;
 detHistLayer.clearLayers();
