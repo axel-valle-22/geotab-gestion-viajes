@@ -400,14 +400,16 @@ function computeStopStatuses(v, fullHist){
   var histCursor = 0, seqBroken = false;
   pts.forEach(function(p){
     if(seqBroken) return;
-    var inside=false, inTime=null, outTime=null, hi=histCursor;
+    var inside=false, inTime=null, outTime=null, hi=histCursor, minD=null;
     for(; hi<fullHist.length; hi++){
       var hr = fullHist[hi];
       var d = GV.distKm({lat:hr.latitude,lng:hr.longitude},{lat:p.lat,lng:p.lng});
+      if(d != null && (minD == null || d < minD)) minD = d;
       var within = (d != null && d*1000 <= GV.SITE_GEOFENCE_M);
       if(within && !inside){ inside=true; inTime=hr.dateTime; }
       else if(!within && inside){ outTime=hr.dateTime; break; }
     }
+    console.log('[GVDEBUG] point', p.id, 'minDistKm=', minD, 'matched=', !!inTime);
     if(inTime){ result[p.id] = { ingreso: inTime, egreso: outTime }; histCursor = hi<fullHist.length?hi:fullHist.length; }
     else { seqBroken = true; }
   });
@@ -415,10 +417,13 @@ function computeStopStatuses(v, fullHist){
 }
 
 function updateTrackBadges(v){
-  if(!gApi || !v.vehiculoId) return;
+  if(!gApi || !v.vehiculoId){ console.log('[GVDEBUG] skip', v.conductor, 'gApi=', !!gApi, 'vehiculoId=', v.vehiculoId); return; }
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
+  console.log('[GVDEBUG] fetching history', v.conductor, 'vehiculoId=', v.vehiculoId, 'from=', dayStart.toISOString(), 'to=', new Date().toISOString());
   GV.getHistory(gApi, v.vehiculoId, dayStart.toISOString(), new Date().toISOString()).then(function(hist){
+    console.log('[GVDEBUG] history result', v.conductor, 'len=', hist.length, hist.length ? ('first=' + hist[0].dateTime + ' last=' + hist[hist.length-1].dateTime) : '');
     var statuses = computeStopStatuses(v, hist);
+    console.log('[GVDEBUG] statuses', v.conductor, JSON.stringify(statuses));
     Object.keys(statuses).forEach(function(siteId){
       var badgeEl = document.getElementById('gv-trackbadge-' + v.id + '-' + siteId);
       if(!badgeEl) return;
