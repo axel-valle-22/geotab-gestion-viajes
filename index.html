@@ -622,6 +622,7 @@ function renderItinerario(route, fullHist){
 var rows = [];
 var t = new Date(v.fechaSalida);
 var accDist = 0;
+var __histCursor = 0;
 pts.forEach(function(p, i){
 if(i > 0 && route && route.legs && route.legs[i-1]){
 t = new Date(t.getTime() + route.legs[i-1].duration * 1000);
@@ -631,7 +632,20 @@ var ingreso = new Date(t);
 var egreso = ingreso;
 if(p.tipo && p.dur){ egreso = new Date(ingreso.getTime() + p.dur * 60000); }
 t = egreso;
-var __real = (v.sitiosReal && v.sitiosReal[p.id]) || {}; var __histReal = null; if(p.tipo && fullHist && fullHist.length){ var __inside=false, __in=null, __out=null; for(var __hi=0; __hi<fullHist.length; __hi++){ var __hr = fullHist[__hi]; var __d = GV.distKm({lat:__hr.latitude,lng:__hr.longitude},{lat:p.lat,lng:p.lng}); var __within = (__d != null && __d*1000 <= GV.SITE_GEOFENCE_M); if(__within && !__inside){ __inside=true; if(!__in) __in = __hr.dateTime; } else if(!__within && __inside){ __inside=false; __out = __hr.dateTime; } } if(__in){ __histReal = { ingreso: __in, egreso: __out }; } } var __realIn = (__histReal && __histReal.ingreso) ? __histReal.ingreso : __real.ingreso; var __realOut = (__histReal && __histReal.egreso) ? __histReal.egreso : __real.egreso; rows.push({ label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null });
+var __realIn = null, __realOut = null;
+if(p.tipo && fullHist && fullHist.length){
+var __inside=false, __in=null, __out=null, __hi=__histCursor;
+for(; __hi<fullHist.length; __hi++){
+var __hr = fullHist[__hi];
+var __d = GV.distKm({lat:__hr.latitude,lng:__hr.longitude},{lat:p.lat,lng:p.lng});
+var __within = (__d != null && __d*1000 <= GV.SITE_GEOFENCE_M);
+if(__within && !__inside){ __inside=true; __in = __hr.dateTime; }
+else if(!__within && __inside){ __out = __hr.dateTime; break; }
+}
+if(__in){ __realIn = __in; __realOut = __out; __histCursor = __hi < fullHist.length ? __hi : fullHist.length; }
+}
+if(!p.tipo){ var __real0 = (v.sitiosReal && v.sitiosReal[p.id]) || {}; __realIn = __realIn || __real0.ingreso; __realOut = __realOut || __real0.egreso; }
+rows.push({ label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null });
 });
 
 function estadoBadge(r){
@@ -655,14 +669,16 @@ progresoHtml = '<div style="font-size:.85rem;margin-bottom:10px;padding:8px 12px
 '<b>Progreso:</b> ' + completados + ' de ' + tipoRows.length + ' paradas de carga/descarga completadas &nbsp;|&nbsp; ' + estadoTxt + '</div>';
 }
 
-itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Permanece</th><th>Egreso est.</th><th>Ingreso real</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
 '<td>' + estadoBadge(r) + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + r.ingreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' +
+'<td>' + (r.realIn ? r.realIn.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td>' +
 '<td>' + (r.dwell ? r.dwell + ' min' : '-') + '</td>' +
-'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' + '<td>' + (r.realIn ? r.realIn.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td>' + '<td>' + (r.realOut ? r.realOut.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td></tr>';
+'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' +
+'<td>' + (r.realOut ? r.realOut.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td></tr>';
 }).join('') + '</tbody></table>';
 }
 
