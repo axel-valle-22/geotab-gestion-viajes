@@ -414,6 +414,45 @@ resolve((res || []).slice().sort(function(a,b){ return new Date(a.dateTime) - ne
 });
 };
 
+/* ---------------- Alerta sonora breve ---------------- */
+GV.playAlertSound = (function(){
+  var ctx = null;
+  function getCtx(){
+    if(!ctx){
+      try{ ctx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ ctx = null; }
+    }
+    return ctx;
+  }
+  try{
+    ['click','touchstart','keydown'].forEach(function(evt){
+      document.addEventListener(evt, function(){
+        var c = getCtx();
+        if(c && c.state === 'suspended'){ c.resume()['catch'](function(){}); }
+      }, { passive: true });
+    });
+  }catch(e){}
+  return function(){
+    var c = getCtx();
+    if(!c) return;
+    if(c.state === 'suspended'){ c.resume()['catch'](function(){}); }
+    var now = c.currentTime;
+    function tone(freq, start, dur, peak){
+      var osc = c.createOscillator();
+      var gain = c.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, now + start);
+      gain.gain.linearRampToValueAtTime(peak, now + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+      osc.connect(gain).connect(c.destination);
+      osc.start(now + start);
+      osc.stop(now + start + dur + 0.02);
+    }
+    tone(880, 0, 0.14, 0.16);
+    tone(1318.51, 0.11, 0.18, 0.13);
+  };
+})();
+
 GV.Storage = (function(){
   var _api = null;
   var _addInId = null;
