@@ -439,10 +439,20 @@ function renderTracking(){
               })(__fallbackLine, myGen);
             }
       pts.forEach(function(p){ bounds.push(p); });
-      if(v.origen) L.circleMarker([v.origen.lat, v.origen.lng], {radius:6, color:'#059669', fillColor:'#059669', fillOpacity:1}).bindTooltip('Origen: ' + GV.siteNameFor(v.origen)).addTo(gTrackLayer); if(v.origen && v.origen.tipo) L.circle([v.origen.lat, v.origen.lng], {radius:GV.SITE_GEOFENCE_M, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.12}).addTo(gTrackLayer);
-      if(v.destino) L.circleMarker([v.destino.lat, v.destino.lng], {radius:6, color:'#dc2626', fillColor:'#dc2626', fillOpacity:1}).bindTooltip('Destino: ' + GV.siteNameFor(v.destino)).addTo(gTrackLayer); if(v.destino && v.destino.tipo) L.circle([v.destino.lat, v.destino.lng], {radius:GV.SITE_GEOFENCE_M, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.12}).addTo(gTrackLayer);
-      (v.paradas||[]).forEach(function(p){
-        L.circleMarker([p.lat, p.lng], {radius:5, color:'#d97706', fillColor:'#d97706', fillOpacity:1}).bindTooltip(GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p)).addTo(gTrackLayer); if(p.tipo) L.circle([p.lat, p.lng], {radius:GV.SITE_GEOFENCE_M, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.12}).addTo(gTrackLayer);
+      if(v.origen){
+        var __oIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#059669">O</div>', iconSize: [26,26], iconAnchor: [13,13] });
+        L.marker([v.origen.lat, v.origen.lng], { icon: __oIcon, zIndexOffset: 500 }).bindTooltip('Origen: ' + GV.siteNameFor(v.origen) + (v.origen.tipo ? ' (' + GV.tipoParadaLabel(v.origen.tipo) + ')' : '')).addTo(gTrackLayer);
+        if(v.origen.tipo) L.circle([v.origen.lat, v.origen.lng], {radius:GV.SITE_GEOFENCE_M, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.12}).addTo(gTrackLayer);
+      }
+      if(v.destino){
+        var __dIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#dc2626">D</div>', iconSize: [26,26], iconAnchor: [13,13] });
+        L.marker([v.destino.lat, v.destino.lng], { icon: __dIcon, zIndexOffset: 500 }).bindTooltip('Destino: ' + GV.siteNameFor(v.destino) + (v.destino.tipo ? ' (' + GV.tipoParadaLabel(v.destino.tipo) + ')' : '')).addTo(gTrackLayer);
+        if(v.destino.tipo) L.circle([v.destino.lat, v.destino.lng], {radius:GV.SITE_GEOFENCE_M, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.12}).addTo(gTrackLayer);
+      }
+      (v.paradas||[]).forEach(function(p, __pi){
+        var __pIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#d97706">' + (__pi+1) + '</div>', iconSize: [26,26], iconAnchor: [13,13] });
+        L.marker([p.lat, p.lng], { icon: __pIcon, zIndexOffset: 500 }).bindTooltip((__pi+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p)).addTo(gTrackLayer);
+        if(p.tipo) L.circle([p.lat, p.lng], {radius:GV.SITE_GEOFENCE_M, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.12}).addTo(gTrackLayer);
       });
     });
 
@@ -450,11 +460,26 @@ function renderTracking(){
       var selectorHtml = gTrackSelectedId ? ('<div style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-track-ver-todos">&larr; Ver todos los viajes de hoy (' + todos.length + ')</button></div>') : '';
       listEl.innerHTML = selectorHtml + todos.map(function(v){
         var sel = (v.id === gTrackSelectedId);
-        return '<div class="gv-trip-card" data-track-id="' + v.id + '" style="cursor:pointer' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
-          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?GV.siteNameFor(v.origen):'') + ' &rarr; ' + GV.escapeHtml(v.destino?GV.siteNameFor(v.destino):'') + '</div>' + '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div>';
+        var stopsChips = ((v.origen && v.origen.tipo) ? ('<span class="gv-stop-chip gv-' + v.origen.tipo + '">Origen - ' + GV.tipoParadaLabel(v.origen.tipo) + '</span>') : '') +
+          (v.paradas||[]).map(function(p, i){ return '<span class="gv-stop-chip gv-' + p.tipo + '">' + (i+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(GV.siteNameFor(p)) + '</span>'; }).join('') +
+          ((v.destino && v.destino.tipo) ? ('<span class="gv-stop-chip gv-' + v.destino.tipo + '">Destino - ' + GV.tipoParadaLabel(v.destino.tipo) + '</span>') : '');
+        return '<div class="gv-trip-card" data-track-id="' + v.id + '" style="cursor:pointer' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
+            '<div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
+            '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-detalle-id="' + v.id + '">Ver detalle</button>' +
+          '</div>' +
+          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?GV.siteNameFor(v.origen):'') + ' &rarr; ' + GV.escapeHtml(v.destino?GV.siteNameFor(v.destino):'') + '</div>' +
+          (stopsChips ? ('<div class="gv-stops">' + stopsChips + '</div>') : '') +
+          '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div>';
       }).join('');
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
       if(verTodosBtn) verTodosBtn.addEventListener('click', function(e){ e.stopPropagation(); gTrackSelectedId = null; renderTracking(); });
+      listEl.querySelectorAll('[data-detalle-id]').forEach(function(btn){
+        btn.addEventListener('click', function(e){
+          e.stopPropagation();
+          abrirDetalleViaje(btn.getAttribute('data-detalle-id'));
+        });
+      });
       listEl.querySelectorAll('[data-track-id]').forEach(function(card){
         card.addEventListener('click', function(){
           var id = card.getAttribute('data-track-id');
@@ -606,11 +631,34 @@ var ingreso = new Date(t);
 var egreso = ingreso;
 if(p.tipo && p.dur){ egreso = new Date(ingreso.getTime() + p.dur * 60000); }
 t = egreso;
-var __real = (v.sitiosReal && v.sitiosReal[p.id]) || {}; var __histReal = null; if(p.tipo && fullHist && fullHist.length){ var __inside=false, __in=null, __out=null; for(var __hi=0; __hi<fullHist.length; __hi++){ var __hr = fullHist[__hi]; var __d = GV.distKm({lat:__hr.latitude,lng:__hr.longitude},{lat:p.lat,lng:p.lng}); var __within = (__d != null && __d*1000 <= GV.SITE_GEOFENCE_M); if(__within && !__inside){ __inside=true; if(!__in) __in = __hr.dateTime; } else if(!__within && __inside){ __inside=false; __out = __hr.dateTime; } } if(__in){ __histReal = { ingreso: __in, egreso: __out }; } } var __realIn = (__histReal && __histReal.ingreso) ? __histReal.ingreso : __real.ingreso; var __realOut = (__histReal && __histReal.egreso) ? __histReal.egreso : __real.egreso; rows.push({ label: p.label, dir: p.dir, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null });
+var __real = (v.sitiosReal && v.sitiosReal[p.id]) || {}; var __histReal = null; if(p.tipo && fullHist && fullHist.length){ var __inside=false, __in=null, __out=null; for(var __hi=0; __hi<fullHist.length; __hi++){ var __hr = fullHist[__hi]; var __d = GV.distKm({lat:__hr.latitude,lng:__hr.longitude},{lat:p.lat,lng:p.lng}); var __within = (__d != null && __d*1000 <= GV.SITE_GEOFENCE_M); if(__within && !__inside){ __inside=true; if(!__in) __in = __hr.dateTime; } else if(!__within && __inside){ __inside=false; __out = __hr.dateTime; } } if(__in){ __histReal = { ingreso: __in, egreso: __out }; } } var __realIn = (__histReal && __histReal.ingreso) ? __histReal.ingreso : __real.ingreso; var __realOut = (__histReal && __histReal.egreso) ? __histReal.egreso : __real.egreso; rows.push({ label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null });
 });
-itinEl.innerHTML = '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Permanece</th><th>Egreso est.</th><th>Ingreso real</th><th>Egreso real</th></tr></thead><tbody>' +
+
+function estadoBadge(r){
+if(!r.tipo) return '<span style="color:#9ca3af;font-size:.78rem">Punto de paso</span>';
+if(r.realOut) return '<span class="gv-status" style="background:#d1fae5;color:#065f46">Finalizado</span>';
+if(r.realIn) return '<span class="gv-status" style="background:#fef3c7;color:#78350f">En sitio</span>';
+return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
+}
+
+var tipoRows = rows.filter(function(r){ return r.tipo; });
+var progresoHtml = '';
+if(tipoRows.length){
+var completados = tipoRows.filter(function(r){ return r.realOut; }).length;
+var enSitio = tipoRows.filter(function(r){ return r.realIn && !r.realOut; })[0];
+var siguiente = tipoRows.filter(function(r){ return !r.realIn; })[0];
+var estadoTxt;
+if(enSitio){ estadoTxt = 'En sitio ahora: <b>' + GV.escapeHtml(enSitio.dir || enSitio.label) + '</b> (' + GV.tipoParadaLabel(enSitio.tipo) + ')'; }
+else if(siguiente){ estadoTxt = 'Proximo sitio: <b>' + GV.escapeHtml(siguiente.dir || siguiente.label) + '</b> (' + GV.tipoParadaLabel(siguiente.tipo) + ')'; }
+else { estadoTxt = 'Todos los sitios de carga/descarga fueron completados.'; }
+progresoHtml = '<div style="font-size:.85rem;margin-bottom:10px;padding:8px 12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;color:#1e3a8a">' +
+'<b>Progreso:</b> ' + completados + ' de ' + tipoRows.length + ' paradas de carga/descarga completadas &nbsp;|&nbsp; ' + estadoTxt + '</div>';
+}
+
+itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Permanece</th><th>Egreso est.</th><th>Ingreso real</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
+'<td>' + estadoBadge(r) + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + r.ingreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' +
 '<td>' + (r.dwell ? r.dwell + ' min' : '-') + '</td>' +
