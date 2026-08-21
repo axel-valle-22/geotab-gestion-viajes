@@ -418,6 +418,25 @@ resolve((res || []).slice().sort(function(a,b){ return new Date(a.dateTime) - ne
 });
 };
 
+/* ---------------- Icono de vehiculo: circulo con flecha de rumbo ---------------- */
+GV.computeBearing = function(lat1, lng1, lat2, lng2){
+var toRad = Math.PI / 180, toDeg = 180 / Math.PI;
+var y = Math.sin((lng2 - lng1) * toRad) * Math.cos(lat2 * toRad);
+var x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) - Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos((lng2 - lng1) * toRad);
+var brng = Math.atan2(y, x) * toDeg;
+return (brng + 360) % 360;
+};
+GV.vehicleIcon = function(L, heading, color){
+var deg = (typeof heading === 'number' && !isNaN(heading)) ? heading : 0;
+var c = color || '#00AEEF';
+var html = '<div style="width:28px;height:28px;transform:rotate(' + deg + 'deg)">' +
+'<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
+'<circle cx="14" cy="14" r="12.5" fill="' + c + '" stroke="#fff" stroke-width="2"/>' +
+'<path d="M14 6.5 L19 18.5 L14 15.3 L9 18.5 Z" fill="#fff"/>' +
+'</svg></div>';
+return L.divIcon({ className: 'gv-vehicle-marker', html: html, iconSize: [28,28], iconAnchor: [14,14] });
+};
+
 /* ---------------- Alerta sonora breve ---------------- */
 GV.playAlertSound = (function(){
   var ctx = null;
