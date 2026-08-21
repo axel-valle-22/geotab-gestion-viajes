@@ -93,6 +93,7 @@ var gTrackRenderGen = 0;
 var gPanelView = 'lista';
 var gCalMonth = new Date(); gCalMonth.setDate(1);
 var gCalSelectedDay = null; var gVehicleState = {}; var gLiveStatusCache = {};
+var gTrackSelectedId = null;
 
 function showTab(name){
   document.querySelectorAll('.gv-tab-btn').forEach(function(b){
@@ -101,7 +102,7 @@ function showTab(name){
   document.querySelectorAll('.gv-tab-content').forEach(function(c){
     c.classList.toggle('gv-show', c.id === 'gv-tab-' + name);
   });
-  if(name === 'seguimiento'){ renderTracking(); if(!gTrackInterval){ gTrackInterval = setInterval(renderTracking, 15000); } } else { if(gTrackInterval){ clearInterval(gTrackInterval); gTrackInterval = null; } }
+  if(name === 'seguimiento'){ gTrackSelectedId = null; renderTracking(); if(!gTrackInterval){ gTrackInterval = setInterval(renderTracking, 15000); } } else { if(gTrackInterval){ clearInterval(gTrackInterval); gTrackInterval = null; } }
 }
 
 function renderStats(){
@@ -400,11 +401,24 @@ function renderTracking(){
     var myGen = gTrackRenderGen;
     setTimeout(function(){ try{ gTrackMap.invalidateSize(); }catch(e){} }, 100);
 
-    var activos = GV.Storage.getViajes().filter(function(v){ return v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado'; });
-    if(!activos.length){
-      if(listEl) listEl.innerHTML = '<p style="text-align:center;color:#6b7280;padding:20px">No hay viajes activos para mostrar.</p>';
+    var hoyStr = GV.dateStr(new Date());
+    var todos = GV.Storage.getViajes().filter(function(v){
+      return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && GV.dateStr(v.fechaSalida) === hoyStr;
+    });
+
+    if(!todos.length){
+      if(listEl) listEl.innerHTML = '<p style="text-align:center;color:#6b7280;padding:20px">No hay viajes de hoy para mostrar.</p>';
+      gTrackSelectedId = null;
       return;
     }
+
+    if(gTrackSelectedId && !todos.some(function(v){ return v.id === gTrackSelectedId; })){
+      gTrackSelectedId = null;
+    }
+
+    var activos = gTrackSelectedId ? todos.filter(function(v){ return v.id === gTrackSelectedId; }) : todos;
+    var activosIds = {};
+    activos.forEach(function(v){ activosIds[v.id] = true; });
 
     var bounds = [];
     activos.forEach(function(v){
@@ -433,22 +447,36 @@ function renderTracking(){
     });
 
     if(listEl){
-      listEl.innerHTML = activos.map(function(v){
-        return '<div class="gv-trip-card"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
+      var selectorHtml = gTrackSelectedId ? ('<div style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-track-ver-todos">&larr; Ver todos los viajes de hoy (' + todos.length + ')</button></div>') : '';
+      listEl.innerHTML = selectorHtml + todos.map(function(v){
+        var sel = (v.id === gTrackSelectedId);
+        return '<div class="gv-trip-card" data-track-id="' + v.id + '" style="cursor:pointer' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
           '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?GV.siteNameFor(v.origen):'') + ' &rarr; ' + GV.escapeHtml(v.destino?GV.siteNameFor(v.destino):'') + '</div>' + '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div>';
       }).join('');
+      var verTodosBtn = document.getElementById('gv-track-ver-todos');
+      if(verTodosBtn) verTodosBtn.addEventListener('click', function(e){ e.stopPropagation(); gTrackSelectedId = null; renderTracking(); });
+      listEl.querySelectorAll('[data-track-id]').forEach(function(card){
+        card.addEventListener('click', function(){
+          var id = card.getAttribute('data-track-id');
+          gTrackSelectedId = (gTrackSelectedId === id) ? null : id;
+          renderTracking();
+        });
+      });
     }
 
     if(!gApi){ if(bounds.length) gTrackMap.fitBounds(bounds, {padding:[30,30]}); return; }
 
-    var pending = activos.length;
+    var pending = todos.length;
     if(!pending){ if(bounds.length) gTrackMap.fitBounds(bounds, {padding:[30,30]}); return; }
-    activos.forEach(function(v){
+    todos.forEach(function(v){
       gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
         if(res && res.length && res[0].latitude){
           var pos = [res[0].latitude, res[0].longitude];
-          bounds.push(pos);
-          var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-live-banner gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; } L.marker(pos, { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
+          var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-live-banner gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
+          if(activosIds[v.id]){
+            bounds.push(pos);
+            L.marker(pos, { icon: L.divIcon({ className: 'gv-vehicle-marker', html: '<div class="gv-live-marker-lbl">&#128667;</div>', iconSize: [28,28], iconAnchor: [14,14] }), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
+          }
         }
         pending--;
         if(pending <= 0 && bounds.length){ gTrackMap.fitBounds(bounds, {padding:[30,30]}); }
