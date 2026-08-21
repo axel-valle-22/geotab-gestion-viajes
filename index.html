@@ -390,6 +390,12 @@ function trackStopBadge(v, siteId){
   return '<span id="gv-trackbadge-' + v.id + '-' + siteId + '" class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
 }
 
+function vehiculoParts(vehiculoStr){
+  var s = (vehiculoStr || '').split(' - ');
+  if(s.length >= 2) return { interno: s[0].trim(), patente: s.slice(1).join(' - ').trim() };
+  return { interno: vehiculoStr || '', patente: '' };
+}
+
 function computeStopStatuses(v, fullHist){
   var pts = [];
   if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng });
@@ -400,16 +406,14 @@ function computeStopStatuses(v, fullHist){
   var histCursor = 0, seqBroken = false;
   pts.forEach(function(p){
     if(seqBroken) return;
-    var inside=false, inTime=null, outTime=null, hi=histCursor, minD=null;
+    var inside=false, inTime=null, outTime=null, hi=histCursor;
     for(; hi<fullHist.length; hi++){
       var hr = fullHist[hi];
       var d = GV.distKm({lat:hr.latitude,lng:hr.longitude},{lat:p.lat,lng:p.lng});
-      if(d != null && (minD == null || d < minD)) minD = d;
       var within = (d != null && d*1000 <= GV.SITE_GEOFENCE_M);
       if(within && !inside){ inside=true; inTime=hr.dateTime; }
       else if(!within && inside){ outTime=hr.dateTime; break; }
     }
-    console.log('[GVDEBUG] point', p.id, 'minDistKm=', minD, 'matched=', !!inTime);
     if(inTime){ result[p.id] = { ingreso: inTime, egreso: outTime }; histCursor = hi<fullHist.length?hi:fullHist.length; }
     else { seqBroken = true; }
   });
@@ -417,13 +421,10 @@ function computeStopStatuses(v, fullHist){
 }
 
 function updateTrackBadges(v){
-  if(!gApi || !v.vehiculoId){ console.log('[GVDEBUG] skip', v.conductor, 'gApi=', !!gApi, 'vehiculoId=', v.vehiculoId); return; }
+  if(!gApi || !v.vehiculoId) return;
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
-  console.log('[GVDEBUG] fetching history', v.conductor, 'vehiculoId=', v.vehiculoId, 'from=', dayStart.toISOString(), 'to=', new Date().toISOString());
   GV.getHistory(gApi, v.vehiculoId, dayStart.toISOString(), new Date().toISOString()).then(function(hist){
-    console.log('[GVDEBUG] history result', v.conductor, 'len=', hist.length, hist.length ? ('first=' + hist[0].dateTime + ' last=' + hist[hist.length-1].dateTime) : '');
     var statuses = computeStopStatuses(v, hist);
-    console.log('[GVDEBUG] statuses', v.conductor, JSON.stringify(statuses));
     Object.keys(statuses).forEach(function(siteId){
       var badgeEl = document.getElementById('gv-trackbadge-' + v.id + '-' + siteId);
       if(!badgeEl) return;
@@ -511,14 +512,20 @@ function renderTracking(){
         var stopsChips = ((v.origen && v.origen.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.origen.tipo + '">Origen - ' + GV.tipoParadaLabel(v.origen.tipo) + '</span>' + trackStopBadge(v, 'origen') + '</div>') : '') +
           (v.paradas||[]).map(function(p, i){ return '<div class="gv-stop-block"><span class="gv-stop-chip gv-' + p.tipo + '">' + (i+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(GV.siteNameFor(p)) + '</span>' + trackStopBadge(v, 'parada'+i) + '</div>'; }).join('') +
           ((v.destino && v.destino.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.destino.tipo + '">Destino - ' + GV.tipoParadaLabel(v.destino.tipo) + '</span>' + trackStopBadge(v, 'destino') + '</div>') : '');
-        return '<div class="gv-trip-card" data-track-id="' + v.id + '" style="cursor:pointer' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '">' +
+        var vp = vehiculoParts(v.vehiculo);
+        return '<div style="display:flex;gap:10px;align-items:stretch;margin-bottom:12px;cursor:pointer" data-track-id="' + v.id + '">' +
+          '<div class="gv-plate-box"' + (sel ? ' style="border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)"' : '') + '>' +
+            '<div class="gv-plate-interno">' + GV.escapeHtml(vp.interno) + '</div>' +
+            (vp.patente ? ('<div class="gv-plate-patente">' + GV.escapeHtml(vp.patente) + '</div>') : '') +
+          '</div>' +
+          '<div class="gv-trip-card" style="flex:1;margin-bottom:0' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
-            '<div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
+            '<div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' -</div>' +
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-detalle-id="' + v.id + '">Ver detalle</button>' +
           '</div>' +
           '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?GV.siteNameFor(v.origen):'') + ' &rarr; ' + GV.escapeHtml(v.destino?GV.siteNameFor(v.destino):'') + '</div>' +
           (stopsChips ? ('<div class="gv-stops">' + stopsChips + '</div>') : '') +
-          '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div>';
+          '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div></div>';
       }).join('');
       todos.forEach(function(v){ updateTrackBadges(v); });
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
