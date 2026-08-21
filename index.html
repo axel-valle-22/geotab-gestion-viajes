@@ -386,6 +386,13 @@ abrirDetalleViaje(id);
   document.getElementById('gv-btn-refresh-track').addEventListener('click', renderTracking);
 }
 
+function trackStopBadge(v, siteId){
+  var sr = (v.sitiosReal && v.sitiosReal[siteId]) || {};
+  if(sr.egreso) return '<span class="gv-status" style="background:#d1fae5;color:#065f46">Finalizado</span>';
+  if(sr.ingreso) return '<span class="gv-status" style="background:#fef3c7;color:#78350f">En sitio</span>';
+  return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
+}
+
 function renderTracking(){
   var box = document.getElementById('gv-track-map');
   var listEl = document.getElementById('gv-track-list');
@@ -460,9 +467,9 @@ function renderTracking(){
       var selectorHtml = gTrackSelectedId ? ('<div style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-track-ver-todos">&larr; Ver todos los viajes de hoy (' + todos.length + ')</button></div>') : '';
       listEl.innerHTML = selectorHtml + todos.map(function(v){
         var sel = (v.id === gTrackSelectedId);
-        var stopsChips = ((v.origen && v.origen.tipo) ? ('<span class="gv-stop-chip gv-' + v.origen.tipo + '">Origen - ' + GV.tipoParadaLabel(v.origen.tipo) + '</span>') : '') +
-          (v.paradas||[]).map(function(p, i){ return '<span class="gv-stop-chip gv-' + p.tipo + '">' + (i+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(GV.siteNameFor(p)) + '</span>'; }).join('') +
-          ((v.destino && v.destino.tipo) ? ('<span class="gv-stop-chip gv-' + v.destino.tipo + '">Destino - ' + GV.tipoParadaLabel(v.destino.tipo) + '</span>') : '');
+        var stopsChips = ((v.origen && v.origen.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.origen.tipo + '">Origen - ' + GV.tipoParadaLabel(v.origen.tipo) + '</span>' + trackStopBadge(v, 'origen') + '</div>') : '') +
+          (v.paradas||[]).map(function(p, i){ return '<div class="gv-stop-block"><span class="gv-stop-chip gv-' + p.tipo + '">' + (i+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(GV.siteNameFor(p)) + '</span>' + trackStopBadge(v, 'parada'+i) + '</div>'; }).join('') +
+          ((v.destino && v.destino.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.destino.tipo + '">Destino - ' + GV.tipoParadaLabel(v.destino.tipo) + '</span>' + trackStopBadge(v, 'destino') + '</div>') : '');
         return '<div class="gv-trip-card" data-track-id="' + v.id + '" style="cursor:pointer' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
             '<div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' - ' + GV.escapeHtml(v.vehiculo) + '</div>' +
