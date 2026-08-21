@@ -641,14 +641,32 @@ overlay.innerHTML =
 (v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#00AEEF;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 (v.vehiculoId ? '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-det-recent" checked> Solo posiciones ultimas 4hs</label>' : '') +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
-(v.vehiculoId ? '<input type="range" id="gv-det-slider" min="0" max="0" value="0" style="width:100%;margin-bottom:14px" disabled>' : '') +
+(v.vehiculoId ? ('<div id="gv-det-playback" style="background:#0f172a;border-radius:10px;padding:12px 16px 10px;margin-bottom:14px">' +
+'<div style="display:flex;align-items:center;gap:12px">' +
+'<button type="button" id="gv-det-play" style="background:#00AEEF;border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:.85rem;cursor:pointer;flex-shrink:0" disabled>&#9654;</button>' +
+'<div style="min-width:64px">' +
+'<div id="gv-det-time-cur" style="color:#fff;font-size:1rem;font-weight:700;line-height:1.1">--:--</div>' +
+'<div id="gv-det-time-elapsed" style="color:#9ca3af;font-size:.68rem">00:00:00 / 00:00:00</div>' +
+'</div>' +
+'<div style="flex:1">' +
+'<input type="range" id="gv-det-slider" min="0" max="0" value="0" style="width:100%;display:block" disabled>' +
+'<div id="gv-det-slider-marks" style="position:relative;height:15px"></div>' +
+'<div style="display:flex;justify-content:space-between;color:#9ca3af;font-size:.68rem;margin-top:-4px">' +
+'<span id="gv-det-time-start">--:--</span><span id="gv-det-time-end">--:--</span>' +
+'</div>' +
+'</div>' +
+'<select id="gv-det-speed" style="background:#1f2937;color:#fff;border:1px solid #374151;border-radius:6px;font-size:.78rem;padding:5px 6px;flex-shrink:0">' +
+'<option value="1">1x</option><option value="5">5x</option><option value="20" selected>20x</option><option value="60">60x</option><option value="300">300x</option>' +
+'</select>' +
+'</div>' +
+'</div>') : '') +
 '<div id="gv-det-itin"></div>' +
 '</div>';
 document.body.appendChild(overlay);
 
-var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null;
+var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 
-function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } overlay.remove(); }
+function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); closeDetalle(); }); }); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
@@ -786,27 +804,134 @@ histMarker = L.marker([r.latitude, r.longitude], { icon: L.divIcon({ className: 
 var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
 histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.speed||0) + ' km/h').openTooltip();
 }
+function fmtHHMM(d){ return d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}); }
+function fmtHHMMSS(ms){
+if(ms < 0) ms = 0;
+var s = Math.floor(ms/1000);
+var hh = Math.floor(s/3600); s -= hh*3600;
+var mm = Math.floor(s/60); var ss = s - mm*60;
+function p2(n){ return (n<10?'0':'') + n; }
+return p2(hh) + ':' + p2(mm) + ':' + p2(ss);
+}
+function updateTimeLabels(idx){
+if(!detHistPts.length) return;
+var r = detHistPts[idx];
+if(!r) return;
+var t = new Date(r.dateTime);
+var curEl = document.getElementById('gv-det-time-cur');
+var elEl = document.getElementById('gv-det-time-elapsed');
+if(curEl) curEl.textContent = fmtHHMM(t);
+if(elEl){
+var startT = new Date(detHistPts[0].dateTime).getTime();
+var endT = new Date(detHistPts[detHistPts.length - 1].dateTime).getTime();
+elEl.textContent = fmtHHMMSS(t.getTime() - startT) + ' / ' + fmtHHMMSS(endT - startT);
+}
+}
+function findSiteIndices(sitePts, hist){
+var result = [];
+if(!hist || !hist.length) return result;
+var cursor = 0, broken = false;
+sitePts.forEach(function(p){
+if(broken) return;
+var hi = cursor, found = -1;
+for(; hi < hist.length; hi++){
+var hr = hist[hi];
+var d = GV.distKm({lat:hr.latitude,lng:hr.longitude},{lat:p.lat,lng:p.lng});
+if(d != null && d*1000 <= GV.SITE_GEOFENCE_M){ found = hi; break; }
+}
+if(found >= 0){ result.push({idx: found, label: p.label}); cursor = found; } else { broken = true; }
+});
+return result;
+}
+function renderSliderMarks(marks, maxIdx){
+var wrap = document.getElementById('gv-det-slider-marks');
+if(!wrap) return;
+if(!maxIdx || !marks.length){ wrap.innerHTML = ''; return; }
+wrap.innerHTML = marks.map(function(m){
+var pct = (m.idx / maxIdx) * 100;
+return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:#00AEEF;color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
+}).join('');
+}
+var playBtn = document.getElementById('gv-det-play');
+var speedSel = document.getElementById('gv-det-speed');
+function setPlayIcon(isPlaying){ if(playBtn) playBtn.innerHTML = isPlaying ? '&#10074;&#10074;' : '&#9654;'; }
+function stopPlayback(){
+detPlaying = false;
+setPlayIcon(false);
+if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; }
+detLastFrameTs = null;
+}
+function findIdxForTime(t){
+var idx = parseInt(slider.value, 10) || 0;
+while(idx < detHistPts.length - 1 && new Date(detHistPts[idx+1].dateTime).getTime() <= t){ idx++; }
+return idx;
+}
+function tick(ts){
+if(!detPlaying) return;
+if(detLastFrameTs == null) detLastFrameTs = ts;
+var deltaMs = ts - detLastFrameTs;
+detLastFrameTs = ts;
+var speed = parseInt(speedSel.value, 10) || 1;
+detSimTime += deltaMs * speed;
+var endTime = new Date(detHistPts[detHistPts.length - 1].dateTime).getTime();
+if(detSimTime >= endTime){
+slider.value = detHistPts.length - 1;
+updateHistMarker(detHistPts.length - 1);
+updateTimeLabels(detHistPts.length - 1);
+stopPlayback();
+return;
+}
+var idx = findIdxForTime(detSimTime);
+slider.value = idx;
+updateHistMarker(idx);
+updateTimeLabels(idx);
+detRafId = requestAnimationFrame(tick);
+}
+if(playBtn) playBtn.addEventListener('click', function(){
+if(!detHistPts.length) return;
+if(detPlaying){ stopPlayback(); return; }
+var curIdx = parseInt(slider.value, 10) || 0;
+if(curIdx >= detHistPts.length - 1){ curIdx = 0; slider.value = 0; updateHistMarker(0); }
+detSimTime = new Date(detHistPts[curIdx].dateTime).getTime();
+updateTimeLabels(curIdx);
+detPlaying = true;
+setPlayIcon(true);
+detLastFrameTs = null;
+detRafId = requestAnimationFrame(tick);
+});
 function loadHist(){
+stopPlayback();
 var to = new Date();
 var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
 var from = chk.checked ? new Date(to.getTime() - 4*3600*1000) : __dayStart2;
 GV.getHistory(gApi, v.vehiculoId, from.toISOString(), to.toISOString()).then(function(recs){
 detHistPts = recs;
 detHistLayer.clearLayers();
+var startEl = document.getElementById('gv-det-time-start');
+var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
 var line = recs.map(function(r){ return [r.latitude, r.longitude]; });
 L.polyline(line, { color: '#0077A3', weight: 3, opacity: .6 }).addTo(detHistLayer);
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;
+if(playBtn) playBtn.disabled = false;
 updateHistMarker(recs.length - 1);
+updateTimeLabels(recs.length - 1);
+if(startEl) startEl.textContent = fmtHHMM(new Date(recs[0].dateTime));
+if(endEl) endEl.textContent = fmtHHMM(new Date(recs[recs.length - 1].dateTime));
+renderSliderMarks(findSiteIndices(pts, recs), recs.length - 1);
 } else {
 slider.disabled = true;
+if(playBtn) playBtn.disabled = true;
+if(startEl) startEl.textContent = '--:--';
+if(endEl) endEl.textContent = '--:--';
+renderSliderMarks([], 0);
 }
 });
 }
 chk.addEventListener('change', loadHist);
-slider.addEventListener('input', function(){ updateHistMarker(parseInt(slider.value, 10)); });
+slider.addEventListener('input', function(){ stopPlayback(); var idx = parseInt(slider.value, 10); updateHistMarker(idx); updateTimeLabels(idx); });
 loadHist();
 }
 }).catch(function(err){ var itinEl2 = document.getElementById('gv-det-itin'); if(itinEl2) itinEl2.textContent = 'Error al cargar el mapa: ' + err.message; });
