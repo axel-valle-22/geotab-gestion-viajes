@@ -387,10 +387,46 @@ abrirDetalleViaje(id);
 }
 
 function trackStopBadge(v, siteId){
-  var sr = (v.sitiosReal && v.sitiosReal[siteId]) || {};
-  if(sr.egreso) return '<span class="gv-status" style="background:#d1fae5;color:#065f46">Finalizado</span>';
-  if(sr.ingreso) return '<span class="gv-status" style="background:#fef3c7;color:#78350f">En sitio</span>';
-  return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
+  return '<span id="gv-trackbadge-' + v.id + '-' + siteId + '" class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
+}
+
+function computeStopStatuses(v, fullHist){
+  var pts = [];
+  if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng });
+  (v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng }); });
+  if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng });
+  var result = {};
+  if(!fullHist || !fullHist.length) return result;
+  var histCursor = 0, seqBroken = false;
+  pts.forEach(function(p){
+    if(seqBroken) return;
+    var inside=false, inTime=null, outTime=null, hi=histCursor;
+    for(; hi<fullHist.length; hi++){
+      var hr = fullHist[hi];
+      var d = GV.distKm({lat:hr.latitude,lng:hr.longitude},{lat:p.lat,lng:p.lng});
+      var within = (d != null && d*1000 <= GV.SITE_GEOFENCE_M);
+      if(within && !inside){ inside=true; inTime=hr.dateTime; }
+      else if(!within && inside){ outTime=hr.dateTime; break; }
+    }
+    if(inTime){ result[p.id] = { ingreso: inTime, egreso: outTime }; histCursor = hi<fullHist.length?hi:fullHist.length; }
+    else { seqBroken = true; }
+  });
+  return result;
+}
+
+function updateTrackBadges(v){
+  if(!gApi || !v.vehiculoId) return;
+  var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
+  GV.getHistory(gApi, v.vehiculoId, dayStart.toISOString(), new Date().toISOString()).then(function(hist){
+    var statuses = computeStopStatuses(v, hist);
+    Object.keys(statuses).forEach(function(siteId){
+      var badgeEl = document.getElementById('gv-trackbadge-' + v.id + '-' + siteId);
+      if(!badgeEl) return;
+      var st = statuses[siteId];
+      if(st.egreso){ badgeEl.textContent = 'Finalizado'; badgeEl.style.background = '#d1fae5'; badgeEl.style.color = '#065f46'; }
+      else if(st.ingreso){ badgeEl.textContent = 'En sitio'; badgeEl.style.background = '#fef3c7'; badgeEl.style.color = '#78350f'; }
+    });
+  });
 }
 
 function renderTracking(){
@@ -479,6 +515,7 @@ function renderTracking(){
           (stopsChips ? ('<div class="gv-stops">' + stopsChips + '</div>') : '') +
           '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div></div>';
       }).join('');
+      todos.forEach(function(v){ updateTrackBadges(v); });
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
       if(verTodosBtn) verTodosBtn.addEventListener('click', function(e){ e.stopPropagation(); gTrackSelectedId = null; renderTracking(); });
       listEl.querySelectorAll('[data-detalle-id]').forEach(function(btn){
