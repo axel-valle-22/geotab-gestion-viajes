@@ -780,6 +780,58 @@ try{ renderStats(); }catch(e){}
 });
 }
 
+function buildSitePatch(siteId, mergeObj){
+var patch = {};
+if(siteId === 'origen'){ patch.origen = Object.assign({}, v.origen, mergeObj); }
+else if(siteId === 'destino'){ patch.destino = Object.assign({}, v.destino, mergeObj); }
+else if(siteId.indexOf('parada') === 0){
+var idx = parseInt(siteId.replace('parada',''), 10);
+patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? Object.assign({}, pp, mergeObj) : pp; });
+}
+return patch;
+}
+
+function editarUbicacionSitio(siteId){
+var isParada = siteId.indexOf('parada') === 0;
+var cur = (siteId === 'origen') ? v.origen : (siteId === 'destino') ? v.destino : (v.paradas||[])[parseInt(siteId.replace('parada',''),10)];
+if(!cur) return;
+var p = pts.filter(function(pp){ return pp.id === siteId; })[0];
+GV.pickLocation({
+title: 'Editar ubicacion: ' + (p ? (p.dir || p.label) : siteId),
+initial: { lat: cur.lat, lng: cur.lng, direccion: cur.direccion || (p && p.dir) || '', tipo: cur.tipo, duracionMin: cur.duracionMin },
+withStopFields: isParada
+}).then(function(res){
+if(!res) return;
+var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion };
+if(isParada){ mergeObj.tipo = res.tipo; mergeObj.duracionMin = res.duracionMin; }
+GV.Storage.updateViaje(v.id, buildSitePatch(siteId, mergeObj)).then(function(){
+closeDetalle();
+abrirDetalleViaje(v.id);
+});
+});
+}
+
+function agregarParada(){
+GV.pickLocation({ title: 'Agregar parada', withStopFields: true }).then(function(res){
+if(!res) return;
+var nuevaParada = { lat: res.lat, lng: res.lng, direccion: res.direccion, tipo: res.tipo, duracionMin: res.duracionMin };
+var paradas = (v.paradas||[]).concat([nuevaParada]);
+GV.Storage.updateViaje(v.id, { paradas: paradas }).then(function(){
+closeDetalle();
+abrirDetalleViaje(v.id);
+});
+});
+}
+
+function quitarParada(idx){
+if(!confirm('¿Quitar esta parada del viaje? Los horarios estimados se recalcularan.')) return;
+var paradas = (v.paradas||[]).filter(function(pp, i){ return i !== idx; });
+GV.Storage.updateViaje(v.id, { paradas: paradas }).then(function(){
+closeDetalle();
+abrirDetalleViaje(v.id);
+});
+}
+
 function renderItinerario(route, fullHist){
 var rows = [];
 var t = new Date(v.fechaSalida);
@@ -849,7 +901,10 @@ itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Si
 rows.map(function(r){
 var realDurNote = (r.realIn && r.realOut) ? ('<br><span style="font-size:.7rem;color:#6b7280;font-weight:400">(permanecio ' + GV.fmtDurMin(r.realOut.getTime() - r.realIn.getTime()) + ')</span>') : '';
 var enSitioNote = (r.realIn && !r.realOut) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
-return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
+return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
+' <span class="gv-site-edit-btn" data-site-id="' + r.id + '" style="cursor:pointer;margin-left:4px" title="Editar ubicacion">&#9998;</span>' +
+(r.id.indexOf('parada') === 0 ? (' <span class="gv-site-remove-btn" data-parada-idx="' + r.id.replace('parada','') + '" style="cursor:pointer;margin-left:2px;color:#dc2626;font-weight:700" title="Quitar parada">&times;</span>') : '') +
+'</td>' +
 '<td>' + estadoBadge(r) + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + fmtTimeCell(r.ingreso) + '</td>' +
@@ -857,10 +912,19 @@ return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
 '<td>' + (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:#00AEEF;text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar carga, descarga y minutos">' + (r.dwell||0) + ' min</span>') : '-') + '</td>' +
 '<td>' + fmtTimeCell(r.egreso) + '</td>' +
 '<td>' + (enSitioNote || (fmtTimeCell(r.realOut) + realDurNote)) + '</td></tr>';
-}).join('') + '</tbody></table>';
+}).join('') + '</tbody></table>' +
+'<div style="margin-top:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-parada">+ Agregar parada</button></div>';
 itinEl.querySelectorAll('.gv-dwell-edit').forEach(function(el){
 el.addEventListener('click', function(){ abrirEditorSitio(el.getAttribute('data-site-id')); });
 });
+itinEl.querySelectorAll('.gv-site-edit-btn').forEach(function(el){
+el.addEventListener('click', function(e){ e.stopPropagation(); editarUbicacionSitio(el.getAttribute('data-site-id')); });
+});
+itinEl.querySelectorAll('.gv-site-remove-btn').forEach(function(el){
+el.addEventListener('click', function(e){ e.stopPropagation(); quitarParada(parseInt(el.getAttribute('data-parada-idx'), 10)); });
+});
+var addParadaBtn = document.getElementById('gv-det-add-parada');
+if(addParadaBtn) addParadaBtn.addEventListener('click', agregarParada);
 }
 
 if(pts.length > 1){
