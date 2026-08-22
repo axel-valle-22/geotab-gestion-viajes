@@ -832,6 +832,51 @@ abrirDetalleViaje(v.id);
 });
 }
 
+function moverParada(idx, dir){
+var paradas = (v.paradas||[]).slice();
+var j = idx + dir;
+if(j < 0 || j >= paradas.length) return;
+var tmp = paradas[idx]; paradas[idx] = paradas[j]; paradas[j] = tmp;
+GV.Storage.updateViaje(v.id, { paradas: paradas }).then(function(){
+closeDetalle();
+abrirDetalleViaje(v.id);
+});
+}
+
+function abrirAccionesSitio(siteId){
+var p = pts.filter(function(pp){ return pp.id === siteId; })[0];
+if(!p) return;
+var isParada = siteId.indexOf('parada') === 0;
+var idx = isParada ? parseInt(siteId.replace('parada',''), 10) : -1;
+var totalParadas = (v.paradas||[]).length;
+var ov3 = document.createElement('div');
+ov3.className = 'gv-modal-overlay';
+ov3.style.zIndex = '10000';
+var btns = '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-editar" style="width:100%;text-align:left;margin-bottom:8px">&#9998; Editar ubicacion</button>';
+if(isParada){
+if(idx > 0) btns += '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-subir" style="width:100%;text-align:left;margin-bottom:8px">&#8593; Mover antes de la parada anterior</button>';
+if(idx < totalParadas - 1) btns += '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-bajar" style="width:100%;text-align:left;margin-bottom:8px">&#8595; Mover despues de la siguiente parada</button>';
+btns += '<button type="button" class="gv-btn gv-btn-danger" id="gv-acc-quitar" style="width:100%;text-align:left;margin-bottom:8px">&times; Quitar parada</button>';
+}
+ov3.innerHTML =
+'<div class="gv-modal" style="max-width:360px">' +
+'<h3 style="margin:0 0 10px">' + GV.escapeHtml(p.dir || p.label) + '</h3>' +
+btns +
+'<div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-acc-cancel">Cerrar</button></div>' +
+'</div>';
+document.body.appendChild(ov3);
+function closeAcc(){ ov3.remove(); }
+document.getElementById('gv-acc-cancel').addEventListener('click', closeAcc);
+ov3.addEventListener('click', function(e){ if(e.target === ov3) closeAcc(); });
+document.getElementById('gv-acc-editar').addEventListener('click', function(){ closeAcc(); editarUbicacionSitio(siteId); });
+var subirBtn = document.getElementById('gv-acc-subir');
+if(subirBtn) subirBtn.addEventListener('click', function(){ closeAcc(); moverParada(idx, -1); });
+var bajarBtn = document.getElementById('gv-acc-bajar');
+if(bajarBtn) bajarBtn.addEventListener('click', function(){ closeAcc(); moverParada(idx, 1); });
+var quitarBtn = document.getElementById('gv-acc-quitar');
+if(quitarBtn) quitarBtn.addEventListener('click', function(){ closeAcc(); quitarParada(idx); });
+}
+
 function renderItinerario(route, fullHist){
 var rows = [];
 var t = new Date(v.fechaSalida);
@@ -901,9 +946,10 @@ itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Si
 rows.map(function(r){
 var realDurNote = (r.realIn && r.realOut) ? ('<br><span style="font-size:.7rem;color:#6b7280;font-weight:400">(permanecio ' + GV.fmtDurMin(r.realOut.getTime() - r.realIn.getTime()) + ')</span>') : '';
 var enSitioNote = (r.realIn && !r.realOut) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
-return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
-' <span class="gv-site-edit-btn" data-site-id="' + r.id + '" style="cursor:pointer;margin-left:4px" title="Editar ubicacion">&#9998;</span>' +
-(r.id.indexOf('parada') === 0 ? (' <span class="gv-site-remove-btn" data-parada-idx="' + r.id.replace('parada','') + '" style="cursor:pointer;margin-left:2px;color:#dc2626;font-weight:700" title="Quitar parada">&times;</span>') : '') +
+return '<tr><td>' +
+'<div class="gv-site-block" data-site-id="' + r.id + '" style="cursor:pointer;padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="Ver opciones de este sitio">' +
+'<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
+'</div>' +
 '</td>' +
 '<td>' + estadoBadge(r) + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
@@ -917,11 +963,10 @@ return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
 itinEl.querySelectorAll('.gv-dwell-edit').forEach(function(el){
 el.addEventListener('click', function(){ abrirEditorSitio(el.getAttribute('data-site-id')); });
 });
-itinEl.querySelectorAll('.gv-site-edit-btn').forEach(function(el){
-el.addEventListener('click', function(e){ e.stopPropagation(); editarUbicacionSitio(el.getAttribute('data-site-id')); });
-});
-itinEl.querySelectorAll('.gv-site-remove-btn').forEach(function(el){
-el.addEventListener('click', function(e){ e.stopPropagation(); quitarParada(parseInt(el.getAttribute('data-parada-idx'), 10)); });
+itinEl.querySelectorAll('.gv-site-block').forEach(function(el){
+el.addEventListener('mouseenter', function(){ el.style.background = '#eff6ff'; el.style.borderColor = '#93c5fd'; });
+el.addEventListener('mouseleave', function(){ el.style.background = '#f9fafb'; el.style.borderColor = '#d1d5db'; });
+el.addEventListener('click', function(e){ e.stopPropagation(); abrirAccionesSitio(el.getAttribute('data-site-id')); });
 });
 var addParadaBtn = document.getElementById('gv-det-add-parada');
 if(addParadaBtn) addParadaBtn.addEventListener('click', agregarParada);
