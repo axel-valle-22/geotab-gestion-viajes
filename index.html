@@ -169,7 +169,7 @@ if(cf) cf.addEventListener('click', function(){ gCalSelectedDay = null; renderTr
         ? '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="iniciar" data-id="' + v.id + '">Iniciar</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="cancelar" data-id="' + v.id + '">Cancelar</button>'
         : '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="cancelar" data-id="' + v.id + '">Cancelar</button>';
     } else if(v.estado === 'en_curso' || v.estado === 'demorado'){
-      actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar</button>';
+      actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar</button><button class="gv-btn gv-btn-danger gv-btn-sm" data-action="cancelar" data-id="' + v.id + '">Cancelar</button>';
     }
     actions += '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="detalle" data-id="' + v.id + '">Ver Detalle</button>';
     return '<div class="gv-trip-card">' +
@@ -357,9 +357,11 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
     if(action === 'iniciar' && puedeIniciar(viaje)){
       GV.Storage.updateViaje(id, { estado: 'en_curso', iniciadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); });
     } else if(action === 'completar'){
-      GV.Storage.updateViaje(id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); });
+      if(!confirm('¿Marcar este viaje como finalizado?')) return;
+      GV.Storage.updateViaje(id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); });
     } else if(action === 'cancelar'){
-      GV.Storage.updateViaje(id, { estado: 'cancelado' }).then(function(){ renderStats(); renderTrips(); });
+      if(!confirm('¿Cancelar este viaje?')) return;
+      GV.Storage.updateViaje(id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); });
     }
  else if(action === 'detalle'){
 abrirDetalleViaje(id);
@@ -659,7 +661,9 @@ overlay.innerHTML =
 '<div class="gv-modal" style="max-width:760px">' +
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
-((v.estado==='en_curso'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Dar por finalizado este viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
+'<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
+'</div>' +
 '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + '</div>' +
 (v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#00AEEF;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
@@ -691,7 +695,7 @@ document.body.appendChild(overlay);
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } overlay.remove(); }
-document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); closeDetalle(); }); }); }
+document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ if(!confirm('¿Marcar este viaje como finalizado?')) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
 GV.loadLeaflet().then(function(L){
@@ -835,16 +839,24 @@ progresoHtml = '<div style="font-size:.85rem;margin-bottom:10px;padding:8px 12px
 '<b>Progreso:</b> ' + completados + ' de ' + tipoRows.length + ' paradas de carga/descarga completadas &nbsp;|&nbsp; ' + estadoTxt + '</div>';
 }
 
+function fmtTimeCell(d){
+if(!d) return '-';
+var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
+var sameDay = GV.dateStr(d) === GV.dateStr(v.fechaSalida);
+return sameDay ? t : ('<b>' + d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) + '</b> ' + t);
+}
 itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
+var realDurNote = (r.realIn && r.realOut) ? ('<br><span style="font-size:.7rem;color:#6b7280;font-weight:400">(permanecio ' + GV.fmtDurMin(r.realOut.getTime() - r.realIn.getTime()) + ')</span>') : '';
+var enSitioNote = (r.realIn && !r.realOut) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
 return '<tr><td><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</td>' +
 '<td>' + estadoBadge(r) + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
-'<td>' + r.ingreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' +
-'<td>' + (r.realIn ? r.realIn.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td>' +
+'<td>' + fmtTimeCell(r.ingreso) + '</td>' +
+'<td>' + fmtTimeCell(r.realIn) + '</td>' +
 '<td>' + (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:#00AEEF;text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar carga, descarga y minutos">' + (r.dwell||0) + ' min</span>') : '-') + '</td>' +
-'<td>' + r.egreso.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) + '</td>' +
-'<td>' + (r.realOut ? r.realOut.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}) : '-') + '</td></tr>';
+'<td>' + fmtTimeCell(r.egreso) + '</td>' +
+'<td>' + (enSitioNote || (fmtTimeCell(r.realOut) + realDurNote)) + '</td></tr>';
 }).join('') + '</tbody></table>';
 itinEl.querySelectorAll('.gv-dwell-edit').forEach(function(el){
 el.addEventListener('click', function(){ abrirEditorSitio(el.getAttribute('data-site-id')); });
