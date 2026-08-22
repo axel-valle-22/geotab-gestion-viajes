@@ -326,18 +326,24 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
       return;
     }
 
+    var __fechaSalidaNv = fEl.value + 'T' + hEl.value + ':00';
     var viaje = {
       id: GV.genId(),
       conductorId: cSel.value, conductor: cSel.options[cSel.selectedIndex].text,
       vehiculoId: vSel.value, vehiculo: vSel.options[vSel.selectedIndex].text,
-      fechaSalida: fEl.value + 'T' + hEl.value + ':00',
+      fechaSalida: __fechaSalidaNv,
       origen: gOrigen, destino: gDestino,
       paradas: gParadas.slice(),
       observaciones: obsEl ? obsEl.value : '',
       estado: 'planificado',
       creadoEn: new Date().toISOString(),
       notificado: false,
-      gerenciamiento: null
+      gerenciamiento: null,
+      tramos: [{
+        conductorId: cSel.value, conductor: cSel.options[cSel.selectedIndex].text,
+        vehiculoId: vSel.value, vehiculo: vSel.options[vSel.selectedIndex].text,
+        desde: __fechaSalidaNv, hasta: null, motivo: null, motivoDetalle: ''
+      }]
     };
 
     GV.Storage.addViaje(viaje).then(function(){
@@ -422,10 +428,33 @@ function computeStopStatuses(v, fullHist){
   return result;
 }
 
+function fetchHistoryForViaje(v, fromOverride, toOverride){
+  if(!gApi || !v.vehiculoId) return Promise.resolve([]);
+  var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
+  var globalFrom = fromOverride || dayStart;
+  var globalTo = toOverride || new Date(v.completadoEn || Date.now());
+  var tramos = (v.tramos && v.tramos.length) ? v.tramos : [{ vehiculoId: v.vehiculoId, desde: v.fechaSalida, hasta: null }];
+  var proms = tramos.map(function(tr, i){
+    if(!tr.vehiculoId) return Promise.resolve([]);
+    var segFrom = (i === 0) ? new Date(globalFrom) : new Date(tr.desde);
+    if(segFrom < globalFrom) segFrom = new Date(globalFrom);
+    var segTo = tr.hasta ? new Date(tr.hasta) : new Date(globalTo);
+    if(segTo > globalTo) segTo = new Date(globalTo);
+    if(segTo <= segFrom) return Promise.resolve([]);
+    return GV.getHistory(gApi, tr.vehiculoId, segFrom.toISOString(), segTo.toISOString());
+  });
+  return Promise.all(proms).then(function(results){
+    var merged = [];
+    results.forEach(function(r){ if(r && r.length) merged = merged.concat(r); });
+    merged.sort(function(a,b){ return new Date(a.dateTime) - new Date(b.dateTime); });
+    return merged;
+  });
+}
+
 function updateTrackBadges(v){
   if(!gApi || !v.vehiculoId) return;
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
-  GV.getHistory(gApi, v.vehiculoId, dayStart.toISOString(), new Date().toISOString()).then(function(hist){
+  fetchHistoryForViaje(v, dayStart, new Date()).then(function(hist){
     var statuses = computeStopStatuses(v, hist);
     Object.keys(statuses).forEach(function(siteId){
       var badgeEl = document.getElementById('gv-trackbadge-' + v.id + '-' + siteId);
@@ -655,6 +684,21 @@ switchPanelView('lista');
 function abrirDetalleViaje(id){
 var v = GV.Storage.getViaje(id);
 if(!v) return;
+var tramosHtml = '';
+if(v.tramos && v.tramos.length > 1){
+tramosHtml = '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+'<div style="font-size:.78rem;font-weight:700;color:#374151;margin-bottom:6px">Historial de asignacion</div>' +
+v.tramos.map(function(tr, i){
+var desdeTxt = GV.fmtDate(tr.desde);
+var hastaTxt = tr.hasta ? GV.fmtDate(tr.hasta) : 'actual';
+var motivoTxt = tr.motivo ? ('<br><span style="color:#9ca3af">Motivo: ' + GV.escapeHtml(tr.motivoLabel || tr.motivo) + (tr.motivoDetalle ? (' - ' + GV.escapeHtml(tr.motivoDetalle)) : '') + '</span>') : '';
+return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px dashed #e5e7eb' : '') + '">' +
+'<b>' + GV.escapeHtml(tr.conductor||'?') + '</b> - ' + GV.escapeHtml(tr.vehiculo||'?') +
+' <span style="color:#6b7280">(' + desdeTxt + ' &rarr; ' + hastaTxt + ')</span>' + motivoTxt +
+'</div>';
+}).join('') +
+'</div>';
+}
 var overlay = document.createElement('div');
 overlay.className = 'gv-modal-overlay';
 overlay.innerHTML =
@@ -662,10 +706,11 @@ overlay.innerHTML =
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
+((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + '</div>' +
+tramosHtml +
 (v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#00AEEF;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 (v.vehiculoId ? '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-det-recent" checked> Solo posiciones ultimas 4hs</label>' : '') +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
@@ -696,6 +741,92 @@ var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInt
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ if(!confirm('¿Marcar este viaje como finalizado?')) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); }
+
+function abrirReasignarViaje(){
+var ov4 = document.createElement('div');
+ov4.className = 'gv-modal-overlay';
+ov4.style.zIndex = '10000';
+var conductorOpts = '<option value="">Seleccionar conductor...</option>' + gState.conductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
+var vehiculoOpts = '<option value="">Seleccionar vehiculo...</option>' + gState.vehiculos.map(function(d){ return '<option value="' + d.id + '">' + GV.escapeHtml(d.nombre) + '</option>'; }).join('');
+ov4.innerHTML =
+'<div class="gv-modal" style="max-width:420px">' +
+'<h3 style="margin:0 0 12px">Reasignar chofer / camion</h3>' +
+'<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px">Se cierra el tramo actual (' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + ') y se abre uno nuevo. No se pierde nada de lo ya registrado.</div>' +
+'<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-reas-chk-chofer"> Cambiar chofer</label>' +
+'<div id="gv-reas-chofer-wrap" style="display:none;margin:0 0 12px"><select id="gv-reas-conductor" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + conductorOpts + '</select></div>' +
+'<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-reas-chk-vehiculo"> Cambiar camion</label>' +
+'<div id="gv-reas-vehiculo-wrap" style="display:none;margin:0 0 12px"><select id="gv-reas-vehiculo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + vehiculoOpts + '</select></div>' +
+'<label style="display:block;font-size:.85rem;margin-bottom:6px">Motivo del cambio<span class="gv-req">*</span></label>' +
+'<select id="gv-reas-motivo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+'<option value="">Seleccionar motivo...</option>' +
+'<option value="rotura">Rotura o desperfecto del camion</option>' +
+'<option value="salud_chofer">Problema de salud del chofer</option>' +
+'<option value="sin_habilitacion">Sin habilitacion / demora en barrera de yacimiento</option>' +
+'<option value="otro">Otro</option>' +
+'</select>' +
+'<div id="gv-reas-motivo-otro-wrap" style="display:none;margin-top:8px"><input type="text" id="gv-reas-motivo-otro" placeholder="Detalle el motivo..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
+'<div id="gv-reas-msg" style="display:none;font-size:.8rem;padding:8px 10px;border-radius:6px;margin-top:12px"></div>' +
+'<div class="gv-modal-actions">' +
+'<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-reas-cancel">Cancelar</button>' +
+'<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-reas-save">Confirmar reasignacion</button>' +
+'</div>' +
+'</div>';
+document.body.appendChild(ov4);
+function closeReas(){ ov4.remove(); }
+document.getElementById('gv-reas-cancel').addEventListener('click', closeReas);
+ov4.addEventListener('click', function(e){ if(e.target === ov4) closeReas(); });
+var chkChofer = document.getElementById('gv-reas-chk-chofer');
+var choferWrap = document.getElementById('gv-reas-chofer-wrap');
+var chkVehiculo = document.getElementById('gv-reas-chk-vehiculo');
+var vehiculoWrap = document.getElementById('gv-reas-vehiculo-wrap');
+var motivoSel = document.getElementById('gv-reas-motivo');
+var motivoOtroWrap = document.getElementById('gv-reas-motivo-otro-wrap');
+var motivoOtroInp = document.getElementById('gv-reas-motivo-otro');
+var msgEl = document.getElementById('gv-reas-msg');
+chkChofer.addEventListener('change', function(){ choferWrap.style.display = chkChofer.checked ? 'block' : 'none'; });
+chkVehiculo.addEventListener('change', function(){ vehiculoWrap.style.display = chkVehiculo.checked ? 'block' : 'none'; });
+motivoSel.addEventListener('change', function(){ motivoOtroWrap.style.display = motivoSel.value === 'otro' ? 'block' : 'none'; });
+function showReasError(txt){ msgEl.style.display = 'block'; msgEl.style.background = '#fee2e2'; msgEl.style.color = '#991b1b'; msgEl.textContent = txt; }
+document.getElementById('gv-reas-save').addEventListener('click', function(){
+var conductorSel = document.getElementById('gv-reas-conductor');
+var vehiculoSel = document.getElementById('gv-reas-vehiculo');
+if(!chkChofer.checked && !chkVehiculo.checked){ showReasError('Marca al menos un cambio: chofer y/o camion.'); return; }
+if(chkChofer.checked && !conductorSel.value){ showReasError('Selecciona el nuevo conductor.'); return; }
+if(chkVehiculo.checked && !vehiculoSel.value){ showReasError('Selecciona el nuevo vehiculo.'); return; }
+if(!motivoSel.value){ showReasError('Selecciona el motivo del cambio.'); return; }
+if(motivoSel.value === 'otro' && !(motivoOtroInp.value||'').trim()){ showReasError('Detalla el motivo.'); return; }
+var ahora = new Date().toISOString();
+var tramosActuales = (v.tramos && v.tramos.length) ? v.tramos.slice() : [{ conductorId: v.conductorId, conductor: v.conductor, vehiculoId: v.vehiculoId, vehiculo: v.vehiculo, desde: v.fechaSalida, hasta: null, motivo: null, motivoDetalle: '' }];
+var abierto = Object.assign({}, tramosActuales[tramosActuales.length - 1]);
+abierto.hasta = ahora;
+tramosActuales[tramosActuales.length - 1] = abierto;
+var nuevoConductorId = chkChofer.checked ? conductorSel.value : v.conductorId;
+var nuevoConductor = chkChofer.checked ? conductorSel.options[conductorSel.selectedIndex].text : v.conductor;
+var nuevoVehiculoId = chkVehiculo.checked ? vehiculoSel.value : v.vehiculoId;
+var nuevoVehiculo = chkVehiculo.checked ? vehiculoSel.options[vehiculoSel.selectedIndex].text : v.vehiculo;
+var motivoLabel = motivoSel.options[motivoSel.selectedIndex].text;
+var motivoDetalleVal = motivoSel.value === 'otro' ? (motivoOtroInp.value||'').trim() : '';
+tramosActuales.push({
+conductorId: nuevoConductorId, conductor: nuevoConductor,
+vehiculoId: nuevoVehiculoId, vehiculo: nuevoVehiculo,
+desde: ahora, hasta: null,
+motivo: motivoSel.value, motivoLabel: motivoLabel, motivoDetalle: motivoDetalleVal
+});
+GV.Storage.updateViaje(v.id, {
+tramos: tramosActuales,
+conductorId: nuevoConductorId, conductor: nuevoConductor,
+vehiculoId: nuevoVehiculoId, vehiculo: nuevoVehiculo
+}).then(function(){
+var detalleMsg = (chkChofer.checked ? ('Chofer: ' + v.conductor + ' -> ' + nuevoConductor + '. ') : '') + (chkVehiculo.checked ? ('Camion: ' + v.vehiculo + ' -> ' + nuevoVehiculo + '. ') : '') + 'Motivo: ' + motivoLabel + (motivoDetalleVal ? (' - ' + motivoDetalleVal) : '');
+GV.Storage.addAlerta({ id: 'al_' + v.id + '_reasig_' + Date.now(), tipo: 'info', mensaje: 'Reasignacion en el viaje. ' + detalleMsg, fecha: ahora, viajeId: v.id });
+closeReas();
+closeDetalle();
+abrirDetalleViaje(v.id);
+renderTrips(); renderTracking(); renderStats();
+});
+});
+}
+var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
 GV.loadLeaflet().then(function(L){
@@ -1031,7 +1162,7 @@ L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(det
 } else {
 L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00AEEF', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
 }
-(function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? GV.getHistory(gApi, v.vehiculoId, __dayStart.toISOString(), new Date(v.completadoEn || Date.now()).toISOString()) : Promise.resolve([]); __histP.then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
+(function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? fetchHistoryForViaje(v, __dayStart, new Date(v.completadoEn || Date.now())) : Promise.resolve([]); __histP.then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
 });
 } else if(itinEl) {
 itinEl.innerHTML = '<p style="color:#6b7280;font-size:.85rem">Faltan datos de origen/destino para el itinerario.</p>';
@@ -1184,7 +1315,7 @@ stopPlayback();
 var to = new Date();
 var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
 var from = chk.checked ? new Date(to.getTime() - 4*3600*1000) : __dayStart2;
-GV.getHistory(gApi, v.vehiculoId, from.toISOString(), to.toISOString()).then(function(recs){
+fetchHistoryForViaje(v, from, to).then(function(recs){
 detHistPts = recs;
 detHistLayer.clearLayers();
 var startEl = document.getElementById('gv-det-time-start');
