@@ -501,9 +501,9 @@ GV.Storage = (function(){
   var _api = null;
   var _addInId = null;
   var _addInDataId = null;
-  var _data = { viajes: [], alertas: [], sitios: [] };
+  var _data = { viajes: [], alertas: [], sitios: [], conductores: [] };
   var _listeners = [];
-  var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
+  var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
 
   function loadFromLS(){
     try{
@@ -511,9 +511,9 @@ GV.Storage = (function(){
       if(raw){
         var d = JSON.parse(raw);
         _data.viajes = d.viajes || [];
-        _data.alertas = d.alertas || []; _data.sitios = d.sitios || [];
+        _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || [];
       }
-    }catch(e){ _data = { viajes: [], alertas: [] }; }
+    }catch(e){ _data = { viajes: [], alertas: [], sitios: [], conductores: [] }; }
   }
 
   function saveToLS(){
@@ -545,7 +545,7 @@ GV.Storage = (function(){
           var details = typeof rec.details === 'string' ? JSON.parse(rec.details) : rec.details;
           if(details){
             _data.viajes = details.viajes || [];
-            _data.alertas = details.alertas || []; _data.sitios = details.sitios || [];
+            _data.alertas = details.alertas || []; _data.sitios = details.sitios || []; _data.conductores = details.conductores || _data.conductores || [];
             saveToLS();
           }
         }catch(e){}
@@ -576,12 +576,12 @@ GV.Storage = (function(){
     });
   }
 
-  function persist(){ if(_fbReady && _fbDocRef){ _fbDocRef.set({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios }).catch(function(){}); }
+  function persist(){ if(_fbReady && _fbDocRef){ _fbDocRef.set({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores }).catch(function(){}); }
     saveToLS();
     notify();
     return new Promise(function(resolve){
       if(!_api || !_addInId){ resolve(false); return; }
-      var detailsStr = JSON.stringify({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios });
+      var detailsStr = JSON.stringify({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores });
       if(_addInDataId){
         _api.call('Set', { typeName: 'AddInData', entity: { id: _addInDataId, addInId: _addInId, details: detailsStr } },
           function(){ resolve(true); }, function(){ resolve(false); });
@@ -597,6 +597,8 @@ GV.Storage = (function(){
     refresh: refresh,
     onChange: function(fn){ _listeners.push(fn); },
     getViajes: function(){ return _data.viajes; },
+    getConductores: function(){ return _data.conductores; },
+    setConductores: function(list){ _data.conductores = list || []; return persist(); },
     getAlertas: function(){ return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
     addViaje: function(v){ _data.viajes.push(v); return persist(); },
     updateViaje: function(id, patch){
