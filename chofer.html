@@ -342,23 +342,34 @@ function poblarSelectManual(lista){
   }
 }
 
+function gvDescribirError(err){
+  if(!err) return 'error desconocido';
+  if(typeof err === 'string') return err;
+  if(err.message) return err.message;
+  if(err.name) return err.name;
+  try { return JSON.stringify(err); } catch(e){ return String(err); }
+}
+
 function cargarConductoresYIdentificar(api){
   return new Promise(function(resolve){
-    function intentarListaCompleta(mensaje){
+    function intentarListaCompleta(mensajePrevio){
       /* Solo funciona con clearance de administrador; un chofer normal no tiene permiso para listar todos los usuarios. */
       api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
         gConductores = (users || []).map(function(u){ return { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name }; });
         poblarSelectManual(gConductores);
-        mostrarSelectorManual(mensaje || 'No se detecto automaticamente tu usuario. Seleccioná tu nombre para continuar:');
+        mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Seleccioná tu nombre para continuar:');
         resolve();
-      }, function(){
-        mostrarSelectorManual('No se pudo identificar tu usuario automaticamente. Contactá al administrador para verificar tus permisos de Add-In.');
+      }, function(err){
+        mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Tampoco se pudo cargar la lista completa de conductores. Detalle: ' + gvDescribirError(err) + '. Contactá al administrador con este mensaje.');
         resolve();
       });
     }
     GV.getSession(api).then(function(session){
       var userName = session && session.userName;
-      if(!userName){ intentarListaCompleta(); return; }
+      if(!userName){
+        intentarListaCompleta('No se pudo obtener tu usuario de sesion (session.userName vacio).');
+        return;
+      }
       /* Busqueda acotada a el propio usuario: funciona incluso con clearance restringido de chofer. */
       api.call('Get', { typeName: 'User', search: { name: userName } }, function(users){
         var u = (users || [])[0];
@@ -367,9 +378,11 @@ function cargarConductoresYIdentificar(api){
           gConductores = [gDriver];
           resolve();
         } else {
-          intentarListaCompleta();
+          intentarListaCompleta('Tu usuario de sesion es "' + userName + '" pero no se encontro ningun User con ese nombre exacto.');
         }
-      }, function(){ intentarListaCompleta(); });
+      }, function(err){
+        intentarListaCompleta('Tu usuario de sesion es "' + userName + '". Error al buscarlo: ' + gvDescribirError(err) + '.');
+      });
     });
   });
 }
