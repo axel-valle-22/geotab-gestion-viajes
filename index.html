@@ -10,9 +10,18 @@
 <body>
 <div id="gv-app">
 <div id="gv-style-container"></div>
+<div id="gv-header-row">
 <div id="gv-header"><img src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transportes Dolores Parra" style="height:48px;margin-bottom:8px;display:block">
 <h1>Gestion de Viajes</h1>
 <p>DoloresParra S.A. - Panel de Coordinacion</p>
+</div>
+<div class="gv-events-col">
+<div class="gv-events-mini">
+<h4>Ultimos eventos <span class="gv-events-hint">pasa el mouse para ver mas</span></h4>
+<div id="gv-events-mini-list"></div>
+<div class="gv-events-expanded"><div id="gv-events-expanded-list"></div></div>
+</div>
+</div>
 </div>
 <div id="gv-tabs">
 <button class="gv-tab-btn gv-active" data-tab="panel">Panel</button>
@@ -28,11 +37,11 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="lista" id="gv-view-lista">Lista</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="calendario" id="gv-view-calendario">Calendario</button></div>
-<div id="gv-calendar-wrap" style="display:none;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button></div>
+<div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
-<div id="gv-trip-list"></div>
+<div id="gv-trip-list" style="display:none"></div>
 </div>
 
 <div id="gv-tab-nuevo" class="gv-tab-content">
@@ -91,7 +100,7 @@ var gTrackMap = null;
 var gTrackLayer = null;
 var gTrackInterval = null;
 var gTrackRenderGen = 0;
-var gPanelView = 'lista';
+var gPanelView = 'calendario';
 var gCalMonth = new Date(); gCalMonth.setDate(1);
 var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLiveStatusCache = {};
 var gTrackSelectedId = null;
@@ -226,6 +235,24 @@ function renderAlertas(){
       : '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button>';
     return '<div class="gv-alert-card' + (isAuth ? ' gv-alert-warn' : '') + '"><div><div class="gv-alert-text">' + GV.escapeHtml(a.mensaje) + '</div><div class="gv-alert-time">' + GV.fmtDate(a.fecha) + '</div></div>' + extra + '</div>';
   }).join('');
+}
+
+function renderEventsWidget(){
+  var miniList = document.getElementById('gv-events-mini-list');
+  var expList = document.getElementById('gv-events-expanded-list');
+  if(!miniList || !expList) return;
+  var alertas = GV.Storage.getAlertas().slice().sort(function(a,b){ return new Date(b.fecha) - new Date(a.fecha); });
+  if(!alertas.length){
+    var vacio = '<p style="text-align:center;color:#9ca3af;padding:8px 0;font-size:.74rem;margin:0">Sin eventos recientes</p>';
+    miniList.innerHTML = vacio;
+    expList.innerHTML = vacio;
+    return;
+  }
+  function itemHtml(a){
+    return '<div class="gv-events-mini-item">' + GV.escapeHtml(a.mensaje) + '<span class="gv-events-mini-time">' + GV.fmtDate(a.fecha) + '</span></div>';
+  }
+  miniList.innerHTML = alertas.slice(0,5).map(itemHtml).join('');
+  expList.innerHTML = alertas.slice(0,12).map(itemHtml).join('');
 }
 
 function checkDelays(){
@@ -419,15 +446,15 @@ abrirDetalleViaje(id);
     var action = btn.getAttribute('data-action'), id = btn.getAttribute('data-id');
     var alerta = GV.Storage.getAlertas().find(function(a){ return a.id === id; });
     if(action === 'dismiss'){
-      GV.Storage.removeAlerta(id).then(function(){ renderAlertas(); });
+      GV.Storage.removeAlerta(id).then(function(){ renderAlertas(); renderEventsWidget(); });
     } else if(action === 'aprobar' && alerta){
       GV.Storage.updateViaje(alerta.viajeId, { gerenciamiento: Object.assign({}, GV.Storage.getViaje(alerta.viajeId).gerenciamiento, { autorizadoPor: 'supervisor', autorizadoEn: new Date().toISOString() }) })
         .then(function(){ return GV.Storage.removeAlerta(id); })
-        .then(function(){ renderAlertas(); renderTrips(); });
+        .then(function(){ renderAlertas(); renderEventsWidget(); renderTrips(); });
     } else if(action === 'rechazar' && alerta){
       GV.Storage.updateViaje(alerta.viajeId, { gerenciamiento: Object.assign({}, GV.Storage.getViaje(alerta.viajeId).gerenciamiento, { rechazado: true, rechazadoEn: new Date().toISOString() }) })
         .then(function(){ return GV.Storage.removeAlerta(id); })
-        .then(function(){ renderAlertas(); renderTrips(); });
+        .then(function(){ renderAlertas(); renderEventsWidget(); renderTrips(); });
     }
   });
 
@@ -1421,8 +1448,8 @@ function doInit(api){
 
   GV.Storage.init(api).then(function(){
     checkDelays(); checkDwellAlerts();
-    renderStats(); renderTrips(); renderAlertas();
-    GV.Storage.onChange(function(){ renderStats(); renderAlertas(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
+    renderStats(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
+    GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
   });
 
   var now = new Date();
@@ -1434,7 +1461,7 @@ function doInit(api){
     loadMasterData(api);
     setInterval(function(){
       checkDelays(); checkDwellAlerts();
-      GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
+      GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
   } else {
     var loading = document.getElementById('gv-loading');
