@@ -119,7 +119,7 @@ function renderViajeCard(v, compact){
 
   return '<div class="gv-driver-trip">' + banner +
     '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.vehiculo||'?') + '</div><span class="gv-status gv-s-' + v.estado + '">' + GV.statusLabel(v.estado) + '</span></div>' +
-    '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt) + '</div>' +
+    '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(origenTxt, destinoTxt) + '</div>' +
     (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
     (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
     (actions ? '<div class="gv-trip-actions">' + actions + '</div>' : '') +
