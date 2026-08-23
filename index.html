@@ -23,10 +23,10 @@
 
 <div id="gv-tab-panel" class="gv-tab-content gv-show">
 <div class="gv-stats-grid">
-<div class="gv-stat-card"><div class="gv-stat-num" id="stat-hoy">0</div><div class="gv-stat-lbl">Hoy</div></div>
-<div class="gv-stat-card"><div class="gv-stat-num gv-blue" id="stat-curso">0</div><div class="gv-stat-lbl">En Curso</div></div>
-<div class="gv-stat-card"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
-<div class="gv-stat-card"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
+<div class="gv-stat-card" data-stat-filter="hoy"><div class="gv-stat-num" id="stat-hoy">0</div><div class="gv-stat-lbl">Hoy</div></div>
+<div class="gv-stat-card" data-stat-filter="curso"><div class="gv-stat-num gv-blue" id="stat-curso">0</div><div class="gv-stat-lbl">En Curso</div></div>
+<div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
+<div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
 <div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="lista" id="gv-view-lista">Lista</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="calendario" id="gv-view-calendario">Calendario</button></div>
 <div id="gv-calendar-wrap" style="display:none;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
@@ -54,8 +54,9 @@
 <button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-add-stop">+ Agregar punto en el mapa</button>
 </div>
 <div class="gv-form-row">
-<label>Destino<span class="gv-req">*</span></label>
-<div class="gv-loc-display"><span id="gv-destino-txt">Sin seleccionar</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-destino">Ubicar en Mapa</button></div>
+<label>Destino <span style="font-weight:400;color:#9ca3af">(opcional)</span></label>
+<div class="gv-loc-display"><span id="gv-destino-txt">Sin seleccionar</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-destino">Ubicar en Mapa</button><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-quitar-destino">Quitar</button></div>
+<div style="font-size:.76rem;color:#9ca3af;margin-top:4px">Si el camion no retorna a un punto final (por ejemplo, termina en la ultima descarga), podes dejar el destino sin definir.</div>
 </div>
 <div class="gv-form-row"><label>Observaciones</label><textarea id="gv-obs" rows="3" placeholder="Instrucciones para el chofer..."></textarea></div>
 <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
@@ -92,7 +93,7 @@ var gTrackInterval = null;
 var gTrackRenderGen = 0;
 var gPanelView = 'lista';
 var gCalMonth = new Date(); gCalMonth.setDate(1);
-var gCalSelectedDay = null; var gVehicleState = {}; var gLiveStatusCache = {};
+var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLiveStatusCache = {};
 var gTrackSelectedId = null;
 
 function showTab(name){
@@ -137,6 +138,14 @@ function puedeIniciar(v){
   return g.autorizadoPor === 'supervisor';
 }
 
+var STAT_FILTER_LABELS = { hoy: 'Viajes de hoy', curso: 'Viajes en curso', comp: 'Viajes completados', dem: 'Viajes demorados' };
+
+function updateStatCardHighlight(){
+  document.querySelectorAll('.gv-stat-card[data-stat-filter]').forEach(function(card){
+    card.classList.toggle('gv-stat-active', card.getAttribute('data-stat-filter') === gStatFilter);
+  });
+}
+
 function renderTrips(){
   var list = document.getElementById('gv-trip-list');
   if(!list) return;
@@ -150,10 +159,27 @@ filterInfo.innerHTML = '<span class="gv-filter-chip">Viajes del ' + gCalSelected
 var cf = document.getElementById('gv-clear-filter');
 if(cf) cf.addEventListener('click', function(){ gCalSelectedDay = null; renderTrips(); });
 }
+} else if(gStatFilter){
+var todayStr = new Date().toDateString();
+viajes = viajes.filter(function(v){
+if(gStatFilter === 'hoy') return new Date(v.fechaSalida).toDateString() === todayStr;
+if(gStatFilter === 'curso') return v.estado === 'en_curso';
+if(gStatFilter === 'comp') return v.estado === 'completado';
+if(gStatFilter === 'dem') return v.estado === 'demorado';
+return true;
+});
+if(filterInfo){
+filterInfo.style.display = 'block';
+filterInfo.innerHTML = '<span class="gv-filter-chip">' + (STAT_FILTER_LABELS[gStatFilter]||'Filtrado') + ' <button type="button" id="gv-clear-stat-filter" style="border:none;background:none;color:#1e3a8a;cursor:pointer;font-weight:700">&times; Quitar filtro</button></span>';
+var csf = document.getElementById('gv-clear-stat-filter');
+if(csf) csf.addEventListener('click', function(){ gStatFilter = null; updateStatCardHighlight(); renderTrips(); });
+}
 } else if(filterInfo){ filterInfo.style.display = 'none'; filterInfo.innerHTML = ''; }
 
   if(!viajes.length){
-    list.innerHTML = '<p style="text-align:center;color:#6b7280;padding:40px">No hay viajes registrados. Usa "Nuevo Viaje" para crear el primero.</p>';
+    list.innerHTML = (gCalSelectedDay || gStatFilter)
+      ? '<p style="text-align:center;color:#6b7280;padding:40px">No hay viajes que coincidan con el filtro aplicado.</p>'
+      : '<p style="text-align:center;color:#6b7280;padding:40px">No hay viajes registrados. Usa "Nuevo Viaje" para crear el primero.</p>';
     return;
   }
   var sorted = viajes.slice().sort(function(a,b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); });
@@ -175,7 +201,7 @@ if(cf) cf.addEventListener('click', function(){ gCalSelectedDay = null; renderTr
     return '<div class="gv-trip-card">' +
       '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div></div>' +
-      '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt) + '</div>' + ((v.estado==='en_curso'||v.estado==='demorado') ? ('<div class="gv-live-banner gv-live-' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].cls)||'unknown') + '">' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].label)||'Obteniendo estado en vivo...') + '</div>') : '') +
+      '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(origenTxt, destinoTxt) + '</div>' + ((v.estado==='en_curso'||v.estado==='demorado') ? ('<div class="gv-live-banner gv-live-' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].cls)||'unknown') + '">' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].label)||'Obteniendo estado en vivo...') + '</div>') : '') +
       (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
       (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
       '<div class="gv-trip-actions">' + actions + '</div></div>';
@@ -291,6 +317,15 @@ function setupEvents(){
 document.querySelectorAll('.gv-view-btn').forEach(function(btn){
 btn.addEventListener('click', function(){ switchPanelView(btn.getAttribute('data-view')); });
 });
+document.querySelectorAll('.gv-stat-card[data-stat-filter]').forEach(function(card){
+card.addEventListener('click', function(){
+var key = card.getAttribute('data-stat-filter');
+gStatFilter = (gStatFilter === key) ? null : key;
+gCalSelectedDay = null;
+updateStatCardHighlight();
+switchPanelView('lista');
+});
+});
 var calPrevBtn = document.getElementById('gv-cal-prev');
 if(calPrevBtn) calPrevBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()-1); renderCalendar(); });
 var calNextBtn = document.getElementById('gv-cal-next');
@@ -308,6 +343,11 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
     });
   });
 
+  document.getElementById('gv-btn-quitar-destino').addEventListener('click', function(){
+    gDestino = null;
+    document.getElementById('gv-destino-txt').textContent = 'Sin seleccionar';
+  });
+
   document.getElementById('gv-btn-add-stop').addEventListener('click', function(){
     GV.pickLocation({ title: 'Punto de carga o descarga', withStopFields: true }).then(function(res){
       if(res){ gParadas.push(res); renderStopsList(); }
@@ -321,8 +361,8 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
     var fEl=document.getElementById('gv-fecha'), hEl=document.getElementById('gv-hora');
     var obsEl=document.getElementById('gv-obs'), msg=document.getElementById('gv-form-msg');
 
-    if(!cSel.value || !vSel.value || !fEl.value || !hEl.value || !gOrigen || !gDestino){
-      if(msg){ msg.style.display='block'; msg.style.background='#fee2e2'; msg.style.color='#991b1b'; msg.textContent='Completa todos los campos obligatorios (conductor, vehiculo, fecha, hora, origen y destino).'; }
+    if(!cSel.value || !vSel.value || !fEl.value || !hEl.value || !gOrigen){
+      if(msg){ msg.style.display='block'; msg.style.background='#fee2e2'; msg.style.color='#991b1b'; msg.textContent='Completa todos los campos obligatorios (conductor, vehiculo, fecha, hora y origen).'; }
       return;
     }
 
@@ -530,13 +570,13 @@ function renderTracking(){
       (v.paradas||[]).forEach(function(p){ pts.push([p.lat, p.lng]); });
       if(v.destino) pts.push([v.destino.lat, v.destino.lng]);
       if(pts.length > 1){
-              var __fallbackLine = L.polyline(pts, { color: '#EC4179', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
+              var __fallbackLine = L.polyline(pts, { color: '#00A6E0', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
               (function(fallbackLine, gen){
                 GV.getRoute(pts.map(function(p){ return { lat: p[0], lng: p[1] }; })).then(function(route){
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
-                    L.polyline(route.coords, { color: '#EC4179', weight: 4, opacity: .8 }).addTo(gTrackLayer);
+                    L.polyline(route.coords, { color: '#00A6E0', weight: 4, opacity: .8 }).addTo(gTrackLayer);
                   }
                 });
               })(__fallbackLine, myGen);
@@ -577,7 +617,7 @@ function renderTracking(){
             '<div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' -</div>' +
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-detalle-id="' + v.id + '">Ver detalle</button>' +
           '</div>' +
-          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.escapeHtml(v.origen?GV.siteNameFor(v.origen):'') + ' &rarr; ' + GV.escapeHtml(v.destino?GV.siteNameFor(v.destino):'') + (GV.dateStr(v.fechaSalida) !== hoyStr ? ' &nbsp;|&nbsp; <span style="color:#d97706;font-weight:700">Continua desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0] + '</span>' : '') + '</div>' +
+          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(v.origen?GV.siteNameFor(v.origen):'', v.destino?GV.siteNameFor(v.destino):'') + (GV.dateStr(v.fechaSalida) !== hoyStr ? ' &nbsp;|&nbsp; <span style="color:#d97706;font-weight:700">Continua desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0] + '</span>' : '') + '</div>' +
           (stopsChips ? ('<div class="gv-stops">' + stopsChips + '</div>') : '') +
           '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div>' +
           '<div id="gv-track-wait-' + v.id + '" class="gv-live-banner" style="display:none;background:#fee2e2;color:#7f1d1d"></div></div></div>';
@@ -611,7 +651,7 @@ function renderTracking(){
           var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-live-banner gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
           if(activosIds[v.id]){
             bounds.push(pos);
-            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#EC4179'), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
+            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#00A6E0'), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
           }
         }
         pending--;
@@ -676,6 +716,8 @@ grid.innerHTML = html;
 grid.querySelectorAll('.gv-cal-day[data-date]').forEach(function(cell){
 cell.addEventListener('click', function(){
 gCalSelectedDay = cell.getAttribute('data-date');
+gStatFilter = null;
+updateStatCardHighlight();
 switchPanelView('lista');
 });
 });
@@ -963,6 +1005,14 @@ abrirDetalleViaje(v.id);
 });
 }
 
+function quitarDestino(){
+if(!confirm('¿Quitar el destino de este viaje? Uso esto cuando el camion no vuelve a un punto final (por ejemplo, termina en la ultima descarga). El origen y el resto del itinerario no se modifican.')) return;
+GV.Storage.updateViaje(v.id, { destino: null }).then(function(){
+closeDetalle();
+abrirDetalleViaje(v.id);
+});
+}
+
 function reordenarParada(fromIdx, insertBeforeIdx){
 var paradas = (v.paradas||[]).slice();
 if(fromIdx < 0 || fromIdx >= paradas.length) return;
@@ -982,6 +1032,7 @@ function abrirAccionesSitio(siteId){
 var p = pts.filter(function(pp){ return pp.id === siteId; })[0];
 if(!p) return;
 var isParada = siteId.indexOf('parada') === 0;
+var isDestino = siteId === 'destino';
 var idx = isParada ? parseInt(siteId.replace('parada',''), 10) : -1;
 var ov3 = document.createElement('div');
 ov3.className = 'gv-modal-overlay';
@@ -989,6 +1040,8 @@ ov3.style.zIndex = '10000';
 var btns = '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-editar" style="width:100%;text-align:left;margin-bottom:8px">&#9998; Editar ubicacion</button>';
 if(isParada){
 btns += '<button type="button" class="gv-btn gv-btn-danger" id="gv-acc-quitar" style="width:100%;text-align:left;margin-bottom:8px">&times; Quitar parada</button>';
+} else if(isDestino){
+btns += '<button type="button" class="gv-btn gv-btn-danger" id="gv-acc-quitar" style="width:100%;text-align:left;margin-bottom:8px">&times; Quitar destino</button>';
 }
 ov3.innerHTML =
 '<div class="gv-modal" style="max-width:360px">' +
@@ -1003,7 +1056,7 @@ document.getElementById('gv-acc-cancel').addEventListener('click', closeAcc);
 ov3.addEventListener('click', function(e){ if(e.target === ov3) closeAcc(); });
 document.getElementById('gv-acc-editar').addEventListener('click', function(){ closeAcc(); editarUbicacionSitio(siteId); });
 var quitarBtn = document.getElementById('gv-acc-quitar');
-if(quitarBtn) quitarBtn.addEventListener('click', function(){ closeAcc(); quitarParada(idx); });
+if(quitarBtn) quitarBtn.addEventListener('click', function(){ closeAcc(); if(isParada){ quitarParada(idx); } else if(isDestino){ quitarDestino(); } });
 }
 
 function renderItinerario(route, fullHist){
@@ -1158,9 +1211,9 @@ if(addParadaBtn) addParadaBtn.addEventListener('click', agregarParada);
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
 if(route && route.coords){
-L.polyline(route.coords, { color: '#EC4179', weight: 4, opacity: .8 }).addTo(detLayer);
+L.polyline(route.coords, { color: '#00A6E0', weight: 4, opacity: .8 }).addTo(detLayer);
 } else {
-L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#EC4179', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
+L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00A6E0', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
 }
 (function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? fetchHistoryForViaje(v, __dayStart, new Date(v.completadoEn || Date.now())) : Promise.resolve([]); __histP.then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
 });
@@ -1178,7 +1231,7 @@ var pos = [r.latitude, r.longitude];
 var speed = Math.round(r.speed || 0);
 var estadoMov = speed > 2 ? 'En movimiento' : 'Detenido';
 var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR',{hour12:false}) : new Date().toLocaleString('es-AR',{hour12:false});
-var icon = GV.vehicleIcon(L, r.bearing, '#EC4179');
+var icon = GV.vehicleIcon(L, r.bearing, '#00A6E0');
 if(!detLiveMarker){
 detLiveMarker = L.marker(pos, { icon: icon, zIndexOffset: 1000 }).addTo(detLayer);
 detMap.fitBounds(bounds.concat([pos]), {padding:[30,30]});
@@ -1211,7 +1264,7 @@ function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
 if(histMarker){ detHistLayer.removeLayer(histMarker); }
-histMarker = L.marker([r.latitude, r.longitude], { icon: GV.vehicleIcon(L, bearingAtIdx(idx), '#A81F4C'), zIndexOffset: 900 }).addTo(detHistLayer);
+histMarker = L.marker([r.latitude, r.longitude], { icon: GV.vehicleIcon(L, bearingAtIdx(idx), '#005674'), zIndexOffset: 900 }).addTo(detHistLayer);
 var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
 histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.speed||0) + ' km/h').openTooltip();
 }
@@ -1322,7 +1375,7 @@ var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
 var line = recs.map(function(r){ return [r.latitude, r.longitude]; });
-L.polyline(line, { color: '#A81F4C', weight: 3, opacity: .6 }).addTo(detHistLayer);
+L.polyline(line, { color: '#005674', weight: 3, opacity: .6 }).addTo(detHistLayer);
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;
