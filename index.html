@@ -282,6 +282,10 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
       sel.innerHTML = '<option value="">Seleccionar conductor...</option>' +
         gState.conductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
     }
+    /* Sincroniza el directorio de conductores hacia el storage compartido (Firebase), para que
+       chofer.html pueda identificar/seleccionar choferes sin llamar a Get/User (bloqueado dentro
+       de Geotab Drive con "Bad request"). */
+    if(gState.conductores.length){ GV.Storage.setConductores(gState.conductores); }
     onDone();
   }, function(){ onDone(); });
 
