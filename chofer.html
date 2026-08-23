@@ -327,28 +327,45 @@ renderStep();
 }
 
 /* ---------------- Identificacion del chofer ---------------- */
+function mostrarSelectorManual(mensaje){
+  var box = document.getElementById('gv-select-driver-box');
+  if(!box) return;
+  box.style.display = 'block';
+  var lbl = box.querySelector('label');
+  if(lbl && mensaje) lbl.textContent = mensaje;
+}
+
 function cargarConductoresYIdentificar(api){
   return new Promise(function(resolve){
-    api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
-      gConductores = (users || []).map(function(u){ return { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name }; });
-      var sel = document.getElementById('gv-select-driver');
-      if(sel){
-        sel.innerHTML = '<option value="">Seleccionar...</option>' + gConductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
-      }
-      GV.getSession(api).then(function(session){
-        var match = null;
-        if(session && session.userName){
-          match = gConductores.find(function(c){ return c.name && c.name.toLowerCase() === session.userName.toLowerCase(); });
+    function intentar(esReintento){
+      api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
+        gConductores = (users || []).map(function(u){ return { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name }; });
+        var sel = document.getElementById('gv-select-driver');
+        if(sel){
+          sel.innerHTML = '<option value="">Seleccionar...</option>' + gConductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
         }
-        if(match){
-          gDriver = match;
+        GV.getSession(api).then(function(session){
+          var match = null;
+          if(session && session.userName){
+            match = gConductores.find(function(c){ return c.name && c.name.toLowerCase() === session.userName.toLowerCase(); });
+          }
+          if(match){
+            gDriver = match;
+          } else {
+            mostrarSelectorManual('No se detecto automaticamente tu usuario. Seleccioná tu nombre para continuar:');
+          }
+          resolve();
+        });
+      }, function(){
+        if(!esReintento){
+          setTimeout(function(){ intentar(true); }, 1500);
         } else {
-          var box = document.getElementById('gv-select-driver-box');
-          if(box) box.style.display = 'block';
+          mostrarSelectorManual('No se pudo cargar la lista de conductores. Revisá tu conexión e intentá de nuevo, o elegí tu nombre si aparece en la lista:');
+          resolve();
         }
-        resolve();
       });
-    }, function(){ resolve(); });
+    }
+    intentar(false);
   });
 }
 
