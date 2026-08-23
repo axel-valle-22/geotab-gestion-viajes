@@ -345,13 +345,20 @@ function poblarSelectManual(lista){
 function gvDescribirError(err){
   if(!err) return 'error desconocido';
   if(typeof err === 'string') return err;
-  if(err.message) return err.message;
-  if(err.name) return err.name;
-  try { return JSON.stringify(err); } catch(e){ return String(err); }
+  var partes = [];
+  if(err.message) partes.push('mensaje=' + err.message);
+  if(err.name) partes.push('nombre=' + err.name);
+  if(err.code !== undefined && err.code !== null) partes.push('code=' + err.code);
+  try {
+    var json = JSON.stringify(err);
+    if(json && json !== '{}' && json !== 'null') partes.push('json=' + json);
+  } catch(e){}
+  return partes.length ? partes.join(' | ') : String(err);
 }
 
-function cargarConductoresYIdentificar(api){
+function cargarConductoresYIdentificar(api, state){
   return new Promise(function(resolve){
+    var onlineInfo = 'online=' + (state ? state.online : 'sin state');
     function intentarListaCompleta(mensajePrevio){
       /* Solo funciona con clearance de administrador; un chofer normal no tiene permiso para listar todos los usuarios. */
       api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
@@ -360,14 +367,14 @@ function cargarConductoresYIdentificar(api){
         mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Seleccioná tu nombre para continuar:');
         resolve();
       }, function(err){
-        mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Tampoco se pudo cargar la lista completa de conductores. Detalle: ' + gvDescribirError(err) + '. Contactá al administrador con este mensaje.');
+        mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Tampoco se pudo cargar la lista completa (' + onlineInfo + '). Detalle: ' + gvDescribirError(err) + '. Contactá al administrador con este mensaje.');
         resolve();
       });
     }
     GV.getSession(api).then(function(session){
       var userName = session && session.userName;
       if(!userName){
-        intentarListaCompleta('No se pudo obtener tu usuario de sesion (session.userName vacio).');
+        intentarListaCompleta('No se pudo obtener tu usuario de sesion (session.userName vacio, ' + onlineInfo + ').');
         return;
       }
       /* Busqueda acotada a el propio usuario: funciona incluso con clearance restringido de chofer. */
@@ -378,10 +385,10 @@ function cargarConductoresYIdentificar(api){
           gConductores = [gDriver];
           resolve();
         } else {
-          intentarListaCompleta('Tu usuario de sesion es "' + userName + '" pero no se encontro ningun User con ese nombre exacto.');
+          intentarListaCompleta('Tu usuario de sesion es "' + userName + '" pero no se encontro ningun User con ese nombre exacto (' + onlineInfo + ').');
         }
       }, function(err){
-        intentarListaCompleta('Tu usuario de sesion es "' + userName + '". Error al buscarlo: ' + gvDescribirError(err) + '.');
+        intentarListaCompleta('Tu usuario de sesion es "' + userName + '" (' + onlineInfo + '). Error al buscarlo: ' + gvDescribirError(err) + '.');
       });
     });
   });
@@ -397,14 +404,16 @@ function setupEvents(){
   }
 }
 
-function doInit(api){
+function doInit(api, state){
+  if(window._gvInitDone === 'real') return; /* evita doble inicializacion si ya hubo una real */
+  window._gvInitDone = api ? 'real' : 'null';
   gApi = api;
   GV.injectCSS('gv-style-container');
   setupEvents();
 
   GV.Storage.init(api).then(function(){
     if(api){
-      cargarConductoresYIdentificar(api).then(function(){ renderDriverView(); });
+      cargarConductoresYIdentificar(api, state).then(function(){ renderDriverView(); });
     } else {
       renderDriverView();
     }
@@ -417,14 +426,14 @@ function doInit(api){
 }
 
 window.initialize = function(api, state, callback){
-  doInit(api);
+  doInit(api, state);
   if(typeof callback === 'function') callback();
 };
 
 if(typeof geotab !== 'undefined' && geotab.addin){
   geotab.addin.GestionViajesDPChofer = function(){
     return {
-      initialize: function(api, state, callback){ doInit(api); if(typeof callback === 'function') callback(); },
+      initialize: function(api, state, callback){ doInit(api, state); if(typeof callback === 'function') callback(); },
       focus: function(){}, blur: function(){}
     };
   };
@@ -432,16 +441,9 @@ if(typeof geotab !== 'undefined' && geotab.addin){
 
 setTimeout(function(){
   if(typeof window._gvInitDone === 'undefined'){
-    window._gvInitDone = true;
-    doInit(null);
+    doInit(null, null);
   }
 }, 800);
-
-var _origInit = window.initialize;
-window.initialize = function(api, state, callback){
-  window._gvInitDone = true;
-  return _origInit.apply(this, arguments);
-};
 
 })();
 </script>
