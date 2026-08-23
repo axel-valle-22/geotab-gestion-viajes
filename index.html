@@ -29,7 +29,7 @@
 <div class="gv-stat-card"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
 <div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="lista" id="gv-view-lista">Lista</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="calendario" id="gv-view-calendario">Calendario</button></div>
-<div id="gv-calendar-wrap" style="display:none;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:#00AEEF;font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
+<div id="gv-calendar-wrap" style="display:none;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
 <div id="gv-trip-list"></div>
@@ -68,7 +68,7 @@
 
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-<h2 style="margin:0;color:#00AEEF;font-size:1.1rem">Seguimiento en tiempo real</h2>
+<h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real</h2>
 <button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button>
 </div>
 <div id="gv-track-map" style="height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
@@ -530,13 +530,13 @@ function renderTracking(){
       (v.paradas||[]).forEach(function(p){ pts.push([p.lat, p.lng]); });
       if(v.destino) pts.push([v.destino.lat, v.destino.lng]);
       if(pts.length > 1){
-              var __fallbackLine = L.polyline(pts, { color: '#00AEEF', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
+              var __fallbackLine = L.polyline(pts, { color: '#EC4179', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
               (function(fallbackLine, gen){
                 GV.getRoute(pts.map(function(p){ return { lat: p[0], lng: p[1] }; })).then(function(route){
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
-                    L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(gTrackLayer);
+                    L.polyline(route.coords, { color: '#EC4179', weight: 4, opacity: .8 }).addTo(gTrackLayer);
                   }
                 });
               })(__fallbackLine, myGen);
@@ -568,11 +568,11 @@ function renderTracking(){
           ((v.destino && v.destino.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.destino.tipo + '">Destino - ' + GV.tipoParadaLabel(v.destino.tipo) + '</span>' + trackStopBadge(v, 'destino') + '</div>') : '');
         var vp = vehiculoParts(v.vehiculo);
         return '<div style="display:flex;gap:10px;align-items:stretch;margin-bottom:12px;cursor:pointer" data-track-id="' + v.id + '">' +
-          '<div class="gv-plate-box"' + (sel ? ' style="border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)"' : '') + '>' +
+          '<div class="gv-plate-box"' + (sel ? ' style="border-color:var(--gv-accent);box-shadow:0 0 0 2px rgba(var(--gv-accent-rgb),.25)"' : '') + '>' +
             '<div class="gv-plate-interno">' + GV.escapeHtml(vp.interno) + '</div>' +
             (vp.patente ? ('<div class="gv-plate-patente">' + GV.escapeHtml(vp.patente) + '</div>') : '') +
           '</div>' +
-          '<div class="gv-trip-card" style="flex:1;margin-bottom:0' + (sel ? ';border-color:#00AEEF;box-shadow:0 0 0 2px rgba(0,174,239,.25)' : '') + '">' +
+          '<div class="gv-trip-card" style="flex:1;margin-bottom:0' + (sel ? ';border-color:var(--gv-accent);box-shadow:0 0 0 2px rgba(var(--gv-accent-rgb),.25)' : '') + '">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
             '<div class="gv-trip-title">' + GV.escapeHtml(v.conductor) + ' -</div>' +
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-detalle-id="' + v.id + '">Ver detalle</button>' +
@@ -611,7 +611,7 @@ function renderTracking(){
           var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-live-banner gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
           if(activosIds[v.id]){
             bounds.push(pos);
-            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#00AEEF'), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
+            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#EC4179'), zIndexOffset: 1000 }).bindTooltip(v.conductor + ' - ' + v.vehiculo + ' (' + __ts.label + ')').addTo(gTrackLayer);
           }
         }
         pending--;
@@ -711,12 +711,12 @@ overlay.innerHTML =
 '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + '</div>' +
 tramosHtml +
-(v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:#00AEEF;margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
+(v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 (v.vehiculoId ? '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-det-recent" checked> Solo posiciones ultimas 4hs</label>' : '') +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
 (v.vehiculoId ? ('<div id="gv-det-playback" style="background:#0f172a;border-radius:10px;padding:12px 16px 10px;margin-bottom:14px">' +
 '<div style="display:flex;align-items:center;gap:12px">' +
-'<button type="button" id="gv-det-play" style="background:#00AEEF;border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:.85rem;cursor:pointer;flex-shrink:0" disabled>&#9654;</button>' +
+'<button type="button" id="gv-det-play" style="background:var(--gv-accent);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:.85rem;cursor:pointer;flex-shrink:0" disabled>&#9654;</button>' +
 '<div style="min-width:64px">' +
 '<div id="gv-det-time-cur" style="color:#fff;font-size:1rem;font-weight:700;line-height:1.1">--:--</div>' +
 '<div id="gv-det-time-elapsed" style="color:#9ca3af;font-size:.68rem">00:00:00 / 00:00:00</div>' +
@@ -1087,7 +1087,7 @@ return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : ''
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + fmtTimeCell(r.ingreso) + '</td>' +
 '<td>' + fmtTimeCell(r.realIn) + '</td>' +
-'<td>' + (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:#00AEEF;text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar carga, descarga y minutos">' + (r.dwell||0) + ' min</span>') : '-') + '</td>' +
+'<td>' + (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar carga, descarga y minutos">' + (r.dwell||0) + ' min</span>') : '-') + '</td>' +
 '<td>' + fmtTimeCell(r.egreso) + '</td>' +
 '<td>' + (enSitioNote || (fmtTimeCell(r.realOut) + realDurNote)) + '</td></tr>';
 }).join('') + '</tbody></table>' +
@@ -1132,7 +1132,7 @@ e.dataTransfer.dropEffect = 'move';
 var rect = tr.getBoundingClientRect();
 var half = (e.clientY - rect.top) < (rect.height / 2) ? 'top' : 'bottom';
 if(__dropIndicatorRow && __dropIndicatorRow !== tr){ __dropIndicatorRow.style.boxShadow = ''; }
-tr.style.boxShadow = half === 'top' ? 'inset 0 3px 0 0 #00AEEF' : 'inset 0 -3px 0 0 #00AEEF';
+tr.style.boxShadow = half === 'top' ? 'inset 0 3px 0 0 var(--gv-accent)' : 'inset 0 -3px 0 0 var(--gv-accent)';
 __dropIndicatorRow = tr;
 tr.setAttribute('data-drop-half', half);
 });
@@ -1158,9 +1158,9 @@ if(addParadaBtn) addParadaBtn.addEventListener('click', agregarParada);
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
 if(route && route.coords){
-L.polyline(route.coords, { color: '#00AEEF', weight: 4, opacity: .8 }).addTo(detLayer);
+L.polyline(route.coords, { color: '#EC4179', weight: 4, opacity: .8 }).addTo(detLayer);
 } else {
-L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00AEEF', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
+L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#EC4179', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
 }
 (function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? fetchHistoryForViaje(v, __dayStart, new Date(v.completadoEn || Date.now())) : Promise.resolve([]); __histP.then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
 });
@@ -1178,7 +1178,7 @@ var pos = [r.latitude, r.longitude];
 var speed = Math.round(r.speed || 0);
 var estadoMov = speed > 2 ? 'En movimiento' : 'Detenido';
 var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR',{hour12:false}) : new Date().toLocaleString('es-AR',{hour12:false});
-var icon = GV.vehicleIcon(L, r.bearing, '#00AEEF');
+var icon = GV.vehicleIcon(L, r.bearing, '#EC4179');
 if(!detLiveMarker){
 detLiveMarker = L.marker(pos, { icon: icon, zIndexOffset: 1000 }).addTo(detLayer);
 detMap.fitBounds(bounds.concat([pos]), {padding:[30,30]});
@@ -1211,7 +1211,7 @@ function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
 if(histMarker){ detHistLayer.removeLayer(histMarker); }
-histMarker = L.marker([r.latitude, r.longitude], { icon: GV.vehicleIcon(L, bearingAtIdx(idx), '#0077A3'), zIndexOffset: 900 }).addTo(detHistLayer);
+histMarker = L.marker([r.latitude, r.longitude], { icon: GV.vehicleIcon(L, bearingAtIdx(idx), '#A81F4C'), zIndexOffset: 900 }).addTo(detHistLayer);
 var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
 histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.speed||0) + ' km/h').openTooltip();
 }
@@ -1260,7 +1260,7 @@ if(!wrap) return;
 if(!maxIdx || !marks.length){ wrap.innerHTML = ''; return; }
 wrap.innerHTML = marks.map(function(m){
 var pct = (m.idx / maxIdx) * 100;
-return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:#00AEEF;color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
+return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:var(--gv-accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
 }).join('');
 }
 var playBtn = document.getElementById('gv-det-play');
@@ -1322,7 +1322,7 @@ var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
 var line = recs.map(function(r){ return [r.latitude, r.longitude]; });
-L.polyline(line, { color: '#0077A3', weight: 3, opacity: .6 }).addTo(detHistLayer);
+L.polyline(line, { color: '#A81F4C', weight: 3, opacity: .6 }).addTo(detHistLayer);
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;
