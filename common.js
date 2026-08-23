@@ -34,6 +34,11 @@ GV.statusLabel = function(s){
 
 GV.tipoParadaLabel = function(t){ return t === 'descarga' ? 'Descarga' : (t === 'ambos' ? 'Carga y Descarga' : 'Carga'); };
 
+GV.fmtRuta = function(origenTxt, destinoTxt){
+  if(destinoTxt) return GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt);
+  return GV.escapeHtml(origenTxt) + ' <span style="color:#9ca3af;font-style:italic">(sin destino programado)</span>';
+};
+
 GV.distKm = function(a,b){
   if(!a || !b || typeof a.lat !== 'number' || typeof b.lat !== 'number') return null;
   var R=6371, dLat=(b.lat-a.lat)*Math.PI/180, dLng=(b.lng-a.lng)*Math.PI/180;
@@ -51,7 +56,7 @@ GV.escapeHtml = function(s){
 GV.fmtDurMin = function(ms){ if(ms == null || isNaN(ms) || ms < 0) return '0min'; var totalMin = Math.floor(ms/60000); var h = Math.floor(totalMin/60), m = totalMin%60; return h > 0 ? (h + 'h ' + m + 'min') : (m + 'min'); }; GV.SITE_GEOFENCE_M = 150; GV.siteNameFor = function(loc){ if(!loc || typeof loc.lat !== 'number') return (loc && loc.direccion) || ''; var sitios = (GV.Storage && GV.Storage.getSitios) ? GV.Storage.getSitios() : []; var best = null, bestD = null; sitios.forEach(function(s){ var d = GV.distKm({lat:loc.lat,lng:loc.lng},{lat:s.lat,lng:s.lng}); if(d != null && d*1000 <= GV.SITE_GEOFENCE_M){ if(bestD == null || d < bestD){ bestD = d; best = s; } } }); if(best && best.nombre) return best.nombre; return loc.direccion || ''; }; /* ---------------- CSS compartido ---------------- */
 GV.CSS = ""
 + "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');"
-+ ':root{--gv-accent:#EC4179;--gv-accent-rgb:236,65,121;--gv-accent-dark:#D1285F;--gv-accent-darker:#A81F4C;--gv-accent-light:#FDEEF3;--gv-page-bg:#F4F5F8;--gv-border:#ECEDF2;--gv-shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);--gv-shadow-md:0 10px 28px rgba(17,24,39,.10);--gv-radius:14px;--gv-radius-lg:18px;--gv-radius-pill:999px}'
++ ':root{--gv-accent:#00A6E0;--gv-accent-rgb:0,166,224;--gv-accent-dark:#0078A1;--gv-accent-darker:#005674;--gv-accent-light:#E3F5FB;--gv-page-bg:#F4F5F8;--gv-border:#ECEDF2;--gv-shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);--gv-shadow-md:0 10px 28px rgba(17,24,39,.10);--gv-radius:14px;--gv-radius-lg:18px;--gv-radius-pill:999px}'
 + 'body{background:var(--gv-page-bg);font-family:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}'
 + '#gv-app{font-family:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:960px;margin:0 auto;padding:16px;color:#20232B;background:var(--gv-page-bg)}'
 + '#gv-header{background:#fff;color:#20232B;padding:20px 24px;border-radius:var(--gv-radius-lg);margin-bottom:18px;box-shadow:var(--gv-shadow);border:1px solid var(--gv-border)}'
@@ -63,6 +68,8 @@ GV.CSS = ""
 + '.gv-badge{background:#ef4444;color:#fff;border-radius:var(--gv-radius-pill);padding:1px 7px;font-size:.72rem;font-weight:700;margin-left:4px}'
 + '.gv-stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}'
 + '.gv-stat-card{background:#fff;border:1px solid var(--gv-border);border-radius:var(--gv-radius-lg);padding:18px 14px;text-align:center;box-shadow:var(--gv-shadow);transition:transform .15s,box-shadow .15s}.gv-stat-card:hover{transform:translateY(-2px);box-shadow:var(--gv-shadow-md)}'
++ '.gv-stat-card[data-stat-filter]{cursor:pointer}'
++ '.gv-stat-card.gv-stat-active{border-color:var(--gv-accent);box-shadow:0 0 0 3px rgba(var(--gv-accent-rgb),.25),var(--gv-shadow-md)}'
 + '.gv-stat-num{font-size:2rem;font-weight:800;color:var(--gv-accent)}.gv-stat-num.gv-blue{color:#0891b2}.gv-stat-num.gv-green{color:#059669}.gv-stat-num.gv-red{color:#dc2626}'
 + '.gv-stat-lbl{font-size:.78rem;color:#8A8F9C;margin-top:4px;font-weight:500}'
 + '.gv-trip-card{background:#fff;border:1px solid var(--gv-border);border-radius:var(--gv-radius-lg);padding:18px;margin-bottom:14px;box-shadow:var(--gv-shadow);transition:box-shadow .15s}.gv-trip-card:hover{box-shadow:var(--gv-shadow-md)}'
@@ -431,7 +438,7 @@ return (brng + 360) % 360;
 };
 GV.vehicleIcon = function(L, heading, color){
 var deg = (typeof heading === 'number' && !isNaN(heading)) ? heading : 0;
-var c = color || '#EC4179';
+var c = color || '#00A6E0';
 var html = '<div style="width:28px;height:28px;transform:rotate(' + deg + 'deg)">' +
 '<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
 '<circle cx="14" cy="14" r="12.5" fill="' + c + '" stroke="#fff" stroke-width="2"/>' +
