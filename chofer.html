@@ -335,37 +335,42 @@ function mostrarSelectorManual(mensaje){
   if(lbl && mensaje) lbl.textContent = mensaje;
 }
 
+function poblarSelectManual(lista){
+  var sel = document.getElementById('gv-select-driver');
+  if(sel){
+    sel.innerHTML = '<option value="">Seleccionar...</option>' + lista.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
+  }
+}
+
 function cargarConductoresYIdentificar(api){
   return new Promise(function(resolve){
-    function intentar(esReintento){
+    function intentarListaCompleta(mensaje){
+      /* Solo funciona con clearance de administrador; un chofer normal no tiene permiso para listar todos los usuarios. */
       api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
         gConductores = (users || []).map(function(u){ return { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name }; });
-        var sel = document.getElementById('gv-select-driver');
-        if(sel){
-          sel.innerHTML = '<option value="">Seleccionar...</option>' + gConductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
-        }
-        GV.getSession(api).then(function(session){
-          var match = null;
-          if(session && session.userName){
-            match = gConductores.find(function(c){ return c.name && c.name.toLowerCase() === session.userName.toLowerCase(); });
-          }
-          if(match){
-            gDriver = match;
-          } else {
-            mostrarSelectorManual('No se detecto automaticamente tu usuario. Seleccioná tu nombre para continuar:');
-          }
-          resolve();
-        });
+        poblarSelectManual(gConductores);
+        mostrarSelectorManual(mensaje || 'No se detecto automaticamente tu usuario. Seleccioná tu nombre para continuar:');
+        resolve();
       }, function(){
-        if(!esReintento){
-          setTimeout(function(){ intentar(true); }, 1500);
-        } else {
-          mostrarSelectorManual('No se pudo cargar la lista de conductores. Revisá tu conexión e intentá de nuevo, o elegí tu nombre si aparece en la lista:');
-          resolve();
-        }
+        mostrarSelectorManual('No se pudo identificar tu usuario automaticamente. Contactá al administrador para verificar tus permisos de Add-In.');
+        resolve();
       });
     }
-    intentar(false);
+    GV.getSession(api).then(function(session){
+      var userName = session && session.userName;
+      if(!userName){ intentarListaCompleta(); return; }
+      /* Busqueda acotada a el propio usuario: funciona incluso con clearance restringido de chofer. */
+      api.call('Get', { typeName: 'User', search: { name: userName } }, function(users){
+        var u = (users || [])[0];
+        if(u){
+          gDriver = { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name };
+          gConductores = [gDriver];
+          resolve();
+        } else {
+          intentarListaCompleta();
+        }
+      }, function(){ intentarListaCompleta(); });
+    });
   });
 }
 
