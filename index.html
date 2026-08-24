@@ -28,6 +28,7 @@
 <button class="gv-tab-btn" data-tab="nuevo">Nuevo Viaje</button>
 <button class="gv-tab-btn" data-tab="seguimiento">Seguimiento</button>
 <button class="gv-tab-btn" data-tab="alertas">Alertas <span id="gv-alert-badge" class="gv-badge" style="display:none">0</span></button>
+  <button class="gv-tab-btn" data-tab="gerenciamientos">Gerenciamientos</button>
 </div>
 
 <div id="gv-tab-panel" class="gv-tab-content gv-show">
@@ -88,6 +89,13 @@
 <div id="gv-tab-alertas" class="gv-tab-content">
 <div id="gv-alertas-list"><p style="text-align:center;color:#6b7280;padding:40px">Sin alertas activas</p></div>
 </div>
+
+  <div id="gv-tab-gerenciamientos" class="gv-tab-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Historial de Gerenciamientos</h2>
+    </div>
+    <div id="gv-gerenciamientos-list"><p style="text-align:center;color:#6b7280;padding:40px">Sin gerenciamientos registrados</p></div>
+  </div>
 </div>
 <script src="common.js"></script>
 <script>
@@ -237,6 +245,28 @@ function renderAlertas(){
   }).join('');
 }
 
+  function renderGerenciamientos(){
+    var box = document.getElementById('gv-gerenciamientos-list');
+    if(!box) return;
+    var regs = ((GV.Storage.getGerenciamientos && GV.Storage.getGerenciamientos()) || []).slice();
+    if(!regs.length){
+      box.innerHTML = '<p style="text-align:center;color:#6b7280;padding:40px">Sin gerenciamientos registrados</p>';
+      return;
+    }
+    regs.sort(function(a,b){ return new Date(a.fecha) - new Date(b.fecha); });
+    regs.forEach(function(g, i){ g.__numero = i + 1; });
+    regs.reverse();
+    var filas = regs.map(function(g){
+      var cls = g.resultado === 'verde' ? 'background:#d1fae5;color:#065f46' : (g.resultado === 'amarillo' ? 'background:#fef3c7;color:#78350f' : 'background:#fee2e2;color:#991b1b');
+      var label = g.resultado === 'verde' ? 'Verde' : (g.resultado === 'amarillo' ? 'Amarillo' : 'Rojo');
+      return '<tr><td>' + g.__numero + '</td><td>' + GV.fmtDate(g.fecha) + '</td><td>' + GV.escapeHtml(g.conductor||'') + '</td><td>' + GV.escapeHtml(g.vehiculo||'') + '</td>' +
+        '<td><span class="gv-status" style="' + cls + '">' + label + '</span></td>' +
+        '<td>' + GV.escapeHtml((g.motivos||[]).join('; ')) + '</td></tr>';
+    }).join('');
+    box.innerHTML = '<div style="overflow-x:auto"><table class="gv-det-table">' +
+      '<thead><tr><th>#</th><th>Fecha</th><th>Chofer</th><th>Vehiculo</th><th>Resultado</th><th>Motivos</th></tr></thead>' +
+      '<tbody>' + filas + '</tbody></table></div>';
+  }
 function renderEventsWidget(){
   var miniList = document.getElementById('gv-events-mini-list');
   var expList = document.getElementById('gv-events-expanded-list');
@@ -450,15 +480,15 @@ abrirDetalleViaje(id);
     var action = btn.getAttribute('data-action'), id = btn.getAttribute('data-id');
     var alerta = GV.Storage.getAlertas().find(function(a){ return a.id === id; });
     if(action === 'dismiss'){
-      GV.Storage.removeAlerta(id).then(function(){ renderAlertas(); renderEventsWidget(); });
+      GV.Storage.removeAlerta(id).then(function(){ renderAlertas(); renderGerenciamientos(); renderEventsWidget(); });
     } else if(action === 'aprobar' && alerta){
       GV.Storage.updateViaje(alerta.viajeId, { gerenciamiento: Object.assign({}, GV.Storage.getViaje(alerta.viajeId).gerenciamiento, { autorizadoPor: 'supervisor', autorizadoEn: new Date().toISOString() }) })
         .then(function(){ return GV.Storage.removeAlerta(id); })
-        .then(function(){ renderAlertas(); renderEventsWidget(); renderTrips(); });
+        .then(function(){ renderAlertas(); renderGerenciamientos(); renderEventsWidget(); renderTrips(); });
     } else if(action === 'rechazar' && alerta){
       GV.Storage.updateViaje(alerta.viajeId, { gerenciamiento: Object.assign({}, GV.Storage.getViaje(alerta.viajeId).gerenciamiento, { rechazado: true, rechazadoEn: new Date().toISOString() }) })
         .then(function(){ return GV.Storage.removeAlerta(id); })
-        .then(function(){ renderAlertas(); renderEventsWidget(); renderTrips(); });
+        .then(function(){ renderAlertas(); renderGerenciamientos(); renderEventsWidget(); renderTrips(); });
     }
   });
 
@@ -1452,8 +1482,8 @@ function doInit(api){
 
   GV.Storage.init(api).then(function(){
     checkDelays(); checkDwellAlerts();
-    renderStats(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
-    GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
+    renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
+    GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
   });
 
   var now = new Date();
@@ -1465,7 +1495,7 @@ function doInit(api){
     loadMasterData(api);
     setInterval(function(){
       checkDelays(); checkDwellAlerts();
-      GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
+      GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
   } else {
     var loading = document.getElementById('gv-loading');
