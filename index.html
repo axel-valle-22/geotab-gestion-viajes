@@ -19,7 +19,6 @@
 <div class="gv-events-mini">
 <h4>Ultimos eventos <span class="gv-events-hint">pasa el mouse para ver mas</span></h4>
 <div id="gv-events-mini-list"></div>
-<div class="gv-events-expanded"><div id="gv-events-expanded-list"></div></div>
 </div>
 </div>
 </div>
@@ -268,23 +267,19 @@ function renderAlertas(){
       '<tbody>' + filas + '</tbody></table></div>';
   }
 function renderEventsWidget(){
-  var miniList = document.getElementById('gv-events-mini-list');
-  var expList = document.getElementById('gv-events-expanded-list');
-  if(!miniList || !expList) return;
-  var alertas = GV.Storage.getAlertas().slice().sort(function(a,b){ return new Date(b.fecha) - new Date(a.fecha); });
-  if(!alertas.length){
-    var vacio = '<p style="text-align:center;color:#9ca3af;padding:8px 0;font-size:.74rem;margin:0">Sin eventos recientes</p>';
-    miniList.innerHTML = vacio;
-    expList.innerHTML = vacio;
-    return;
-  }
-  function itemHtml(a){
-    return '<div class="gv-events-mini-item">' + GV.escapeHtml(a.mensaje) + '<span class="gv-events-mini-time">' + GV.fmtDate(a.fecha) + '</span></div>';
-  }
-  miniList.innerHTML = alertas.slice(0,5).map(itemHtml).join('');
-  expList.innerHTML = alertas.slice(0,12).map(itemHtml).join('');
+        var miniList = document.getElementById('gv-events-mini-list');
+        if(!miniList) return;
+        var alertas = GV.Storage.getAlertas().slice().sort(function(a,b){ return new Date(b.fecha) - new Date(a.fecha); });
+        if(!alertas.length){
+                  miniList.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:8px 0;font-size:.74rem;margin:0">Sin eventos recientes</p>';
+                  return;
+        }
+        function itemHtml(a){
+                  return '<div class="gv-events-mini-item">' + GV.escapeHtml(a.mensaje) + '<span class="gv-events-mini-time">' + GV.fmtDate(a.fecha) + '</span></div>';
+        }
+        miniList.innerHTML = alertas.slice(0,15).map(itemHtml).join('');
 }
-
+  
 function checkDelays(){
   var now = new Date(), DELAY = 20*60*1000;
   var changed = false;
