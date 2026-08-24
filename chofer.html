@@ -428,7 +428,12 @@ var lbl = box.querySelector('label');
 if(lbl && mensaje) lbl.textContent = mensaje;
 }
 
-function poblarSelectManual(lista){
+function ocultarSelectorManual(){
+  var box = document.getElementById('gv-select-driver-box');
+  if(box) box.style.display = 'none';
+}
+  
+  function poblarSelectManual(lista){
 var sel = document.getElementById('gv-select-driver');
 if(sel){
 sel.innerHTML = '<option value="">Seleccionar...</option>' + lista.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
@@ -442,10 +447,10 @@ y lo publica en GV.Storage (Firebase), y esta app solo lo lee de ahi. */
 function intentarIdentificarDesdeStorage(){
 var lista = (GV.Storage.getConductores && GV.Storage.getConductores()) || [];
 gConductores = lista;
-if(gDriver) return true;
+if(gDriver){ ocultarSelectorManual(); return true; }
 if(gSessionUserName && lista.length){
 var match = lista.find(function(c){ return c.name && c.name.toLowerCase() === gSessionUserName.toLowerCase(); });
-if(match){ gDriver = match; return true; }
+if(match){ gDriver = match; ocultarSelectorManual(); return true; }
 }
 poblarSelectManual(lista);
 if(!lista.length){
