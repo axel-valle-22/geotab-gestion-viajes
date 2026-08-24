@@ -30,6 +30,7 @@ var gApi = null;
 var gDriver = null;
 var gConductores = [];
 var gPollTimer = null;
+var gSessionUserName = null;
 
 function puedeIniciar(v){
   var g = v.gerenciamiento;
@@ -342,54 +343,35 @@ function poblarSelectManual(lista){
   }
 }
 
-function gvDescribirError(err){
-  if(!err) return 'error desconocido';
-  if(typeof err === 'string') return err;
-  var partes = [];
-  if(err.message) partes.push('mensaje=' + err.message);
-  if(err.name) partes.push('nombre=' + err.name);
-  if(err.code !== undefined && err.code !== null) partes.push('code=' + err.code);
-  try {
-    var json = JSON.stringify(err);
-    if(json && json !== '{}' && json !== 'null') partes.push('json=' + json);
-  } catch(e){}
-  return partes.length ? partes.join(' | ') : String(err);
+/* La app de Drive no tiene permiso para llamar a Get/User (devuelve "Bad request" tanto para
+   busquedas acotadas como para listar todos los conductores). Por eso el directorio de
+   conductores se sincroniza por afuera: el panel del coordinador (index.html) lo lee de Geotab
+   y lo publica en GV.Storage (Firebase), y esta app solo lo lee de ahi. */
+function intentarIdentificarDesdeStorage(){
+  var lista = (GV.Storage.getConductores && GV.Storage.getConductores()) || [];
+  gConductores = lista;
+  if(gDriver) return true;
+  if(gSessionUserName && lista.length){
+    var match = lista.find(function(c){ return c.name && c.name.toLowerCase() === gSessionUserName.toLowerCase(); });
+    if(match){ gDriver = match; return true; }
+  }
+  poblarSelectManual(lista);
+  if(!lista.length){
+    mostrarSelectorManual('Todavía no se sincronizó la lista de conductores. Pedile a un coordinador que abra el panel "Gestión de Viajes" una vez, o esperá unos segundos y volvé a esta pantalla.');
+  } else if(!gSessionUserName){
+    mostrarSelectorManual('No se pudo obtener tu usuario de sesión. Seleccioná tu nombre para continuar:');
+  } else {
+    mostrarSelectorManual('Tu usuario de sesión ("' + gSessionUserName + '") no está en la lista de conductores sincronizada. Seleccioná tu nombre para continuar:');
+  }
+  return false;
 }
 
 function cargarConductoresYIdentificar(api, state){
   return new Promise(function(resolve){
-    var onlineInfo = 'online=' + (state ? state.online : 'sin state');
-    function intentarListaCompleta(mensajePrevio){
-      /* Solo funciona con clearance de administrador; un chofer normal no tiene permiso para listar todos los usuarios. */
-      api.call('Get', { typeName: 'User', search: { isDriver: true } }, function(users){
-        gConductores = (users || []).map(function(u){ return { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name }; });
-        poblarSelectManual(gConductores);
-        mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Seleccioná tu nombre para continuar:');
-        resolve();
-      }, function(err){
-        mostrarSelectorManual((mensajePrevio ? mensajePrevio + ' ' : '') + 'Tampoco se pudo cargar la lista completa (' + onlineInfo + '). Detalle: ' + gvDescribirError(err) + '. Contactá al administrador con este mensaje.');
-        resolve();
-      });
-    }
     GV.getSession(api).then(function(session){
-      var userName = session && session.userName;
-      if(!userName){
-        intentarListaCompleta('No se pudo obtener tu usuario de sesion (session.userName vacio, ' + onlineInfo + ').');
-        return;
-      }
-      /* Busqueda acotada a el propio usuario: funciona incluso con clearance restringido de chofer. */
-      api.call('Get', { typeName: 'User', search: { name: userName } }, function(users){
-        var u = (users || [])[0];
-        if(u){
-          gDriver = { id: u.id, nombre: ((u.firstName||'')+' '+(u.lastName||'')).trim(), name: u.name };
-          gConductores = [gDriver];
-          resolve();
-        } else {
-          intentarListaCompleta('Tu usuario de sesion es "' + userName + '" pero no se encontro ningun User con ese nombre exacto (' + onlineInfo + ').');
-        }
-      }, function(err){
-        intentarListaCompleta('Tu usuario de sesion es "' + userName + '" (' + onlineInfo + '). Error al buscarlo: ' + gvDescribirError(err) + '.');
-      });
+      gSessionUserName = (session && session.userName) || null;
+      intentarIdentificarDesdeStorage();
+      resolve();
     });
   });
 }
@@ -417,7 +399,7 @@ function doInit(api, state){
     } else {
       renderDriverView();
     }
-    GV.Storage.onChange(function(){ renderDriverView(); });
+    GV.Storage.onChange(function(){ if(api && !gDriver){ intentarIdentificarDesdeStorage(); } renderDriverView(); });
   });
 
   if(api){
