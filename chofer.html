@@ -90,6 +90,98 @@ GV.Storage.updateViaje(btn.getAttribute('data-id'), { estado: 'completado', comp
 box.querySelectorAll('[data-action="detalle"]').forEach(function(btn){
 btn.addEventListener('click', function(){ abrirDetalleViajeChofer(btn.getAttribute('data-id')); });
 });
+  box.querySelectorAll('[data-action="llegada-sitio"]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-id');
+      var site = btn.getAttribute('data-site');
+      var v = GV.Storage.getViaje(id);
+      if(!v) return;
+      var sr = Object.assign({}, v.sitiosReal || {});
+      if(!sr[site]) sr[site] = {};
+      sr[site].ingreso = new Date().toISOString();
+      GV.Storage.updateViaje(id, { sitiosReal: sr }).then(function(){ renderDriverView(); });
+    });
+  });
+  box.querySelectorAll('[data-action="salida-sitio"]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-id');
+      var site = btn.getAttribute('data-site');
+      var v = GV.Storage.getViaje(id);
+      if(!v) return;
+      var sr = Object.assign({}, v.sitiosReal || {});
+      if(!sr[site]) sr[site] = {};
+      sr[site].egreso = new Date().toISOString();
+      GV.Storage.updateViaje(id, { sitiosReal: sr }).then(function(){ renderDriverView(); });
+    });
+  });
+  box.querySelectorAll('[data-action="demorado"]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-id');
+      var v = GV.Storage.getViaje(id);
+      if(!v) return;
+      if(!window.confirm('¿Confirmas que queres reportar una demora? Se va a notificar al coordinador.')) return;
+      var paradas = paradasConTipo(v);
+      var actual = paradas.find(function(p){ return estadoSitio(v, p.id) === 'en_sitio'; });
+      var lugar = actual ? (GV.tipoParadaLabel(actual.tipo) + ' en ' + (actual.direccion || '')) : 'en el recorrido';
+      GV.Storage.addAlerta({
+        id: 'al_demora_manual_' + id + '_' + Date.now(),
+        tipo: 'demora_manual',
+        mensaje: v.conductor + ' - ' + v.vehiculo + ': reporto una demora manualmente (' + lugar + ').',
+        fecha: new Date().toISOString(),
+        viajeId: id
+      }).then(function(){
+        btn.disabled = true;
+        btn.textContent = 'Demora reportada';
+      });
+    });
+  });
+
+  function paradasConTipo(v){
+    return (v.paradas || []).map(function(p, i){ return { id: 'parada' + i, idx: i, tipo: p.tipo, direccion: p.direccion, duracionMin: p.duracionMin }; }).filter(function(p){ return !!p.tipo; });
+  }
+
+  function estadoSitio(v, siteId){
+    var sr = (v.sitiosReal && v.sitiosReal[siteId]) || null;
+    if(!sr || !sr.ingreso) return 'pendiente';
+    if(!sr.egreso) return 'en_sitio';
+    return 'completado';
+  }
+
+  function horaDe(iso){
+    if(!iso) return '';
+    var f = GV.fmtDate(iso);
+    var partes = f.split(' ');
+    return partes.length > 1 ? partes[1] : f;
+  }
+
+  function renderProgresoSitios(v){
+    var paradas = paradasConTipo(v);
+    if(!paradas.length) return '';
+    var currentIdx = -1;
+    var rows = paradas.map(function(p, idx){
+      var estado = estadoSitio(v, p.id);
+      if(estado !== 'completado' && currentIdx === -1) currentIdx = idx;
+      var sr = (v.sitiosReal && v.sitiosReal[p.id]) || {};
+      var estadoTxt = estado === 'completado' ? ('Completado ' + horaDe(sr.ingreso) + (sr.egreso ? ('-' + horaDe(sr.egreso)) : '')) : (estado === 'en_sitio' ? ('En sitio desde ' + horaDe(sr.ingreso)) : 'Pendiente');
+      var estadoColor = estado === 'completado' ? '#059669' : (estado === 'en_sitio' ? '#d97706' : '#9ca3af');
+      return '<div class="gv-stop-item"><span class="gv-stop-badge gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + '</span><span>' + GV.escapeHtml(p.direccion || '') + '</span><span style="margin-left:auto;font-size:.76rem;font-weight:600;color:' + estadoColor + ';white-space:nowrap">' + estadoTxt + '</span></div>';
+    }).join('');
+    var actionBtn = '';
+    if(currentIdx !== -1){
+      var cp = paradas[currentIdx];
+      var est = estadoSitio(v, cp.id);
+      if(est === 'pendiente'){
+        actionBtn = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="llegada-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Llegue - Iniciar ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
+      } else if(est === 'en_sitio'){
+        actionBtn = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="salida-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Sali - Termine ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
+      }
+    }
+    return '<div class="gv-sitios-progreso" style="margin-top:10px">' +
+      '<h4 style="margin:0 0 8px;font-size:.8rem;color:#6b7280;font-weight:700">Paradas del recorrido</h4>' +
+      rows +
+      (actionBtn ? '<div class="gv-trip-actions" style="margin-top:8px;justify-content:flex-start">' + actionBtn + '</div>' : '') +
+      '</div>';
+  }
 }
 
 function renderViajeCard(v, compact){
@@ -102,10 +194,13 @@ return '<span class="gv-stop-chip gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.ti
 
 var banner = '';
 var actions = '';
+  var progreso = '';
 
 if(!compact){
 if(v.estado === 'en_curso'){
-actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar Viaje</button>';
+progreso = renderProgresoSitios(v);
+  actions = '<button class="gv-btn gv-btn-warn gv-btn-sm" data-action="demorado" data-id="' + v.id + '">Estoy Demorado</button>' +
+    '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar Viaje</button>';
 } else if(!g || !g.resultado){
 banner = '<div class="gv-banner gv-banner-info"><h3>Tenes un viaje programado</h3><p>Antes de iniciar, debes completar el Gerenciamiento de Viaje (obligatorio).</p></div>';
 actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="gerenciar" data-id="' + v.id + '">Iniciar Gerenciamiento de Viaje</button>';
@@ -128,6 +223,7 @@ return '<div class="gv-driver-trip">' + banner +
 '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(origenTxt, destinoTxt) + '</div>' +
 (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
 (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
+  progreso +
 (actions ? '<div class="gv-trip-actions">' + actions + '</div>' : '') +
 '</div>';
 }
@@ -389,15 +485,28 @@ function cerrarWizard(){ overlay.remove(); }
 
 function finalizarWizard(){
 var r = calcularResultado();
+  var ahora = new Date().toISOString();
 var gerenciamiento = {
-resultado: r.resultado,
-motivos: r.motivos,
+  resultado: r.resultado,
+  motivos: r.motivos,
 respuestas: respuestas,
-completadoEn: new Date().toISOString(),
+completadoEn: ahora,
 autorizadoPor: r.resultado === 'verde' ? 'auto' : null,
 rechazado: false
 };
+  var registro = {
+  id: GV.genId('ger'),
+  viajeId: viaje.id,
+  conductorId: viaje.conductorId,
+  conductor: viaje.conductor,
+  vehiculo: viaje.vehiculo,
+  fecha: ahora,
+  resultado: r.resultado,
+  motivos: r.motivos,
+  respuestas: respuestas
+};
 GV.Storage.updateViaje(viaje.id, { gerenciamiento: gerenciamiento }).then(function(){
+  GV.Storage.addGerenciamiento(registro);
 if(r.resultado === 'amarillo'){
 GV.Storage.addAlerta({
 id: 'al_auth_' + viaje.id, tipo: 'autorizacion',
