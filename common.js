@@ -560,18 +560,38 @@ GV.Storage = (function(){
     loadFromLS();
     return new Promise(function(resolve){
       if(!api){ resolve(_data); return; }
+      /* Se identifica el AddIn (para poder seguir escribiendo un respaldo en AddInData via
+         persist()), pero ya NO se usa AddInData como fuente de lectura: era un dato legacy,
+         propio de cada dispositivo, que quedaba desactualizado apenas el coordinador cargaba
+         un viaje nuevo (eso solo se publica a Firebase). Si se lo dejaba pisar _data aca, un
+         viaje recien creado podia "desaparecer" de la app del chofer en cuanto esta consultaba
+         su AddInData viejo. La fuente de verdad es Firebase (con localStorage como cache). */
       findAddInId(function(id){
         _addInId = id;
-        if(!id){ resolve(_data); return; }
-        pullAddInData(function(){ notify(); resolve(_data); });
+        resolve(_data);
       });
     });
   }
 
   function refresh(){
     return new Promise(function(resolve){
-      if(!_api || !_addInId){ resolve(_data); return; }
-      pullAddInData(function(){ notify(); resolve(_data); });
+      /* Igual que en init(): no se relee AddInData (quedaba desactualizado y pisaba viajes
+         nuevos). En su lugar se fuerza una lectura fresca a Firestore directo al servidor,
+         por si el listener en tiempo real (onSnapshot) se hubiera perdido algun cambio. */
+      if(_fbDocRef){
+        _fbDocRef.get({ source: 'server' }).then(function(snap){
+          var d = snap.exists ? snap.data() : null;
+          if(d){
+            _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || [];
+            _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || [];
+            saveToLS();
+          }
+          notify();
+          resolve(_data);
+        }).catch(function(){ resolve(_data); });
+      } else {
+        resolve(_data);
+      }
     });
   }
 
