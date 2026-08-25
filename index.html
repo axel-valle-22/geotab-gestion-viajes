@@ -1433,7 +1433,7 @@ detRafId = requestAnimationFrame(tick);
 });
 function loadHist(){
 stopPlayback();
-var to = new Date();
+var to = v.completadoEn ? new Date(v.completadoEn) : (v.canceladoEn ? new Date(v.canceladoEn) : new Date());
 var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
 var from = chk.checked ? new Date(to.getTime() - 4*3600*1000) : __dayStart2;
 fetchHistoryForViaje(v, from, to).then(function(recs){
