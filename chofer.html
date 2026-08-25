@@ -135,53 +135,60 @@ btn.addEventListener('click', function(){ abrirDetalleViajeChofer(btn.getAttribu
       });
     });
   });
+}
 
-  function paradasConTipo(v){
-    return (v.paradas || []).map(function(p, i){ return { id: 'parada' + i, idx: i, tipo: p.tipo, direccion: p.direccion, duracionMin: p.duracionMin }; }).filter(function(p){ return !!p.tipo; });
-  }
+/* Estas cuatro funciones estaban antes anidadas dentro de renderDriverView(), por lo que
+   renderViajeCard() (una funcion separada, definida al mismo nivel que renderDriverView)
+   no tenia acceso a renderProgresoSitios: quedaba fuera de su alcance lexico. Eso rompia
+   con "ReferenceError: renderProgresoSitios is not defined" cada vez que se armaba la
+   tarjeta de un viaje en curso, lo que abortaba todo el renderDriverView() antes de llegar
+   a box.innerHTML = html - por eso no se veian los viajes en la app del chofer. Se las
+   saca a nivel superior para que ambas funciones puedan usarlas. */
+function paradasConTipo(v){
+  return (v.paradas || []).map(function(p, i){ return { id: 'parada' + i, idx: i, tipo: p.tipo, direccion: p.direccion, duracionMin: p.duracionMin }; }).filter(function(p){ return !!p.tipo; });
+}
 
-  function estadoSitio(v, siteId){
-    var sr = (v.sitiosReal && v.sitiosReal[siteId]) || null;
-    if(!sr || !sr.ingreso) return 'pendiente';
-    if(!sr.egreso) return 'en_sitio';
-    return 'completado';
-  }
+function estadoSitio(v, siteId){
+  var sr = (v.sitiosReal && v.sitiosReal[siteId]) || null;
+  if(!sr || !sr.ingreso) return 'pendiente';
+  if(!sr.egreso) return 'en_sitio';
+  return 'completado';
+}
 
-  function horaDe(iso){
-    if(!iso) return '';
-    var f = GV.fmtDate(iso);
-    var partes = f.split(' ');
-    return partes.length > 1 ? partes[1] : f;
-  }
+function horaDe(iso){
+  if(!iso) return '';
+  var f = GV.fmtDate(iso);
+  var partes = f.split(' ');
+  return partes.length > 1 ? partes[1] : f;
+}
 
-  function renderProgresoSitios(v){
-    var paradas = paradasConTipo(v);
-    if(!paradas.length) return '';
-    var currentIdx = -1;
-    var rows = paradas.map(function(p, idx){
-      var estado = estadoSitio(v, p.id);
-      if(estado !== 'completado' && currentIdx === -1) currentIdx = idx;
-      var sr = (v.sitiosReal && v.sitiosReal[p.id]) || {};
-      var estadoTxt = estado === 'completado' ? ('Completado ' + horaDe(sr.ingreso) + (sr.egreso ? ('-' + horaDe(sr.egreso)) : '')) : (estado === 'en_sitio' ? ('En sitio desde ' + horaDe(sr.ingreso)) : 'Pendiente');
-      var estadoColor = estado === 'completado' ? '#059669' : (estado === 'en_sitio' ? '#d97706' : '#9ca3af');
-      return '<div class="gv-stop-item"><span class="gv-stop-badge gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + '</span><span>' + GV.escapeHtml(p.direccion || '') + '</span><span style="margin-left:auto;font-size:.76rem;font-weight:600;color:' + estadoColor + ';white-space:nowrap">' + estadoTxt + '</span></div>';
-    }).join('');
-    var actionBtn = '';
-    if(currentIdx !== -1){
-      var cp = paradas[currentIdx];
-      var est = estadoSitio(v, cp.id);
-      if(est === 'pendiente'){
-        actionBtn = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="llegada-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Llegue - Iniciar ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
-      } else if(est === 'en_sitio'){
-        actionBtn = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="salida-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Sali - Termine ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
-      }
+function renderProgresoSitios(v){
+  var paradas = paradasConTipo(v);
+  if(!paradas.length) return '';
+  var currentIdx = -1;
+  var rows = paradas.map(function(p, idx){
+    var estado = estadoSitio(v, p.id);
+    if(estado !== 'completado' && currentIdx === -1) currentIdx = idx;
+    var sr = (v.sitiosReal && v.sitiosReal[p.id]) || {};
+    var estadoTxt = estado === 'completado' ? ('Completado ' + horaDe(sr.ingreso) + (sr.egreso ? ('-' + horaDe(sr.egreso)) : '')) : (estado === 'en_sitio' ? ('En sitio desde ' + horaDe(sr.ingreso)) : 'Pendiente');
+    var estadoColor = estado === 'completado' ? '#059669' : (estado === 'en_sitio' ? '#d97706' : '#9ca3af');
+    return '<div class="gv-stop-item"><span class="gv-stop-badge gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + '</span><span>' + GV.escapeHtml(p.direccion || '') + '</span><span style="margin-left:auto;font-size:.76rem;font-weight:600;color:' + estadoColor + ';white-space:nowrap">' + estadoTxt + '</span></div>';
+  }).join('');
+  var actionBtn = '';
+  if(currentIdx !== -1){
+    var cp = paradas[currentIdx];
+    var est = estadoSitio(v, cp.id);
+    if(est === 'pendiente'){
+      actionBtn = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="llegada-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Llegue - Iniciar ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
+    } else if(est === 'en_sitio'){
+      actionBtn = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="salida-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Sali - Termine ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
     }
-    return '<div class="gv-sitios-progreso" style="margin-top:10px">' +
-      '<h4 style="margin:0 0 8px;font-size:.8rem;color:#6b7280;font-weight:700">Paradas del recorrido</h4>' +
-      rows +
-      (actionBtn ? '<div class="gv-trip-actions" style="margin-top:8px;justify-content:flex-start">' + actionBtn + '</div>' : '') +
-      '</div>';
   }
+  return '<div class="gv-sitios-progreso" style="margin-top:10px">' +
+    '<h4 style="margin:0 0 8px;font-size:.8rem;color:#6b7280;font-weight:700">Paradas del recorrido</h4>' +
+    rows +
+    (actionBtn ? '<div class="gv-trip-actions" style="margin-top:8px;justify-content:flex-start">' + actionBtn + '</div>' : '') +
+    '</div>';
 }
 
 function renderViajeCard(v, compact){
