@@ -53,7 +53,29 @@ GV.escapeHtml = function(s){
   });
 };
 
-GV.fmtDurMin = function(ms){ if(ms == null || isNaN(ms) || ms < 0) return '0min'; var totalMin = Math.floor(ms/60000); var h = Math.floor(totalMin/60), m = totalMin%60; return h > 0 ? (h + 'h ' + m + 'min') : (m + 'min'); }; GV.SITE_GEOFENCE_M = 150; GV.siteNameFor = function(loc){ if(!loc || typeof loc.lat !== 'number') return (loc && loc.direccion) || ''; var sitios = (GV.Storage && GV.Storage.getSitios) ? GV.Storage.getSitios() : []; var best = null, bestD = null; sitios.forEach(function(s){ var d = GV.distKm({lat:loc.lat,lng:loc.lng},{lat:s.lat,lng:s.lng}); if(d != null && d*1000 <= GV.SITE_GEOFENCE_M){ if(bestD == null || d < bestD){ bestD = d; best = s; } } }); if(best && best.nombre) return best.nombre; return loc.direccion || ''; }; /* ---------------- CSS compartido ---------------- */
+GV.fmtDurMin = function(ms){ if(ms == null || isNaN(ms) || ms < 0) return '0min'; var totalMin = Math.floor(ms/60000); var h = Math.floor(totalMin/60), m = totalMin%60; return h > 0 ? (h + 'h ' + m + 'min') : (m + 'min'); }; GV.SITE_GEOFENCE_M = 300; /* Radio (en metros) del circulo automatico de deteccion de sitios. Duplicado desde el valor original (150m). */
+/* Punto dentro de un poligono (ray casting). poly: array de {lat,lng} (o [lat,lng]). pt: {lat,lng}. */
+GV.pointInPolygon = function(pt, poly){
+  if(!pt || !poly || poly.length < 3) return false;
+  var x = pt.lng, y = pt.lat, inside = false;
+  for(var i = 0, j = poly.length - 1; i < poly.length; j = i++){
+    var pi = poly[i], pj = poly[j];
+    var xi = (pi.lng != null ? pi.lng : pi[1]), yi = (pi.lat != null ? pi.lat : pi[0]);
+    var xj = (pj.lng != null ? pj.lng : pj[1]), yj = (pj.lat != null ? pj.lat : pj[0]);
+    var intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if(intersect) inside = !inside;
+  }
+  return inside;
+};
+/* Determina si un punto esta dentro de un sitio: usa el poligono dibujado a mano si existe,
+   o el circulo automatico (GV.SITE_GEOFENCE_M) en caso contrario. siteLike: {lat,lng,poligono?}. */
+GV.isWithinSite = function(pt, siteLike){
+  if(!pt || !siteLike || typeof siteLike.lat !== 'number') return false;
+  if(siteLike.poligono && siteLike.poligono.length >= 3) return GV.pointInPolygon(pt, siteLike.poligono);
+  var d = GV.distKm(pt, siteLike);
+  return d != null && d*1000 <= GV.SITE_GEOFENCE_M;
+};
+GV.siteNameFor = function(loc){ if(!loc || typeof loc.lat !== 'number') return (loc && loc.direccion) || ''; var sitios = (GV.Storage && GV.Storage.getSitios) ? GV.Storage.getSitios() : []; var best = null, bestD = null; sitios.forEach(function(s){ var within = GV.isWithinSite({lat:loc.lat,lng:loc.lng}, s); var d = GV.distKm({lat:loc.lat,lng:loc.lng},{lat:s.lat,lng:s.lng}); if(within){ if(bestD == null || d < bestD){ bestD = d; best = s; } } }); if(best && best.nombre) return best.nombre; return loc.direccion || ''; }; /* ---------------- CSS compartido ---------------- */
 GV.CSS = ""
 + "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');"
 + ':root{--gv-accent:#00A6E0;--gv-accent-rgb:0,166,224;--gv-accent-dark:#0078A1;--gv-accent-darker:#005674;--gv-accent-light:#E3F5FB;--gv-page-bg:#F4F5F8;--gv-border:#ECEDF2;--gv-shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);--gv-shadow-md:0 10px 28px rgba(17,24,39,.10);--gv-radius:14px;--gv-radius-lg:18px;--gv-radius-pill:999px}'
@@ -278,7 +300,10 @@ GV.pickLocation = function(opts){
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
           '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' + '<div id="gv-map-picker" class="gv-map-box"></div>' +
-          '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' + '<div class="gv-search-row"><input type="text" id="gv-site-name" placeholder="Nombre para guardar este sitio (opcional)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-site-save-btn">Guardar sitio</button></div>' + '<div id="gv-site-edit-indicator" style="display:none;font-size:.78rem;color:#7c3aed;margin:-6px 0 10px 2px">Editando ubicacion del sitio guardado <button type="button" id="gv-site-edit-cancel" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:.78rem;text-decoration:underline;padding:0;margin-left:6px">Cancelar edicion</button></div>' +
+          '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span style="font-size:.78rem;color:#6b7280">Area del sitio:</span><button type="button" id="gv-shape-circulo" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Circulo automatico</button><button type="button" id="gv-shape-manual" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Dibujar manualmente</button></div>' +
+          '<div id="gv-shape-manual-hint" style="display:none;font-size:.76rem;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:6px 10px;margin-bottom:10px">Hace clic en el mapa para agregar los vertices del area del sitio (minimo 3 puntos). <button type="button" id="gv-shape-undo" style="background:none;border:none;color:#7c3aed;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Deshacer ultimo punto</button><button type="button" id="gv-shape-clear" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Borrar forma</button></div>' +
+          '<div class="gv-search-row"><input type="text" id="gv-site-name" placeholder="Nombre para guardar este sitio (opcional)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-site-save-btn">Guardar sitio</button></div>' + '<div id="gv-site-edit-indicator" style="display:none;font-size:.78rem;color:#7c3aed;margin:-6px 0 10px 2px">Editando ubicacion del sitio guardado <button type="button" id="gv-site-edit-cancel" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:.78rem;text-decoration:underline;padding:0;margin-left:6px">Cancelar edicion</button></div>' +
           stopFieldsHtml +
           '<div class="gv-modal-actions">' +
             '<button type="button" class="gv-btn gv-btn-sec" id="gv-map-cancel">Cancelar</button>' +
@@ -293,7 +318,27 @@ GV.pickLocation = function(opts){
 
       var marker = null;
       var current = null;
-      var tipo = 'carga'; var editingSiteId = null; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px"><span style="flex:1">' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-edit-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0">Editar</button></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; box.style.display='none'; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); box.querySelectorAll('[data-edit-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-edit-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; editingSiteId = site.id; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl3 = document.getElementById('gv-map-addr'); if(addrEl3) addrEl3.textContent = current.direccion; var okBtn3 = document.getElementById('gv-map-ok'); if(okBtn3) okBtn3.disabled = false; var nameEl2 = document.getElementById('gv-site-name'); if(nameEl2) nameEl2.value = site.nombre || ''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display = 'block'; var saveBtn2 = document.getElementById('gv-site-save-btn'); if(saveBtn2) saveBtn2.textContent = 'Actualizar sitio'; }); }); }
+      var shapeMode = 'circulo'; var manualPoly = []; var manualPolyLayer = null;
+      function redrawManualPoly(){
+        if(manualPolyLayer){ try{ map.removeLayer(manualPolyLayer); }catch(e){} manualPolyLayer = null; }
+        if(manualPoly.length >= 2){ manualPolyLayer = L.polygon(manualPoly, { color:'#7c3aed', weight:2, fillColor:'#7c3aed', fillOpacity:.15, dashArray: manualPoly.length < 3 ? '4' : null }).addTo(map); }
+        else if(manualPoly.length === 1){ manualPolyLayer = L.circleMarker(manualPoly[0], { radius:5, color:'#7c3aed' }).addTo(map); }
+      }
+      function updateManualPoly(){
+        if(current) current.poligono = (shapeMode === 'manual' && manualPoly.length >= 3) ? manualPoly.slice() : null;
+        redrawManualPoly();
+      }
+      function setShapeMode(mode){
+        shapeMode = mode;
+        var bC = document.getElementById('gv-shape-circulo'), bM = document.getElementById('gv-shape-manual');
+        var hint = document.getElementById('gv-shape-manual-hint');
+        if(bC){ bC.style.background = mode === 'circulo' ? 'var(--gv-accent)' : '#fff'; bC.style.color = mode === 'circulo' ? '#fff' : '#20232B'; }
+        if(bM){ bM.style.background = mode === 'manual' ? '#7c3aed' : '#fff'; bM.style.color = mode === 'manual' ? '#fff' : '#20232B'; }
+        if(hint) hint.style.display = mode === 'manual' ? 'block' : 'none';
+        if(mode === 'circulo'){ manualPoly = []; }
+        updateManualPoly();
+      }
+      var tipo = 'carga'; var editingSiteId = null; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px"><span style="flex:1">' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-edit-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0">Editar</button></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; box.style.display='none'; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; if(site.poligono && site.poligono.length >= 3){ current.poligono = site.poligono; } var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); box.querySelectorAll('[data-edit-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-edit-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; editingSiteId = site.id; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl3 = document.getElementById('gv-map-addr'); if(addrEl3) addrEl3.textContent = current.direccion; var okBtn3 = document.getElementById('gv-map-ok'); if(okBtn3) okBtn3.disabled = false; var nameEl2 = document.getElementById('gv-site-name'); if(nameEl2) nameEl2.value = site.nombre || ''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display = 'block'; var saveBtn2 = document.getElementById('gv-site-save-btn'); if(saveBtn2) saveBtn2.textContent = 'Actualizar sitio'; if(site.poligono && site.poligono.length >= 3){ manualPoly = site.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }); setShapeMode('manual'); } else { manualPoly = []; setShapeMode('circulo'); } }); }); }
 
       function setMarker(lat, lng){
         if(marker){ map.removeLayer(marker); }
@@ -302,7 +347,9 @@ GV.pickLocation = function(opts){
       }
 
       function onPoint(lat, lng){
+        var __prevPoligono = current && current.poligono;
         current = { lat: lat, lng: lng, direccion: 'Buscando direccion...' };
+        if(__prevPoligono) current.poligono = __prevPoligono;
         var addrEl = document.getElementById('gv-map-addr');
         if(addrEl) addrEl.textContent = current.direccion;
         var okBtn = document.getElementById('gv-map-ok');
@@ -322,6 +369,12 @@ GV.pickLocation = function(opts){
       }
 
       map.on('click', function(e){
+        if(shapeMode === 'manual'){
+          manualPoly.push({ lat: e.latlng.lat, lng: e.latlng.lng });
+          if(manualPoly.length === 1 && !marker){ setMarker(e.latlng.lat, e.latlng.lng); onPoint(e.latlng.lat, e.latlng.lng); }
+          updateManualPoly();
+          return;
+        }
         setMarker(e.latlng.lat, e.latlng.lng);
         onPoint(e.latlng.lat, e.latlng.lng);
       });
@@ -336,10 +389,11 @@ GV.pickLocation = function(opts){
             current = { lat: list[0].lat, lng: list[0].lng, direccion: list[0].label };
             document.getElementById('gv-map-addr').textContent = list[0].label;
             document.getElementById('gv-map-ok').disabled = false;
+            setShapeMode('circulo');
           }
         });
       }
-      document.getElementById('gv-map-search-btn').addEventListener('click', doSearch); var siteSearchEl = document.getElementById('gv-site-search'); var siteListBox = document.getElementById('gv-site-list'); if(siteSearchEl) siteSearchEl.addEventListener('input', function(){ if(siteListBox) siteListBox.style.display='block'; renderSiteList(siteSearchEl.value); }); if(siteSearchEl) siteSearchEl.addEventListener('focus', function(){ if(siteListBox) siteListBox.style.display='block'; renderSiteList(siteSearchEl.value); }); if(siteSearchEl) siteSearchEl.addEventListener('blur', function(){ setTimeout(function(){ if(siteListBox) siteListBox.style.display='none'; }, 250); }); renderSiteList(''); var siteSaveBtn = document.getElementById('gv-site-save-btn'); if(siteSaveBtn) siteSaveBtn.addEventListener('click', function(){ if(!current) return; var nameEl = document.getElementById('gv-site-name'); var nombre = (nameEl && nameEl.value.trim()) || current.direccion || 'Sitio sin nombre'; if(editingSiteId){ var patch = { nombre: nombre, direccion: current.direccion || '', lat: current.lat, lng: current.lng }; GV.Storage.updateSitio(editingSiteId, patch).then(function(){ editingSiteId = null; if(nameEl) nameEl.value=''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display='none'; siteSaveBtn.textContent = 'Guardar sitio'; renderSiteList(siteSearchEl ? siteSearchEl.value : ''); }); return; } var siteObj = { id: GV.genId('site'), nombre: nombre, direccion: current.direccion || '', lat: current.lat, lng: current.lng }; if(opts.withStopFields){ siteObj.tipo = tipo; var durInp = document.getElementById('gv-map-duracion'); siteObj.duracionMin = durInp ? (parseInt(durInp.value,10) || 0) : 0; } GV.Storage.addSitio(siteObj).then(function(){ if(nameEl) nameEl.value=''; renderSiteList(siteSearchEl ? siteSearchEl.value : ''); }); }); var siteEditCancelBtn = document.getElementById('gv-site-edit-cancel'); if(siteEditCancelBtn) siteEditCancelBtn.addEventListener('click', function(){ editingSiteId = null; var nameEl3 = document.getElementById('gv-site-name'); if(nameEl3) nameEl3.value=''; var ind2 = document.getElementById('gv-site-edit-indicator'); if(ind2) ind2.style.display='none'; var saveBtn3 = document.getElementById('gv-site-save-btn'); if(saveBtn3) saveBtn3.textContent = 'Guardar sitio'; });
+      document.getElementById('gv-map-search-btn').addEventListener('click', doSearch); var siteSearchEl = document.getElementById('gv-site-search'); var siteListBox = document.getElementById('gv-site-list'); if(siteSearchEl) siteSearchEl.addEventListener('input', function(){ if(siteListBox) siteListBox.style.display='block'; renderSiteList(siteSearchEl.value); }); if(siteSearchEl) siteSearchEl.addEventListener('focus', function(){ if(siteListBox) siteListBox.style.display='block'; renderSiteList(siteSearchEl.value); }); if(siteSearchEl) siteSearchEl.addEventListener('blur', function(){ setTimeout(function(){ if(siteListBox) siteListBox.style.display='none'; }, 250); }); renderSiteList(''); var siteSaveBtn = document.getElementById('gv-site-save-btn'); if(siteSaveBtn) siteSaveBtn.addEventListener('click', function(){ if(!current) return; if(shapeMode === 'manual' && manualPoly.length > 0 && manualPoly.length < 3){ alert('Dibuja al menos 3 puntos para definir el area del sitio, o cambia a "Circulo automatico".'); return; } var nameEl = document.getElementById('gv-site-name'); var nombre = (nameEl && nameEl.value.trim()) || current.direccion || 'Sitio sin nombre'; if(editingSiteId){ var patch = { nombre: nombre, direccion: current.direccion || '', lat: current.lat, lng: current.lng, poligono: current.poligono || null }; GV.Storage.updateSitio(editingSiteId, patch).then(function(){ editingSiteId = null; if(nameEl) nameEl.value=''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display='none'; siteSaveBtn.textContent = 'Guardar sitio'; renderSiteList(siteSearchEl ? siteSearchEl.value : ''); }); return; } var siteObj = { id: GV.genId('site'), nombre: nombre, direccion: current.direccion || '', lat: current.lat, lng: current.lng }; if(current.poligono) siteObj.poligono = current.poligono; if(opts.withStopFields){ siteObj.tipo = tipo; var durInp = document.getElementById('gv-map-duracion'); siteObj.duracionMin = durInp ? (parseInt(durInp.value,10) || 0) : 0; } GV.Storage.addSitio(siteObj).then(function(){ if(nameEl) nameEl.value=''; renderSiteList(siteSearchEl ? siteSearchEl.value : ''); }); }); var siteEditCancelBtn = document.getElementById('gv-site-edit-cancel'); if(siteEditCancelBtn) siteEditCancelBtn.addEventListener('click', function(){ editingSiteId = null; var nameEl3 = document.getElementById('gv-site-name'); if(nameEl3) nameEl3.value=''; var ind2 = document.getElementById('gv-site-edit-indicator'); if(ind2) ind2.style.display='none'; var saveBtn3 = document.getElementById('gv-site-save-btn'); if(saveBtn3) saveBtn3.textContent = 'Guardar sitio'; }); var shapeCirculoBtn = document.getElementById('gv-shape-circulo'); if(shapeCirculoBtn) shapeCirculoBtn.addEventListener('click', function(){ setShapeMode('circulo'); }); var shapeManualBtn = document.getElementById('gv-shape-manual'); if(shapeManualBtn) shapeManualBtn.addEventListener('click', function(){ setShapeMode('manual'); }); var shapeUndoBtn = document.getElementById('gv-shape-undo'); if(shapeUndoBtn) shapeUndoBtn.addEventListener('click', function(){ manualPoly.pop(); updateManualPoly(); }); var shapeClearBtn = document.getElementById('gv-shape-clear'); if(shapeClearBtn) shapeClearBtn.addEventListener('click', function(){ manualPoly = []; updateManualPoly(); }); if(opts.initial && opts.initial.poligono && opts.initial.poligono.length >= 3){ manualPoly = opts.initial.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }); setShapeMode('manual'); } else { setShapeMode('circulo'); }
       document.getElementById('gv-map-search').addEventListener('keydown', function(e){
         if(e.key === 'Enter'){ e.preventDefault(); doSearch(); }
       });
@@ -357,6 +411,7 @@ GV.pickLocation = function(opts){
       document.getElementById('gv-map-ok').addEventListener('click', function(){
         if(!current) return;
         var result = { lat: current.lat, lng: current.lng, direccion: current.direccion };
+        if(current.poligono) result.poligono = current.poligono;
         if(opts.withStopFields){
           result.tipo = tipo;
           result.duracionMin = parseInt(document.getElementById('gv-map-duracion').value, 10) || 0;
