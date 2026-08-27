@@ -35,9 +35,10 @@ var gSessionUserName = null;
 function puedeIniciar(v){
 var g = v.gerenciamiento;
 if(!g || !g.resultado) return false;
+if(g.autorizadoPor === 'supervisor') return true;
 if(g.resultado === 'rojo') return false;
 if(g.resultado === 'verde') return true;
-return g.autorizadoPor === 'supervisor';
+return false;
 }
 
 function misViajes(){
@@ -208,18 +209,30 @@ if(v.estado === 'en_curso'){
 progreso = renderProgresoSitios(v);
   actions = '<button class="gv-btn gv-btn-warn gv-btn-sm" data-action="demorado" data-id="' + v.id + '">Estoy Demorado</button>' +
     '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar Viaje</button>';
-} else if(!g || !g.resultado){
-banner = '<div class="gv-banner gv-banner-info"><h3>Tenes un viaje programado</h3><p>Antes de iniciar, debes completar el Gerenciamiento de Viaje (obligatorio).</p></div>';
-actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="gerenciar" data-id="' + v.id + '">Iniciar Gerenciamiento de Viaje</button>';
-} else if(g.resultado === 'rojo'){
-banner = '<div class="gv-banner gv-banner-danger"><h3>NO ESTAS AUTORIZADO A VIAJAR</h3><p>' + GV.escapeHtml((g.motivos||[]).join('; ')) + '</p></div>';
-} else if(g.resultado === 'amarillo' && g.rechazado){
-banner = '<div class="gv-banner gv-banner-danger"><h3>Solicitud rechazada</h3><p>El supervisor rechazo la autorizacion. Contactate para reprogramar el viaje.</p></div>';
-} else if(g.resultado === 'amarillo' && g.autorizadoPor !== 'supervisor'){
-banner = '<div class="gv-banner gv-banner-warn"><h3>Esperando autorizacion del supervisor</h3><p>No podes salir hasta recibir la aprobacion. Esta pantalla se actualiza automaticamente.</p></div>';
-} else if(puedeIniciar(v)){
-banner = '<div class="gv-banner gv-banner-ok"><h3>Autorizado para viajar</h3><p>Ya podes iniciar el viaje.</p></div>';
-actions = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="iniciar" data-id="' + v.id + '">Iniciar Viaje</button>';
+} else {
+  /* Ningun viaje puede iniciar sin gerenciamiento: mientras el viaje no este autorizado a salir,
+     la opcion de hacer (o rehacer) el gerenciamiento tiene que seguir disponible siempre. */
+  var autorizado = puedeIniciar(v);
+  if(!g || !g.resultado){
+    banner = '<div class="gv-banner gv-banner-info"><h3>Tenes un viaje programado</h3><p>Antes de iniciar, debes completar el Gerenciamiento de Viaje (obligatorio).</p></div>';
+  } else if(autorizado){
+    banner = '<div class="gv-banner gv-banner-ok"><h3>Autorizado para viajar</h3><p>Ya podes iniciar el viaje.</p></div>';
+  } else if(g.resultado === 'amarillo' && g.rechazado){
+    banner = '<div class="gv-banner gv-banner-danger"><h3>Solicitud rechazada</h3><p>El supervisor rechazo la autorizacion. Podes rehacer el gerenciamiento o contactate para reprogramar el viaje.</p></div>';
+  } else if(g.resultado === 'amarillo'){
+    banner = '<div class="gv-banner gv-banner-warn"><h3>Esperando autorizacion del supervisor</h3><p>No podes salir hasta recibir la aprobacion. Esta pantalla se actualiza automaticamente.</p></div>';
+  } else if(g.resultado === 'rojo' && g.rechazado){
+    banner = '<div class="gv-banner gv-banner-danger"><h3>Solicitud rechazada</h3><p>El supervisor rechazo la autorizacion para viajar pese al resultado en rojo. Podes rehacer el gerenciamiento o contactate para reprogramar el viaje.</p></div>';
+  } else if(g.resultado === 'rojo'){
+    banner = g.solicitoAutorizacion
+      ? '<div class="gv-banner gv-banner-warn"><h3>Esperando autorizacion del supervisor</h3><p>Se solicito autorizacion para viajar pese al resultado en rojo del gerenciamiento. Esta pantalla se actualiza automaticamente.</p></div>'
+      : '<div class="gv-banner gv-banner-danger"><h3>NO ESTAS AUTORIZADO A VIAJAR</h3><p>' + GV.escapeHtml((g.motivos||[]).join('; ')) + '</p></div>';
+  }
+  if(autorizado){
+    actions = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="iniciar" data-id="' + v.id + '">Iniciar Viaje</button>';
+  } else {
+    actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="gerenciar" data-id="' + v.id + '">' + ((!g || !g.resultado) ? 'Iniciar Gerenciamiento de Viaje' : 'Rehacer Gerenciamiento de Viaje') + '</button>';
+  }
 }
 }
 
@@ -332,10 +345,24 @@ durmioPoco: null, horasDespiertoMas16: null, alcoholMedicacion: null, noApto: nu
 motivo: null, motivoOtro: '',
 checklist: { alarmaRetroceso: null, kitAntiderrame: null, parabrisas: null, espejos: null, neumaticos: null, verificacion360: null },
 checklistObs: '',
-clima: null, rutaConocida: null, comunicacion: null
+clima: null, rutaConocida: null, comunicacion: null,
+fatiga: null
 };
 
-var steps = ['aviso', 'motivo', 'checklist', 'riesgos', 'resultado'];
+/* Indica si, para una pregunta si/no del wizard, contestar "si" es la respuesta buena (verde) o
+   la mala (rojo). En el aviso de seguridad vial son preguntas capciosas: contestar "si" es malo.
+   En el checklist vehicular y en la evaluacion de riesgos es al reves: "si" es lo esperado/bueno. */
+function siEsPositivo(q){
+if(q.indexOf('chk_') === 0) return true;
+if(q === 'rutaConocida' || q === 'comunicacion') return true;
+return false;
+}
+function claseParaRespuesta(q, v){
+var esBueno = (v === 'si') === siEsPositivo(q);
+return esBueno ? 'gv-r-yes-sel' : 'gv-r-no-sel';
+}
+
+var steps = ['aviso', 'motivo', 'checklist', 'riesgos', 'fatiga', 'resultado'];
 var stepIdx = 0;
 
 var overlay = document.createElement('div');
@@ -356,10 +383,10 @@ var body = '';
 if(steps[stepIdx] === 'aviso'){
 body = '<h3>Aviso de seguridad vial</h3>' +
 '<div class="gv-banner gv-banner-warn"><p>El conductor debera notificar a su supervisor y NO REALIZAR EL VIAJE si:</p></div>' +
-'<div class="gv-check-row"><span>Dormiste menos de 6 horas la jornada anterior</span><div class="gv-radio-pair" data-q="durmioPoco"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
-'<div class="gv-check-row"><span>Llevas despierto o de viaje mas de 16 horas</span><div class="gv-radio-pair" data-q="horasDespiertoMas16"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
-'<div class="gv-check-row"><span>Consumiste alcohol o medicacion/drogas que afecten tus reflejos en las ultimas 12 horas</span><div class="gv-radio-pair" data-q="alcoholMedicacion"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
-'<div class="gv-check-row"><span>Consideras que no estas apto para realizar el viaje</span><div class="gv-radio-pair" data-q="noApto"><button data-v="no">No</button><button data-v="si">Si</button></div></div>';
+'<div class="gv-check-row"><span>Dormiste menos de 6 horas la jornada anterior</span><div class="gv-radio-pair" data-q="durmioPoco"><button data-v="si">Si</button><button data-v="no">No</button></div></div>' +
+'<div class="gv-check-row"><span>Llevas despierto o de viaje mas de 16 horas</span><div class="gv-radio-pair" data-q="horasDespiertoMas16"><button data-v="si">Si</button><button data-v="no">No</button></div></div>' +
+'<div class="gv-check-row"><span>Consumiste alcohol o medicacion/drogas que afecten tus reflejos en las ultimas 12 horas</span><div class="gv-radio-pair" data-q="alcoholMedicacion"><button data-v="si">Si</button><button data-v="no">No</button></div></div>' +
+'<div class="gv-check-row"><span>Consideras que no estas apto para realizar el viaje</span><div class="gv-radio-pair" data-q="noApto"><button data-v="si">Si</button><button data-v="no">No</button></div></div>';
 } else if(steps[stepIdx] === 'motivo'){
 var motivos = ['Viaje a un puesto de trabajo','Visita a un cliente','Transporte de personal','Transporte de carga o acarreo','Fin de la jornada laboral'];
 body = '<h3>Indica un motivo de viaje</h3><div class="gv-motivo-list">' +
@@ -376,7 +403,7 @@ var items = [
 ];
 body = '<h3>Controles y Checklist Vehicular<span class="gv-req">*</span></h3>' +
 items.map(function(it){
-return '<div class="gv-check-row"><span>' + it[1] + '</span><div class="gv-radio-pair" data-q="chk_' + it[0] + '"><button data-v="no">No</button><button data-v="si">Si</button></div></div>';
+return '<div class="gv-check-row"><span>' + it[1] + '</span><div class="gv-radio-pair" data-q="chk_' + it[0] + '"><button data-v="si">Si</button><button data-v="no">No</button></div></div>';
 }).join('') +
 '<div class="gv-form-row" style="margin-top:10px"><label>Observacion adicional</label><textarea id="gv-checklist-obs" rows="2">' + GV.escapeHtml(respuestas.checklistObs) + '</textarea></div>';
 } else if(steps[stepIdx] === 'riesgos'){
@@ -384,8 +411,16 @@ var climas = ['Soleado / nublado','Lluvia / barro / viento','Tormentas fuertes /
 body = '<h3>Evaluacion de Riesgos<span class="gv-req">*</span></h3><div class="gv-motivo-list">' +
 climas.map(function(c){ return '<label><input type="radio" name="gv-clima" value="' + c + '"' + (respuestas.clima === c ? ' checked' : '') + '> ' + c + '</label>'; }).join('') +
 '</div>' +
-'<div class="gv-check-row"><span>Conoces la ruta a recorrer</span><div class="gv-radio-pair" data-q="rutaConocida"><button data-v="no">No</button><button data-v="si">Si</button></div></div>' +
-'<div class="gv-check-row"><span>Contas con comunicacion disponible (radio/celular)</span><div class="gv-radio-pair" data-q="comunicacion"><button data-v="no">No</button><button data-v="si">Si</button></div></div>';
+'<div class="gv-check-row"><span>Conoces la ruta a recorrer</span><div class="gv-radio-pair" data-q="rutaConocida"><button data-v="si">Si</button><button data-v="no">No</button></div></div>' +
+'<div class="gv-check-row"><span>Contas con comunicacion disponible (radio/celular)</span><div class="gv-radio-pair" data-q="comunicacion"><button data-v="si">Si</button><button data-v="no">No</button></div></div>';
+} else if(steps[stepIdx] === 'fatiga'){
+body = '<h3>Diagnostico de Fatiga<span class="gv-req">*</span></h3>' +
+'<p style="font-size:.88rem;color:#374151;margin:0 0 12px">Indique su nivel de cansancio en este momento</p>' +
+'<div class="gv-fatiga-list">' +
+'<label class="gv-fatiga-alto"><input type="radio" name="gv-fatiga" value="alto"' + (respuestas.fatiga === 'alto' ? ' checked' : '') + '> 1. Extremadamente cansado (Riesgo Alto)</label>' +
+'<label class="gv-fatiga-medio"><input type="radio" name="gv-fatiga" value="medio"' + (respuestas.fatiga === 'medio' ? ' checked' : '') + '> 2. Un poco cansado (Riesgo Medio)</label>' +
+'<label class="gv-fatiga-verde"><input type="radio" name="gv-fatiga" value="verde"' + (respuestas.fatiga === 'verde' ? ' checked' : '') + '> 3. Completamente alerta (Riesgo Verde)</label>' +
+'</div>';
 } else if(steps[stepIdx] === 'resultado'){
 var r = calcularResultado();
 var cls = r.resultado === 'verde' ? 'gv-result-verde' : (r.resultado === 'amarillo' ? 'gv-result-amarillo' : 'gv-result-rojo');
@@ -405,19 +440,24 @@ modal.querySelectorAll('.gv-radio-pair').forEach(function(pair){
 var q = pair.getAttribute('data-q');
 var val = q.indexOf('chk_') === 0 ? respuestas.checklist[q.slice(4)] : respuestas[q];
 pair.querySelectorAll('button').forEach(function(b){
-if(b.getAttribute('data-v') === val) b.classList.add(b.getAttribute('data-v') === 'si' ? 'gv-r-no-sel' : 'gv-r-yes-sel');
+if(b.getAttribute('data-v') === val) b.classList.add(claseParaRespuesta(q, val));
 });
 pair.querySelectorAll('button').forEach(function(b){
 b.addEventListener('click', function(){
 var v = b.getAttribute('data-v');
 if(q.indexOf('chk_') === 0){ respuestas.checklist[q.slice(4)] = v; } else { respuestas[q] = v; }
 pair.querySelectorAll('button').forEach(function(x){ x.classList.remove('gv-r-yes-sel','gv-r-no-sel'); });
-b.classList.add(v === 'si' ? 'gv-r-no-sel' : 'gv-r-yes-sel');
+b.classList.add(claseParaRespuesta(q, v));
 renderActions();
 });
 });
 });
 
+if(steps[stepIdx] === 'fatiga'){
+modal.querySelectorAll('input[name="gv-fatiga"]').forEach(function(r){
+r.addEventListener('change', function(){ respuestas.fatiga = r.value; renderActions(); });
+});
+}
 if(steps[stepIdx] === 'motivo'){
 modal.querySelectorAll('input[name="gv-motivo"]').forEach(function(r){
 r.addEventListener('change', function(){ respuestas.motivo = r.value; renderActions(); });
@@ -447,6 +487,7 @@ var c = respuestas.checklist;
 return Object.keys(c).every(function(k){ return c[k]; });
 }
 if(s === 'riesgos') return !!respuestas.clima && respuestas.rutaConocida && respuestas.comunicacion;
+if(s === 'fatiga') return !!respuestas.fatiga;
 return true;
 }
 
@@ -454,11 +495,17 @@ function renderActions(){
 var actions = document.getElementById('gv-wizard-actions');
 if(!actions) return;
 var isLast = steps[stepIdx] === 'resultado';
+var resultadoActual = isLast ? calcularResultado() : null;
 var html = '';
 html += '<button type="button" class="gv-btn gv-btn-sec" id="gv-wizard-cancel">Cancelar</button>';
 if(stepIdx > 0 && !isLast){ html += '<button type="button" class="gv-btn gv-btn-sec" id="gv-wizard-prev">Anterior</button>'; }
-if(!isLast){ html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-next"' + (stepValido() ? '' : ' disabled') + '>Continuar</button>'; }
-else { html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-finish">Finalizar</button>'; }
+if(!isLast){
+html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-next"' + (stepValido() ? '' : ' disabled') + '>Continuar</button>';
+} else if(resultadoActual.resultado === 'rojo'){
+html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-solicitar">Solicitar autorizacion</button>';
+} else {
+html += '<button type="button" class="gv-btn gv-btn-primary" id="gv-wizard-finish">Finalizar</button>';
+}
 actions.innerHTML = html;
 
 var cancelBtn = document.getElementById('gv-wizard-cancel');
@@ -468,7 +515,9 @@ if(prevBtn) prevBtn.addEventListener('click', function(){ stepIdx--; renderStep(
 var nextBtn = document.getElementById('gv-wizard-next');
 if(nextBtn) nextBtn.addEventListener('click', function(){ if(stepValido()){ stepIdx++; renderStep(); } });
 var finishBtn = document.getElementById('gv-wizard-finish');
-if(finishBtn) finishBtn.addEventListener('click', finalizarWizard);
+if(finishBtn) finishBtn.addEventListener('click', function(){ finalizarWizard(false); });
+var solicitarBtn = document.getElementById('gv-wizard-solicitar');
+if(solicitarBtn) solicitarBtn.addEventListener('click', function(){ finalizarWizard(true); });
 }
 
 function calcularResultado(){
@@ -483,6 +532,8 @@ Object.keys(c).forEach(function(k){ if(c[k] === 'no'){ amarillo = true; motivos.
 if(respuestas.clima === 'Tormentas fuertes / niebla' || respuestas.clima === 'Nieve / heladas'){ amarillo = true; motivos.push('Condicion climatica de riesgo: ' + respuestas.clima); }
 if(respuestas.rutaConocida === 'no'){ amarillo = true; motivos.push('Ruta no conocida'); }
 if(respuestas.comunicacion === 'no'){ amarillo = true; motivos.push('Sin comunicacion disponible'); }
+if(respuestas.fatiga === 'alto'){ rojo = true; motivos.push('Diagnostico de fatiga: extremadamente cansado (riesgo alto)'); }
+else if(respuestas.fatiga === 'medio' && !rojo){ amarillo = true; motivos.push('Diagnostico de fatiga: un poco cansado (riesgo medio)'); }
 
 var resultado = rojo ? 'rojo' : (amarillo ? 'amarillo' : 'verde');
 return { resultado: resultado, motivos: motivos };
@@ -490,7 +541,7 @@ return { resultado: resultado, motivos: motivos };
 
 function cerrarWizard(){ overlay.remove(); }
 
-function finalizarWizard(){
+function finalizarWizard(solicitarAuth){
 var r = calcularResultado();
   var ahora = new Date().toISOString();
 var gerenciamiento = {
@@ -499,7 +550,8 @@ var gerenciamiento = {
 respuestas: respuestas,
 completadoEn: ahora,
 autorizadoPor: r.resultado === 'verde' ? 'auto' : null,
-rechazado: false
+rechazado: false,
+solicitoAutorizacion: !!(r.resultado === 'rojo' && solicitarAuth)
 };
   var registro = {
   id: GV.genId('ger'),
@@ -518,6 +570,12 @@ if(r.resultado === 'amarillo'){
 GV.Storage.addAlerta({
 id: 'al_auth_' + viaje.id, tipo: 'autorizacion',
 mensaje: 'Solicitud de autorizacion: ' + viaje.conductor + ' (' + viaje.vehiculo + ') - ' + r.motivos.join('; '),
+fecha: new Date().toISOString(), viajeId: viaje.id
+});
+} else if(r.resultado === 'rojo' && solicitarAuth){
+GV.Storage.addAlerta({
+id: 'al_auth_rojo_' + viaje.id, tipo: 'autorizacion',
+mensaje: 'Solicitud de autorizacion (gerenciamiento ROJO): ' + viaje.conductor + ' (' + viaje.vehiculo + ') - ' + r.motivos.join('; '),
 fecha: new Date().toISOString(), viajeId: viaje.id
 });
 } else if(r.resultado === 'rojo'){
@@ -552,7 +610,8 @@ function ocultarSelectorManual(){
   function poblarSelectManual(lista){
 var sel = document.getElementById('gv-select-driver');
 if(sel){
-sel.innerHTML = '<option value="">Seleccionar...</option>' + lista.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
+var ordenada = (lista || []).slice().sort(function(a,b){ return (a.nombre||'').localeCompare((b.nombre||''), 'es', { sensitivity: 'base' }); });
+sel.innerHTML = '<option value="">Seleccionar...</option>' + ordenada.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
 }
 }
 
