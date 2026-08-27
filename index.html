@@ -105,8 +105,6 @@ var gState = { conductores: [], vehiculos: [], zonas: [] };
 var gApi = null;
 var gTrackMap = null;
 var gTrackLayer = null;
-var gZonesLayer = null;
-var gZonesBuilt = false;
 var gTrackInterval = null;
 var gTrackRenderGen = 0;
 var gPanelView = 'calendario';
@@ -747,26 +745,6 @@ function updateTrackBadges(v){
   });
 }
 
-/* Dibuja los limites de los yacimientos/zonas ya cargados en Geotab (Zone) sobre el mapa de
-   Seguimiento, similar al mapa de MicroTrack: contorno + nombre de cada zona. Se arma una sola
-   vez (las zonas no cambian todo el tiempo) y si gState.zonas todavia no llego cuando se crea el
-   mapa, se reintenta en el siguiente renderTracking() hasta que haya datos. */
-function renderZonasLayer(L){
-  if(gZonesBuilt || !gTrackMap) return;
-  if(!gState.zonas || !gState.zonas.length) return;
-  gZonesLayer = L.layerGroup().addTo(gTrackMap);
-  gState.zonas.forEach(function(z){
-    if(!z || !z.points || z.points.length < 3) return;
-    if(!z.name || /^everywhere$/i.test(z.name)) return;
-    var pts = z.points.map(function(pt){ return (typeof pt.lat === 'number') ? [pt.lat, pt.lng] : [pt.y, pt.x]; });
-    L.polygon(pts, { color: '#ffffff', weight: 1.2, fillColor: '#ffffff', fillOpacity: .03, opacity: .55 }).addTo(gZonesLayer);
-    var centro = pts.reduce(function(acc,p){ return [acc[0]+p[0]/pts.length, acc[1]+p[1]/pts.length]; }, [0,0]);
-    var lbl = L.divIcon({ className: '', html: '<div style="color:#fff;font-size:10.5px;font-weight:600;text-shadow:0 1px 2px #000,0 0 4px #000;white-space:nowrap;pointer-events:none;transform:translate(-50%,-50%)">' + GV.escapeHtml(z.name) + '</div>', iconSize: [1,1] });
-    L.marker(centro, { icon: lbl, interactive: false, zIndexOffset: -1000 }).addTo(gZonesLayer);
-  });
-  gZonesBuilt = true;
-}
-
 function renderTracking(){
   var box = document.getElementById('gv-track-map');
   var listEl = document.getElementById('gv-track-list');
@@ -774,10 +752,9 @@ function renderTracking(){
   GV.loadLeaflet().then(function(L){
     if(!gTrackMap){
       gTrackMap = L.map('gv-track-map').setView([-38.951, -68.059], 9);
-      GV.addBaseLayers(gTrackMap);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(gTrackMap);
       gTrackLayer = L.layerGroup().addTo(gTrackMap);
     }
-    renderZonasLayer(L);
     gTrackLayer.clearLayers();
     gTrackRenderGen++;
     var myGen = gTrackRenderGen;
@@ -1411,14 +1388,15 @@ else if(!__within && __inside){ __out = __hr.dateTime; break; }
 if(__in){ __realIn = __in; __realOut = __out; __histCursor = __hi < fullHist.length ? __hi : fullHist.length; } else { __seqBroken = true; }
 }
 if(!p.tipo){ __realIn = __realIn || (__srP && __srP.ingreso); __realOut = __realOut || (__srP && __srP.egreso); }
-/* Para paradas de carga/descarga, el horario que marco el chofer en su app (boton "Llegue"/"Sali")
-   tiene prioridad sobre la estimacion por GPS: es el dato real que declaro la persona en el sitio. */
-var __choferMarcoIn = false, __choferMarcoOut = false;
-if(p.tipo && __srP){
-if(__srP.ingreso){ __realIn = __srP.ingreso; __choferMarcoIn = true; }
-if(__srP.egreso){ __realOut = __srP.egreso; __choferMarcoOut = true; }
-}
-rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, choferMarcoIn: __choferMarcoIn, choferMarcoOut: __choferMarcoOut });
+/* Ingreso real / Egreso real siguen calculandose igual que siempre (por historial de GPS, con
+   sitiosReal solo como respaldo en puntos de paso): son el dato automatico de cuando el camion
+   entro/salio del sitio segun su posicion. Aparte de eso, si el chofer efectivamente toco el
+   boton "Llegue"/"Sali" en su app para esa carga/descarga, se guarda un horario totalmente
+   distinto (choferMarcoIngreso/choferMarcoEgreso) que se muestra como un dato aparte, sin
+   pisar ni confundirse con el ingreso/egreso real de arriba. */
+var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
+var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
+rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null });
 });
 
 function estadoBadge(r){
@@ -1468,12 +1446,12 @@ if(__isOrigen && r.realOut){
 var __demoraMs = r.realOut.getTime() - new Date(v.fechaSalida).getTime();
 __salidaNote = __demoraMs > 60000 ? ('<br><span style="font-size:.7rem;color:#dc2626;font-weight:700">(salio con ' + GV.fmtDurMin(__demoraMs) + ' de demora)</span>') : '<br><span style="font-size:.7rem;color:#059669;font-weight:600">(salio a horario)</span>';
 }
-var __choferTagIn = r.choferMarcoIn ? '<br><span style="font-size:.68rem;color:#7c3aed">(marcado por el chofer)</span>' : '';
-var __choferTagOut = r.choferMarcoOut ? '<br><span style="font-size:.68rem;color:#7c3aed">(marcado por el chofer)</span>' : '';
+var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco inicio de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoIngreso) + '</span>') : '';
+var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoEgreso) + '</span>') : '';
 var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
 var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagIn);
 var __egresoEstCell = __isDestino ? '-' : fmtTimeCell(r.egreso);
-var __egresoRealCell = __isDestino ? '-' : ((enSitioNote || (fmtTimeCell(r.realOut) + __choferTagOut)) + __salidaNote);
+var __egresoRealCell = __isDestino ? '-' : ((enSitioNote || fmtTimeCell(r.realOut)) + __choferTagOut + __salidaNote);
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
 (__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') +

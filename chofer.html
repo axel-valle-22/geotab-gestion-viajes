@@ -99,7 +99,13 @@ btn.addEventListener('click', function(){ abrirDetalleViajeChofer(btn.getAttribu
       if(!v) return;
       var sr = Object.assign({}, v.sitiosReal || {});
       if(!sr[site]) sr[site] = {};
-      sr[site].ingreso = new Date().toISOString();
+      var __ahoraIn = new Date().toISOString();
+      sr[site].ingreso = __ahoraIn;
+      /* choferMarcoIngreso queda aparte de "ingreso": ese ultimo tambien lo puede completar
+         solo el sistema por GPS (ver checkDwellAlerts en index.html), asi que no alcanza para
+         saber si realmente fue el chofer quien lo marco. Este campo es exclusivamente el
+         horario en que el chofer toco el boton "Llegue" en su app. */
+      sr[site].choferMarcoIngreso = __ahoraIn;
       GV.Storage.updateViaje(id, { sitiosReal: sr }).then(function(){ renderDriverView(); });
     });
   });
@@ -111,7 +117,10 @@ btn.addEventListener('click', function(){ abrirDetalleViajeChofer(btn.getAttribu
       if(!v) return;
       var sr = Object.assign({}, v.sitiosReal || {});
       if(!sr[site]) sr[site] = {};
-      sr[site].egreso = new Date().toISOString();
+      var __ahoraOut = new Date().toISOString();
+      sr[site].egreso = __ahoraOut;
+      /* Idem choferMarcoIngreso, pero para el boton "Sali". */
+      sr[site].choferMarcoEgreso = __ahoraOut;
       GV.Storage.updateViaje(id, { sitiosReal: sr }).then(function(){ renderDriverView(); });
     });
   });
