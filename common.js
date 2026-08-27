@@ -299,7 +299,9 @@ GV.pickLocation = function(opts){
             '<input type="text" id="gv-map-search" placeholder="Buscar direccion...">' +
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
-          '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' + '<div id="gv-map-picker" class="gv-map-box"></div>' +
+          '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
+          (opts.vehiculoId ? '<div class="gv-search-row"><button type="button" id="gv-btn-ultima-pos" class="gv-btn gv-btn-sec gv-btn-sm" style="width:100%">Usar ultima posicion del camion</button></div>' : '') +
+          '<div id="gv-map-picker" class="gv-map-box"></div>' +
           '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span style="font-size:.78rem;color:#6b7280">Area del sitio:</span><button type="button" id="gv-shape-circulo" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Circulo automatico</button><button type="button" id="gv-shape-manual" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Dibujar manualmente</button></div>' +
           '<div id="gv-shape-manual-hint" style="display:none;font-size:.76rem;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:6px 10px;margin-bottom:10px">Hace clic en el mapa para agregar los vertices del area del sitio (minimo 3 puntos). <button type="button" id="gv-shape-undo" style="background:none;border:none;color:#7c3aed;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Deshacer ultimo punto</button><button type="button" id="gv-shape-clear" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Borrar forma</button></div>' +
@@ -397,6 +399,28 @@ GV.pickLocation = function(opts){
       document.getElementById('gv-map-search').addEventListener('keydown', function(e){
         if(e.key === 'Enter'){ e.preventDefault(); doSearch(); }
       });
+
+      var ultimaPosBtn = document.getElementById('gv-btn-ultima-pos');
+      if(ultimaPosBtn){
+        ultimaPosBtn.addEventListener('click', function(){
+          if(!opts.api || !opts.vehiculoId){ alert('Selecciona primero un vehiculo.'); return; }
+          var textoOriginal = ultimaPosBtn.textContent;
+          ultimaPosBtn.disabled = true;
+          ultimaPosBtn.textContent = 'Buscando posicion...';
+          function restaurarBtn(){ ultimaPosBtn.disabled = false; ultimaPosBtn.textContent = textoOriginal; }
+          opts.api.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: opts.vehiculoId } } }, function(res){
+            restaurarBtn();
+            if(res && res.length && res[0].latitude != null && res[0].longitude != null){
+              setMarker(res[0].latitude, res[0].longitude);
+              map.setView([res[0].latitude, res[0].longitude], 16);
+              setShapeMode('circulo');
+              onPoint(res[0].latitude, res[0].longitude);
+            } else {
+              alert('No se pudo obtener la ultima posicion del vehiculo.');
+            }
+          }, function(){ restaurarBtn(); alert('No se pudo obtener la ultima posicion del vehiculo.'); });
+        });
+      }
 
       if(opts.withStopFields){
         var bc = document.getElementById('gv-tipo-carga');

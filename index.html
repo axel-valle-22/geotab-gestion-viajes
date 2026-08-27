@@ -537,7 +537,8 @@ var calNextBtn = document.getElementById('gv-cal-next');
 if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()+1); renderCalendar(); });
 
   document.getElementById('gv-btn-origen').addEventListener('click', function(){
-    GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: false }).then(function(res){
+    var vSelOrigen = document.getElementById('gv-vehiculo');
+    GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: false, vehiculoId: vSelOrigen ? vSelOrigen.value : '', api: gApi }).then(function(res){
       if(res){ gOrigen = res; document.getElementById('gv-origen-txt').textContent = GV.siteNameFor(res) + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
     });
   });
