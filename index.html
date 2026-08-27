@@ -870,8 +870,17 @@ function renderTracking(){
           if(activosIds[v.id]){
             bounds.push(pos);
             var __vp2 = vehiculoParts(v.vehiculo);
-            var __etiqueta = __vp2.interno + (__vp2.patente ? (' - ' + __vp2.patente) : '') + ' (' + v.conductor + ') - ' + __ts.label;
-            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#00A6E0'), zIndexOffset: 1000 }).bindTooltip(__etiqueta, { permanent: false }).addTo(gTrackLayer);
+            var __etiquetaCorta = __vp2.interno + (__vp2.patente ? (' - ' + __vp2.patente) : '') + (v.conductor ? (' (' + v.conductor + ')') : '');
+            var __etiquetaHover = __etiquetaCorta + ' - ' + __ts.label;
+            /* Etiqueta permanente (unidad - patente (chofer)) siempre visible sobre el camion,
+               igual que en el mapa nativo de Geotab: asi se identifica cada unidad de un
+               vistazo en pantalla grande, sin necesidad de pasar el mouse por encima. El estado
+               de movimiento (circulando/detenido) se ve al pasar el cursor, en el tooltip. */
+            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#00A6E0'), zIndexOffset: 1000 })
+              .bindTooltip(__etiquetaCorta, { permanent: true, direction: 'top', offset: [0, -14], className: 'gv-truck-label' })
+              .on('mouseover', function(e){ e.target.setTooltipContent(__etiquetaHover); })
+              .on('mouseout', function(e){ e.target.setTooltipContent(__etiquetaCorta); })
+              .addTo(gTrackLayer);
           }
         }
         pending--;
