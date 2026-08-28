@@ -336,6 +336,11 @@ function renderAlertas(){
       fila('Conoce la ruta a recorrer', siNo(r.rutaConocida)) +
       fila('Cuenta con comunicacion disponible', siNo(r.comunicacion));
 
+    var fatigaLabels = { alto: '1. Extremadamente cansado (Riesgo Alto)', medio: '2. Un poco cansado (Riesgo Medio)', verde: '3. Completamente alerta (Riesgo Verde)' };
+    var fatigaColors = { alto: '#dc2626', medio: '#d97706', verde: '#059669' };
+    var fatigaValLabel = fatigaLabels[r.fatiga] || '-';
+    var fatigaHtml = '<div style="display:flex;justify-content:space-between;gap:14px;padding:6px 0;border-bottom:1px dashed #e5e7eb;font-size:.83rem"><span style="color:#374151">Nivel de cansancio declarado</span><b style="text-align:right;color:' + (fatigaColors[r.fatiga] || '#111827') + '">' + GV.escapeHtml(fatigaValLabel) + '</b></div>';
+
     var overlay = document.createElement('div');
     overlay.className = 'gv-modal-overlay';
     overlay.innerHTML =
@@ -351,6 +356,7 @@ function renderAlertas(){
         seccion('Motivo del viaje', motivoHtml) +
         seccion('Controles y checklist vehicular', checklistHtml) +
         seccion('Evaluacion de riesgos', riesgosHtml) +
+        seccion('Diagnostico de fatiga', fatigaHtml) +
       '</div>';
     document.body.appendChild(overlay);
     document.getElementById('gv-gerdet-close').addEventListener('click', function(){ overlay.remove(); });
