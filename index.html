@@ -520,8 +520,39 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
         if(!dw || dw.siteId !== atSite.id){
           var __sr = Object.assign({}, v.sitiosReal || {});
           if(!__sr[atSite.id]) __sr[atSite.id] = {};
-          if(!__sr[atSite.id].ingreso) __sr[atSite.id].ingreso = new Date().toISOString();
-          GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: new Date().toISOString(), alertado: false, lastAlertBucket: -1 }, sitiosReal: __sr });
+          var __arrivalGuess = new Date().toISOString();
+          if(!__sr[atSite.id].ingreso) __sr[atSite.id].ingreso = __arrivalGuess;
+          GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: __arrivalGuess, alertado: false, lastAlertBucket: -1 }, sitiosReal: __sr });
+          v.dwellState = { siteId: atSite.id, arrivedAt: __arrivalGuess, alertado: false, lastAlertBucket: -1 };
+          v.sitiosReal = __sr;
+          /* Este chequeo solo corre mientras el panel del coordinador esta abierto: puede "descubrir"
+             que la unidad ya esta en el sitio varios minutos despues de que realmente llego (por
+             ejemplo si nadie tenia la pantalla abierta en ese momento). Para no arrancar tarde la
+             cuenta del tiempo de carga/descarga programado, se revisa el historial de GPS de las
+             ultimas horas y se busca el momento real en que entro a la geocerca del sitio. */
+          (function(vv, siteRef, arrivalGuessIso){
+            var __histFrom = new Date(Date.now() - 4*60*60*1000);
+            fetchHistoryForViaje(vv, __histFrom, new Date()).then(function(hist){
+              if(!hist || !hist.length) return;
+              var realArrival = null;
+              for(var __hi = hist.length - 1; __hi >= 0; __hi--){
+                if(GV.isWithinSite({lat:hist[__hi].latitude,lng:hist[__hi].longitude}, siteRef)){ realArrival = hist[__hi].dateTime; }
+                else { break; }
+              }
+              if(realArrival && new Date(realArrival) < new Date(arrivalGuessIso)){
+                var __sr3 = Object.assign({}, vv.sitiosReal || {});
+                if(!__sr3[siteRef.id]) __sr3[siteRef.id] = {};
+                __sr3[siteRef.id].ingreso = realArrival;
+                var __updatesRefine = { sitiosReal: __sr3 };
+                if(vv.dwellState && vv.dwellState.siteId === siteRef.id && vv.dwellState.arrivedAt === arrivalGuessIso){
+                  __updatesRefine.dwellState = Object.assign({}, vv.dwellState, { arrivedAt: realArrival });
+                  vv.dwellState = __updatesRefine.dwellState;
+                }
+                vv.sitiosReal = __sr3;
+                GV.Storage.updateViaje(vv.id, __updatesRefine);
+              }
+            });
+          })(v, atSite, __arrivalGuess);
         } else if(dw){
           var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000;
           if(atSite.dur && elapsedMin > atSite.dur){
