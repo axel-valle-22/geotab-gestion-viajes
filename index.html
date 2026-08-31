@@ -1653,6 +1653,12 @@ return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendien
 
 var tipoRows = rows.filter(function(r){ return r.tipo; });
 var salidaDemoraHtml = v.salioConDemora ? ('<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad salio de ' + (v.origen ? GV.escapeHtml(GV.siteNameFor(v.origen)) : 'origen') + ' con <b>' + GV.fmtDurMin((v.demoraSalidaMin||0)*60000) + '</b> de demora sobre lo programado.</div>') : '';
+/* Geotab no siempre tiene guardado el historial de posiciones (LogRecord) de este vehiculo para
+   el periodo del viaje (pasa con viajes viejos o con unidades que no lo retienen). Sin ese
+   historial, los horarios reales de los sitios se basan solo en lo que se pudo detectar en vivo
+   mientras el panel estaba abierto -- pueden faltar o ser aproximados. Se avisa para que no se
+   interprete como un dato borrado o un error del sistema. */
+var sinHistHtml = (!fullHist || !fullHist.length) ? '<div style="font-size:.78rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#f3f4f6;border:1px solid #e5e7eb;color:#6b7280">No hay historial de posiciones GPS disponible en Geotab para el periodo de este viaje: los horarios reales que se ven abajo son solo los que se pudieron detectar en vivo mientras el panel estaba abierto, y la linea de tiempo de reproduccion no va a tener datos.</div>' : '';
 var progresoHtml = '';
 if(tipoRows.length){
 var completados = tipoRows.filter(function(r){ return r.realOut; }).length;
@@ -1679,7 +1685,7 @@ var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:fal
 var sameDay = GV.dateStr(d) === GV.dateStr(v.fechaSalida);
 return sameDay ? t : ('<b>' + d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) + '</b> ' + t);
 }
-itinEl.innerHTML = salidaDemoraHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = salidaDemoraHtml + sinHistHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 var enSitioNote = (r.realIn && !r.realOut) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
 var __isParada = r.id.indexOf('parada') === 0;
@@ -1957,6 +1963,12 @@ if(playBtn) playBtn.disabled = true;
 if(startEl) startEl.textContent = '--:--';
 if(endEl) endEl.textContent = '--:--';
 renderSliderMarks([], 0);
+/* Geotab a veces no tiene guardado el historial de posiciones (LogRecord) para el rango de
+   este viaje -- puede pasar con viajes viejos o con unidades que por algun motivo no lo
+   retienen. Sin eso no hay nada que reproducir. Se avisa explicitamente en vez de dejar el
+   contador en 00:00:00, que parece un dato roto en lugar de la ausencia real del dato. */
+var elEl2 = document.getElementById('gv-det-time-elapsed');
+if(elEl2) elEl2.textContent = 'Sin historial de posiciones disponible para este periodo';
 }
 });
 }
