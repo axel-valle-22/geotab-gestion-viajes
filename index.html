@@ -1425,7 +1425,7 @@ if(!p.tipo){ __realIn = __realIn || (__srP && __srP.ingreso); __realOut = __real
    pisar ni confundirse con el ingreso/egreso real de arriba. */
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
-rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null });
+rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
 
 function estadoBadge(r){
@@ -1479,7 +1479,7 @@ var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;c
 var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoEgreso) + '</span>') : '';
 var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
 var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagIn);
-var __egresoEstCell = __isDestino ? '-' : fmtTimeCell(r.egreso);
+var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
 var __egresoRealCell = __isDestino ? '-' : ((enSitioNote || fmtTimeCell(r.realOut)) + __choferTagOut + __salidaNote);
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
