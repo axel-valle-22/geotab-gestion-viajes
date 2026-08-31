@@ -451,13 +451,63 @@ function abrirJustificarDemora(viajeId){
   });
 }
 
-function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime = rec && rec.dateTime ? new Date(rec.dateTime).getTime() : now; var commAge = now - fixTime; var speed = (rec && rec.speed) || 0; if(rec && rec.isDeviceCommunicating === false){ return { cls:'nocomm', label:'Sin comunicacion hace ' + GV.fmtDurMin(commAge) }; } var st = gVehicleState[deviceId] || (gVehicleState[deviceId] = {}); if(speed > 3){ st.stoppedSince = null; return { cls:'moving', label:'Circulando a ' + Math.round(speed) + ' km/h' }; } if(!st.stoppedSince){ st.stoppedSince = now; } return { cls:'stopped', label:'Detenido hace ' + GV.fmtDurMin(now - st.stoppedSince) }; } function siteListFor(v){ var arr = []; if(v.origen && v.origen.tipo) arr.push({ id:'origen', label:'Origen (' + (GV.siteNameFor(v.origen)||'') + ')', lat:v.origen.lat, lng:v.origen.lng, poligono:v.origen.poligono||null, tipo:v.origen.tipo, dur:v.origen.duracionMin||0 }); (v.paradas||[]).forEach(function(p,i){ if(p.tipo) arr.push({ id:'parada'+i, label:'Parada '+(i+1)+' ('+(GV.siteNameFor(p)||'')+')', lat:p.lat, lng:p.lng, poligono:p.poligono||null, tipo:p.tipo, dur:p.duracionMin||0 }); }); if(v.destino) arr.push({ id:'destino', label:'Destino (' + (GV.siteNameFor(v.destino)||'') + ')', lat:v.destino.lat, lng:v.destino.lng, poligono:v.destino.poligono||null, tipo:v.destino.tipo, dur:v.destino.duracionMin||0 }); return arr; } function checkDwellAlerts(){
+function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime = rec && rec.dateTime ? new Date(rec.dateTime).getTime() : now; var commAge = now - fixTime; var speed = (rec && rec.speed) || 0; if(rec && rec.isDeviceCommunicating === false){ return { cls:'nocomm', label:'Sin comunicacion hace ' + GV.fmtDurMin(commAge) }; } var st = gVehicleState[deviceId] || (gVehicleState[deviceId] = {}); if(speed > 3){ st.stoppedSince = null; return { cls:'moving', label:'Circulando a ' + Math.round(speed) + ' km/h' }; } if(!st.stoppedSince){ st.stoppedSince = now; } return { cls:'stopped', label:'Detenido hace ' + GV.fmtDurMin(now - st.stoppedSince) }; } function siteListFor(v){ var arr = []; if(v.origen && v.origen.tipo) arr.push({ id:'origen', label:'Origen (' + (GV.siteNameFor(v.origen)||'') + ')', lat:v.origen.lat, lng:v.origen.lng, poligono:v.origen.poligono||null, tipo:v.origen.tipo, dur:v.origen.duracionMin||0 }); (v.paradas||[]).forEach(function(p,i){ if(p.tipo) arr.push({ id:'parada'+i, label:'Parada '+(i+1)+' ('+(GV.siteNameFor(p)||'')+')', lat:p.lat, lng:p.lng, poligono:p.poligono||null, tipo:p.tipo, dur:p.duracionMin||0 }); }); if(v.destino) arr.push({ id:'destino', label:'Destino (' + (GV.siteNameFor(v.destino)||'') + ')', lat:v.destino.lat, lng:v.destino.lng, poligono:v.destino.poligono||null, tipo:v.destino.tipo, dur:v.destino.duracionMin||0 }); return arr; }
+/* Cuando el origen del viaje coincide geograficamente con el primer sitio operativo (carga/descarga),
+   checkDwellAlerts nunca llega a registrar el ingreso/egreso de ese sitio en sitiosReal: mientras la
+   unidad sigue ahi (todavia dentro del origen) las ramas de deteccion de salida cortan antes de llegar
+   al chequeo general de sitios, y en el momento exacto en que el GPS detecta que ya se alejo del
+   origen, esa misma posicion ya esta fuera del sitio tambien (es el mismo lugar), asi que el chequeo
+   general tampoco llega a "verlo" ahi. El resultado es que ese primer sitio queda sin ingreso/egreso
+   propio guardado para siempre, aunque la unidad haya estado ahi y ya haya salido. Esta funcion se
+   llama justo en el momento en que se detecta (por GPS) que la unidad se alejo del origen, y rellena
+   retroactivamente ese sitio: un egreso inmediato (la salida ya esta confirmada por GPS en este mismo
+   instante) y un ingreso estimado (la hora programada de salida) que se refina enseguida revisando el
+   historial de GPS del dia. */
+function registrarSalidaSitioCoincideConOrigen(v, egresoIso){
+  var __sites0 = siteListFor(v);
+  if(!__sites0.length) return;
+  var __siteIni = __sites0[0];
+  if(!(v.origen && !v.origen.tipo && GV.isWithinSite({lat:v.origen.lat,lng:v.origen.lng}, __siteIni))) return;
+  var __srExist0 = (v.sitiosReal && v.sitiosReal[__siteIni.id]) || null;
+  if(__srExist0 && __srExist0.egreso) return;
+  var __sr0 = Object.assign({}, v.sitiosReal || {});
+  if(!__sr0[__siteIni.id]) __sr0[__siteIni.id] = {};
+  if(!__sr0[__siteIni.id].ingreso) __sr0[__siteIni.id].ingreso = v.fechaSalida;
+  __sr0[__siteIni.id].egreso = egresoIso;
+  GV.Storage.updateViaje(v.id, { sitiosReal: __sr0 });
+  v.sitiosReal = __sr0;
+  (function(vv, siteRef, egresoIsoRef){
+    var __dayStart3 = new Date(vv.fechaSalida); __dayStart3.setHours(0,0,0,0);
+    var __from3 = new Date(__dayStart3.getTime() - 6*60*60*1000);
+    fetchHistoryForViaje(vv, __from3, new Date(egresoIsoRef)).then(function(hist){
+      if(!hist || !hist.length) return;
+      var __in3 = null, __out3 = null, __inside3 = false;
+      for(var __hi3 = 0; __hi3 < hist.length; __hi3++){
+        var __within3 = GV.isWithinSite({lat:hist[__hi3].latitude,lng:hist[__hi3].longitude}, siteRef);
+        if(__within3 && !__inside3){ __inside3 = true; __in3 = hist[__hi3].dateTime; }
+        else if(!__within3 && __inside3){ __out3 = hist[__hi3].dateTime; }
+      }
+      if(__in3){
+        var __sr5 = Object.assign({}, vv.sitiosReal || {});
+        if(!__sr5[siteRef.id]) __sr5[siteRef.id] = {};
+        __sr5[siteRef.id].ingreso = __in3;
+        if(__out3) __sr5[siteRef.id].egreso = __out3;
+        vv.sitiosReal = __sr5;
+        GV.Storage.updateViaje(vv.id, { sitiosReal: __sr5 });
+      }
+    });
+  })(v, __siteIni, egresoIso);
+}
+function checkDwellAlerts(){
   if(!gApi) return;
   var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId; });
   activos.forEach(function(v){
     gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
       if(!res || !res.length || res[0].latitude == null) return;
       var r = res[0];
+      if((v.estado === 'en_curso' || v.estado === 'demorado') && !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, siteListFor(v)[0] || {lat:null,lng:null})){
+        registrarSalidaSitioCoincideConOrigen(v, new Date().toISOString());
+      }
       if(v.estado === 'planificado'){
         if(!puedeIniciar(v)){ return; }
         var __awayFromOrigin = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true;
@@ -844,14 +894,30 @@ function fetchHistoryForViaje(v, fromOverride, toOverride){
   var globalFrom = fromOverride || dayStart;
   var globalTo = toOverride || new Date(v.completadoEn || Date.now());
   var tramos = (v.tramos && v.tramos.length) ? v.tramos : [{ vehiculoId: v.vehiculoId, desde: v.fechaSalida, hasta: null }];
-  var proms = tramos.map(function(tr, i){
-    if(!tr.vehiculoId) return Promise.resolve([]);
+  /* Un pedido de historial (LogRecord) que abarca muchas horas de un vehiculo con reporte
+     frecuente puede juntar miles de puntos en una sola llamada; si esa llamada falla o queda
+     vacia (por tamano, timeout, u otro motivo puntual de la API), hoy se perdia TODO el
+     historial del rango de una sola vez -- eso dejaba tanto la tabla de itinerario como la
+     linea de tiempo de reproduccion sin datos y sin ningun aviso. Para que un problema puntual
+     en un tramo de tiempo no tire abajo todo el historial, cada tramo se pide en ventanas mas
+     chicas (2 horas) en paralelo y se combinan al final. */
+  var CHUNK_MS = 2*60*60*1000;
+  var proms = [];
+  tramos.forEach(function(tr, i){
+    if(!tr.vehiculoId) return;
     var segFrom = (i === 0) ? new Date(globalFrom) : new Date(tr.desde);
     if(segFrom < globalFrom) segFrom = new Date(globalFrom);
     var segTo = tr.hasta ? new Date(tr.hasta) : new Date(globalTo);
     if(segTo > globalTo) segTo = new Date(globalTo);
-    if(segTo <= segFrom) return Promise.resolve([]);
-    return GV.getHistory(gApi, tr.vehiculoId, segFrom.toISOString(), segTo.toISOString());
+    if(segTo <= segFrom) return;
+    var chunkStart = new Date(segFrom);
+    while(chunkStart < segTo){
+      var chunkEnd = new Date(Math.min(chunkStart.getTime() + CHUNK_MS, segTo.getTime()));
+      (function(vehId, cf, ct){
+        proms.push(GV.getHistory(gApi, vehId, cf.toISOString(), ct.toISOString()));
+      })(tr.vehiculoId, chunkStart, chunkEnd);
+      chunkStart = chunkEnd;
+    }
   });
   return Promise.all(proms).then(function(results){
     var merged = [];
