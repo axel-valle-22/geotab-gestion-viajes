@@ -894,30 +894,14 @@ function fetchHistoryForViaje(v, fromOverride, toOverride){
   var globalFrom = fromOverride || dayStart;
   var globalTo = toOverride || new Date(v.completadoEn || Date.now());
   var tramos = (v.tramos && v.tramos.length) ? v.tramos : [{ vehiculoId: v.vehiculoId, desde: v.fechaSalida, hasta: null }];
-  /* Un pedido de historial (LogRecord) que abarca muchas horas de un vehiculo con reporte
-     frecuente puede juntar miles de puntos en una sola llamada; si esa llamada falla o queda
-     vacia (por tamano, timeout, u otro motivo puntual de la API), hoy se perdia TODO el
-     historial del rango de una sola vez -- eso dejaba tanto la tabla de itinerario como la
-     linea de tiempo de reproduccion sin datos y sin ningun aviso. Para que un problema puntual
-     en un tramo de tiempo no tire abajo todo el historial, cada tramo se pide en ventanas mas
-     chicas (2 horas) en paralelo y se combinan al final. */
-  var CHUNK_MS = 2*60*60*1000;
-  var proms = [];
-  tramos.forEach(function(tr, i){
-    if(!tr.vehiculoId) return;
+  var proms = tramos.map(function(tr, i){
+    if(!tr.vehiculoId) return Promise.resolve([]);
     var segFrom = (i === 0) ? new Date(globalFrom) : new Date(tr.desde);
     if(segFrom < globalFrom) segFrom = new Date(globalFrom);
     var segTo = tr.hasta ? new Date(tr.hasta) : new Date(globalTo);
     if(segTo > globalTo) segTo = new Date(globalTo);
-    if(segTo <= segFrom) return;
-    var chunkStart = new Date(segFrom);
-    while(chunkStart < segTo){
-      var chunkEnd = new Date(Math.min(chunkStart.getTime() + CHUNK_MS, segTo.getTime()));
-      (function(vehId, cf, ct){
-        proms.push(GV.getHistory(gApi, vehId, cf.toISOString(), ct.toISOString()));
-      })(tr.vehiculoId, chunkStart, chunkEnd);
-      chunkStart = chunkEnd;
-    }
+    if(segTo <= segFrom) return Promise.resolve([]);
+    return GV.getHistory(gApi, tr.vehiculoId, segFrom.toISOString(), segTo.toISOString());
   });
   return Promise.all(proms).then(function(results){
     var merged = [];
