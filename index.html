@@ -130,7 +130,7 @@ function renderStats(){
     if(new Date(v.fechaSalida).toDateString() === today) hoy++;
     if(v.estado === 'en_curso') curso++;
     if(v.estado === 'completado') comp++;
-    if(v.estado === 'demorado' || (v.estado === 'en_curso' && v.salioConDemora)) dem++;
+    if(v.estado === 'demorado') dem++;
   });
   var vals = {'stat-hoy':hoy,'stat-curso':curso,'stat-comp':comp,'stat-dem':dem};
   Object.keys(vals).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent = vals[id]; });
@@ -228,7 +228,7 @@ if(csf) csf.addEventListener('click', function(){ gStatFilter = null; updateStat
     actions += '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="detalle" data-id="' + v.id + '">Ver Detalle</button>';
     return '<div class="gv-trip-card">' +
       '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap"><span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + (v.salioConDemora ? ('<span class="gv-status" style="background:#fef3c7;color:#78350f">Salio con ' + (v.demoraSalidaMin||0) + 'min de demora</span>') : '') + gerenciamientoBadge(v) + '</div></div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div></div>' +
       '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(origenTxt, destinoTxt) + '</div>' + ((v.estado==='en_curso'||v.estado==='demorado') ? ('<div class="gv-live-banner gv-live-' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].cls)||'unknown') + '">' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].label)||'Obteniendo estado en vivo...') + '</div>') : '') +
       (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
       (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
@@ -451,7 +451,112 @@ function abrirJustificarDemora(viajeId){
   });
 }
 
-function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime = rec && rec.dateTime ? new Date(rec.dateTime).getTime() : now; var commAge = now - fixTime; var speed = (rec && rec.speed) || 0; if(rec && rec.isDeviceCommunicating === false){ return { cls:'nocomm', label:'Sin comunicacion hace ' + GV.fmtDurMin(commAge) }; } var st = gVehicleState[deviceId] || (gVehicleState[deviceId] = {}); if(speed > 3){ st.stoppedSince = null; return { cls:'moving', label:'Circulando a ' + Math.round(speed) + ' km/h' }; } if(!st.stoppedSince){ st.stoppedSince = now; } return { cls:'stopped', label:'Detenido hace ' + GV.fmtDurMin(now - st.stoppedSince) }; } function siteListFor(v){ var arr = []; if(v.origen && v.origen.tipo) arr.push({ id:'origen', label:'Origen (' + (GV.siteNameFor(v.origen)||'') + ')', lat:v.origen.lat, lng:v.origen.lng, poligono:v.origen.poligono||null, tipo:v.origen.tipo, dur:v.origen.duracionMin||0 }); (v.paradas||[]).forEach(function(p,i){ if(p.tipo) arr.push({ id:'parada'+i, label:'Parada '+(i+1)+' ('+(GV.siteNameFor(p)||'')+')', lat:p.lat, lng:p.lng, poligono:p.poligono||null, tipo:p.tipo, dur:p.duracionMin||0 }); }); if(v.destino) arr.push({ id:'destino', label:'Destino (' + (GV.siteNameFor(v.destino)||'') + ')', lat:v.destino.lat, lng:v.destino.lng, poligono:v.destino.poligono||null, tipo:v.destino.tipo, dur:v.destino.duracionMin||0 }); return arr; } function checkDwellAlerts(){ if(!gApi) return; var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId; }); activos.forEach(function(v){ gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){ if(!res || !res.length || res[0].latitude == null) return; var r = res[0]; if(v.estado === 'planificado'){ if(!puedeIniciar(v)){ return; } var __awayFromOrigin = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true; if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > 5*60*1000){ var __demoraMsAuto = Date.now() - new Date(v.fechaSalida).getTime(); var __salioTarde = __demoraMsAuto > 20*60*1000; var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true }; if(__salioTarde){ __updatesAuto.salioConDemora = true; __updatesAuto.demoraSalidaMin = Math.round(__demoraMsAuto/60000); } GV.Storage.updateViaje(v.id, __updatesAuto); v.estado = 'en_curso'; if(__salioTarde){ v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto.demoraSalidaMin; } var __msgAuto = __salioTarde ? (v.conductor + ' - ' + v.vehiculo + ': la unidad salio con ' + GV.fmtDurMin(__demoraMsAuto) + ' de demora sobre lo programado (se detecto en curso automaticamente por GPS, no se marco el inicio en la app del chofer).') : (v.conductor + ' - ' + v.vehiculo + ': el viaje se detecto en curso automaticamente por GPS (no se marco el inicio en la app del chofer).'); GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __msgAuto, fecha: new Date().toISOString(), viajeId: v.id }); if(gPanelView === 'lista'){ renderTrips(); } renderStats(); } else { return; } } var __st = classifyVehicleStatus(v.vehiculoId, r); gLiveStatusCache[v.id] = __st; if(gPanelView === 'lista'){ renderTrips(); } var speed = r.speed || 0; var sites = siteListFor(v); if(!sites.length) return; var atSite = null; sites.forEach(function(s){ if(GV.isWithinSite({lat:r.latitude,lng:r.longitude}, s)){ atSite = s; } }); var dw = v.dwellState || null; if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){ var __srD = Object.assign({}, v.sitiosReal || {}); if(!__srD.destino) __srD.destino = {}; var __yaIngresoDestino = !!__srD.destino.ingreso; if(!__srD.destino.ingreso) __srD.destino.ingreso = new Date().toISOString(); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString(), sitiosReal: __srD, dwellState: null }); v.estado = 'completado'; if(!__yaIngresoDestino){ GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': el viaje se completo automaticamente al ingresar a ' + atSite.label + '.', fecha: new Date().toISOString(), viajeId: v.id }); } if(gPanelView === 'lista'){ renderTrips(); } return; } if(atSite){ if(!dw || dw.siteId !== atSite.id){ var __sr = Object.assign({}, v.sitiosReal || {}); if(!__sr[atSite.id]) __sr[atSite.id] = {}; if(!__sr[atSite.id].ingreso) __sr[atSite.id].ingreso = new Date().toISOString(); GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: new Date().toISOString(), alertado: false, lastAlertBucket: -1 }, sitiosReal: __sr }); } else if(dw){ var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000; if(atSite.dur && elapsedMin > atSite.dur){ var excessMin = elapsedMin - atSite.dur; var excessBucket = Math.floor(excessMin/60); var lastBucket = (typeof dw.lastAlertBucket === 'number') ? dw.lastAlertBucket : -1; if(excessBucket > lastBucket){ var aid = 'al_' + v.id + '_' + atSite.id + '_dwell_' + excessBucket; GV.Storage.addAlerta({ id: aid, tipo:'demora_carga', mensaje: v.conductor + ' - ' + v.vehiculo + ': sigue esperando ' + GV.tipoParadaLabel(atSite.tipo).toLowerCase() + ' en ' + atSite.label + ' - lleva ' + GV.fmtDurMin(elapsedMin*60000) + ' (programado ' + atSite.dur + ' min, excede por ' + GV.fmtDurMin(excessMin*60000) + ')', fecha: new Date().toISOString(), viajeId: v.id }); GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: dw.arrivedAt, alertado: true, lastAlertBucket: excessBucket } }); } } } } else if(dw){ var __sr2 = Object.assign({}, v.sitiosReal || {}); if(!__sr2[dw.siteId]) __sr2[dw.siteId] = {}; __sr2[dw.siteId].egreso = new Date().toISOString(); GV.Storage.updateViaje(v.id, { dwellState: null, sitiosReal: __sr2 }); } }, function(){}); }); } function loadMasterData(api){
+function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime = rec && rec.dateTime ? new Date(rec.dateTime).getTime() : now; var commAge = now - fixTime; var speed = (rec && rec.speed) || 0; if(rec && rec.isDeviceCommunicating === false){ return { cls:'nocomm', label:'Sin comunicacion hace ' + GV.fmtDurMin(commAge) }; } var st = gVehicleState[deviceId] || (gVehicleState[deviceId] = {}); if(speed > 3){ st.stoppedSince = null; return { cls:'moving', label:'Circulando a ' + Math.round(speed) + ' km/h' }; } if(!st.stoppedSince){ st.stoppedSince = now; } return { cls:'stopped', label:'Detenido hace ' + GV.fmtDurMin(now - st.stoppedSince) }; } function siteListFor(v){ var arr = []; if(v.origen && v.origen.tipo) arr.push({ id:'origen', label:'Origen (' + (GV.siteNameFor(v.origen)||'') + ')', lat:v.origen.lat, lng:v.origen.lng, poligono:v.origen.poligono||null, tipo:v.origen.tipo, dur:v.origen.duracionMin||0 }); (v.paradas||[]).forEach(function(p,i){ if(p.tipo) arr.push({ id:'parada'+i, label:'Parada '+(i+1)+' ('+(GV.siteNameFor(p)||'')+')', lat:p.lat, lng:p.lng, poligono:p.poligono||null, tipo:p.tipo, dur:p.duracionMin||0 }); }); if(v.destino) arr.push({ id:'destino', label:'Destino (' + (GV.siteNameFor(v.destino)||'') + ')', lat:v.destino.lat, lng:v.destino.lng, poligono:v.destino.poligono||null, tipo:v.destino.tipo, dur:v.destino.duracionMin||0 }); return arr; } function checkDwellAlerts(){
+  if(!gApi) return;
+  var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId; });
+  activos.forEach(function(v){
+    gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
+      if(!res || !res.length || res[0].latitude == null) return;
+      var r = res[0];
+      if(v.estado === 'planificado'){
+        if(!puedeIniciar(v)){ return; }
+        var __awayFromOrigin = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true;
+        if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > 5*60*1000){
+          var __demoraMsAuto = Date.now() - new Date(v.fechaSalida).getTime();
+          var __salioTarde = __demoraMsAuto > 20*60*1000;
+          var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true };
+          if(__salioTarde){ __updatesAuto.salioConDemora = true; __updatesAuto.demoraSalidaMin = Math.round(__demoraMsAuto/60000); }
+          GV.Storage.updateViaje(v.id, __updatesAuto);
+          v.estado = 'en_curso';
+          if(__salioTarde){ v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto.demoraSalidaMin; }
+          var __msgAuto = __salioTarde ? (v.conductor + ' - ' + v.vehiculo + ': la unidad salio con ' + GV.fmtDurMin(__demoraMsAuto) + ' de demora sobre lo programado (se detecto en curso automaticamente por GPS, no se marco el inicio en la app del chofer).') : (v.conductor + ' - ' + v.vehiculo + ': el viaje se detecto en curso automaticamente por GPS (no se marco el inicio en la app del chofer).');
+          GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __msgAuto, fecha: new Date().toISOString(), viajeId: v.id });
+          if(gPanelView === 'lista'){ renderTrips(); }
+          renderStats();
+        } else { return; }
+      } else if(v.estado === 'demorado' && puedeIniciar(v)){
+        /* El viaje ya estaba marcado "demorado" por no haber salido a horario del origen. Si el GPS
+           ahora muestra que la unidad se alejo del origen, es que ya salio: dejamos de mostrarlo como
+           demorado (pasa a "en curso") aunque haya salido tarde -- el registro de esa demora de
+           salida queda igual en salioConDemora/demoraSalidaMin (visible en el detalle del viaje) y en
+           la alerta ya emitida por checkDelays. Asi en "Demorados" el coordinador solo ve las unidades
+           que TODAVIA estan paradas en el origen o en una carga/descarga. */
+        var __awayFromOrigin2 = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true;
+        if(__awayFromOrigin2){
+          var __demoraMsAuto2 = Date.now() - new Date(v.fechaSalida).getTime();
+          var __updatesAuto2 = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true, salioConDemora: true, demoraSalidaMin: Math.round(__demoraMsAuto2/60000) };
+          GV.Storage.updateViaje(v.id, __updatesAuto2);
+          v.estado = 'en_curso'; v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto2.demoraSalidaMin;
+          GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad ya salio de ' + (v.origen ? GV.siteNameFor(v.origen) : 'origen') + ' (' + GV.fmtDurMin(__demoraMsAuto2) + ' de demora sobre lo programado) y deja de figurar como demorada.', fecha: new Date().toISOString(), viajeId: v.id });
+          if(gPanelView === 'lista'){ renderTrips(); }
+          renderStats();
+        }
+      }
+      var __st = classifyVehicleStatus(v.vehiculoId, r);
+      gLiveStatusCache[v.id] = __st;
+      if(gPanelView === 'lista'){ renderTrips(); }
+      var speed = r.speed || 0;
+      var sites = siteListFor(v);
+      if(!sites.length) return;
+      var atSite = null;
+      sites.forEach(function(s){ if(GV.isWithinSite({lat:r.latitude,lng:r.longitude}, s)){ atSite = s; } });
+      var dw = v.dwellState || null;
+      if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){
+        var __srD = Object.assign({}, v.sitiosReal || {});
+        if(!__srD.destino) __srD.destino = {};
+        var __yaIngresoDestino = !!__srD.destino.ingreso;
+        if(!__srD.destino.ingreso) __srD.destino.ingreso = new Date().toISOString();
+        GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString(), sitiosReal: __srD, dwellState: null });
+        v.estado = 'completado';
+        if(!__yaIngresoDestino){ GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': el viaje se completo automaticamente al ingresar a ' + atSite.label + '.', fecha: new Date().toISOString(), viajeId: v.id }); }
+        if(gPanelView === 'lista'){ renderTrips(); }
+        return;
+      }
+      if(atSite){
+        if(!dw || dw.siteId !== atSite.id){
+          var __sr = Object.assign({}, v.sitiosReal || {});
+          if(!__sr[atSite.id]) __sr[atSite.id] = {};
+          if(!__sr[atSite.id].ingreso) __sr[atSite.id].ingreso = new Date().toISOString();
+          GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: new Date().toISOString(), alertado: false, lastAlertBucket: -1 }, sitiosReal: __sr });
+        } else if(dw){
+          var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000;
+          if(atSite.dur && elapsedMin > atSite.dur){
+            if(v.estado !== 'demorado'){
+              /* Se paso del tiempo programado de carga/descarga en este sitio: mientras siga asi, el
+                 viaje figura como demorado (para que el coordinador haga foco). Al salir de este sitio
+                 se revierte automaticamente a "en curso" mas abajo. */
+              GV.Storage.updateViaje(v.id, { estado: 'demorado' });
+              v.estado = 'demorado';
+              if(gPanelView === 'lista'){ renderTrips(); }
+              renderStats();
+            }
+            var excessMin = elapsedMin - atSite.dur;
+            var excessBucket = Math.floor(excessMin/60);
+            var lastBucket = (typeof dw.lastAlertBucket === 'number') ? dw.lastAlertBucket : -1;
+            if(excessBucket > lastBucket){
+              var aid = 'al_' + v.id + '_' + atSite.id + '_dwell_' + excessBucket;
+              GV.Storage.addAlerta({ id: aid, tipo:'demora_carga', mensaje: v.conductor + ' - ' + v.vehiculo + ': sigue esperando ' + GV.tipoParadaLabel(atSite.tipo).toLowerCase() + ' en ' + atSite.label + ' - lleva ' + GV.fmtDurMin(elapsedMin*60000) + ' (programado ' + atSite.dur + ' min, excede por ' + GV.fmtDurMin(excessMin*60000) + ')', fecha: new Date().toISOString(), viajeId: v.id });
+              GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: dw.arrivedAt, alertado: true, lastAlertBucket: excessBucket } });
+            }
+          }
+        }
+      } else if(dw){
+        var __sr2 = Object.assign({}, v.sitiosReal || {});
+        if(!__sr2[dw.siteId]) __sr2[dw.siteId] = {};
+        __sr2[dw.siteId].egreso = new Date().toISOString();
+        var __updatesSalidaSitio = { dwellState: null, sitiosReal: __sr2 };
+        var __veniaDemoradoPorSitio = (v.estado === 'demorado');
+        if(__veniaDemoradoPorSitio){ __updatesSalidaSitio.estado = 'en_curso'; }
+        GV.Storage.updateViaje(v.id, __updatesSalidaSitio);
+        if(__veniaDemoradoPorSitio){
+          v.estado = 'en_curso';
+          if(gPanelView === 'lista'){ renderTrips(); }
+          renderStats();
+        }
+      }
+    }, function(){});
+  });
+} function loadMasterData(api){
   var loading = document.getElementById('gv-loading');
   if(loading) loading.style.display = 'block';
   var done = 0;
@@ -1438,6 +1543,7 @@ return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendien
 }
 
 var tipoRows = rows.filter(function(r){ return r.tipo; });
+var salidaDemoraHtml = v.salioConDemora ? ('<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad salio de ' + (v.origen ? GV.escapeHtml(GV.siteNameFor(v.origen)) : 'origen') + ' con <b>' + GV.fmtDurMin((v.demoraSalidaMin||0)*60000) + '</b> de demora sobre lo programado.</div>') : '';
 var progresoHtml = '';
 if(tipoRows.length){
 var completados = tipoRows.filter(function(r){ return r.realOut; }).length;
@@ -1464,7 +1570,7 @@ var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:fal
 var sameDay = GV.dateStr(d) === GV.dateStr(v.fechaSalida);
 return sameDay ? t : ('<b>' + d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) + '</b> ' + t);
 }
-itinEl.innerHTML = progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = salidaDemoraHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 var enSitioNote = (r.realIn && !r.realOut) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
 var __isParada = r.id.indexOf('parada') === 0;
