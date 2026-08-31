@@ -474,7 +474,11 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
         } else { return; }
-      } else if(v.estado === 'demorado' && puedeIniciar(v)){
+      } else if(v.estado === 'demorado'){
+        /* Aca NO se exige puedeIniciar(v): la deteccion de que la unidad ya se alejo del origen es
+           un hecho fisico (GPS), no depende de si el gerenciamiento fue aprobado -- si se exigiera,
+           un viaje demorado sin gerenciamiento aprobado se quedaria trabado en "Demorado" para
+           siempre aunque el camion ya haya salido y este circulando. */
         /* El viaje ya estaba marcado "demorado" por no haber salido a horario del origen. Si el GPS
            ahora muestra que la unidad se alejo del origen, es que ya salio: dejamos de mostrarlo como
            demorado (pasa a "en curso") aunque haya salido tarde -- el registro de esa demora de
