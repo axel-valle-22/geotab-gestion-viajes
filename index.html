@@ -384,7 +384,7 @@ function checkDelays(){
   var now = new Date(), DELAY = 20*60*1000;
   var changed = false;
   GV.Storage.getViajes().forEach(function(v){
-    if(v.estado === 'planificado' && puedeIniciar(v)){
+    if(v.estado === 'planificado'){
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
         if(v.estado !== 'demorado'){ v.estado = 'demorado'; changed = true; }
@@ -392,7 +392,8 @@ function checkDelays(){
         var st = v.demoraSalida || { lastAlertBucket: -1 };
         if(bucket > st.lastAlertBucket){
           var aid = 'al_' + v.id + '_sal_' + bucket;
-          GV.Storage.addAlerta({ id: aid, tipo: 'demora', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad no inicio aun el recorrido desde ' + (v.origen ? GV.siteNameFor(v.origen) : '') + ' (' + GV.fmtDurMin(elapsedMs) + ' de demora sobre lo programado).', fecha: new Date().toISOString(), viajeId: v.id });
+          var __motivoGer = !puedeIniciar(v) ? ' El gerenciamiento de riesgos todavia no fue aprobado.' : '';
+          GV.Storage.addAlerta({ id: aid, tipo: 'demora', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad no inicio aun el recorrido desde ' + (v.origen ? GV.siteNameFor(v.origen) : '') + ' (' + GV.fmtDurMin(elapsedMs) + ' de demora sobre lo programado).' + __motivoGer, fecha: new Date().toISOString(), viajeId: v.id });
           v.demoraSalida = { lastAlertBucket: bucket };
           changed = true;
         }
