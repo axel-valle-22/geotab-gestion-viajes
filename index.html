@@ -1558,6 +1558,14 @@ else if(!__within && __inside){ __out = __hr.dateTime; break; }
 if(__in){ __realIn = __in; __realOut = __out; __histCursor = __hi < fullHist.length ? __hi : fullHist.length; } else { __seqBroken = true; }
 }
 if(!p.tipo){ __realIn = __realIn || (__srP && __srP.ingreso); __realOut = __realOut || (__srP && __srP.egreso); }
+/* El dato guardado en sitiosReal (registrado en vivo por checkDwellAlerts a medida que ocurre)
+   tiene prioridad sobre el recalculo de arriba, que vuelve a escanear el historial de GPS contra
+   las coordenadas ACTUALES del sitio. Si despues se corrige la ubicacion de un sitio (por ejemplo
+   porque estaba mal puesta), ese recalculo puede dejar de encontrar coincidencia -- sin este
+   respaldo pareceria que se "borro" el ingreso/egreso ya registrado, cuando en realidad sigue
+   guardado. Tambien evita que se corte la secuencia (__seqBroken) para los sitios siguientes. */
+if(__srP && __srP.ingreso){ __realIn = __srP.ingreso; }
+if(__srP && __srP.egreso){ __realOut = __srP.egreso; }
 /* Ingreso real / Egreso real siguen calculandose igual que siempre (por historial de GPS, con
    sitiosReal solo como respaldo en puntos de paso): son el dato automatico de cuando el camion
    entro/salio del sitio segun su posicion. Aparte de eso, si el chofer efectivamente toco el
