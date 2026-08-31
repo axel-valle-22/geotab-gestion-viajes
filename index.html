@@ -1439,7 +1439,25 @@ withStopFields: isParada
 if(!res) return;
 var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null };
 if(isParada){ mergeObj.tipo = res.tipo; mergeObj.duracionMin = res.duracionMin; }
-GV.Storage.updateViaje(v.id, buildSitePatch(siteId, mergeObj)).then(function(){
+var patch = buildSitePatch(siteId, mergeObj);
+/* La ubicacion del sitio cambio: el ingreso/egreso real que se haya detectado automaticamente
+   por GPS (guardado en sitiosReal) fue calculado contra la geocerca VIEJA y puede estar mal
+   -- por ejemplo si el sitio estaba mal puesto y "atrapo" al camion por error, o si nunca lo
+   detecto porque estaba corrido. Se borra ese dato automatico (ingreso/egreso) para que la
+   proxima vez que se abra el detalle del viaje se recalcule desde cero contra la ubicacion ya
+   corregida, usando el historial de GPS. No se toca choferMarcoIngreso/choferMarcoEgreso: esos
+   son horarios que el chofer confirmo a mano en su app y no dependen de la geocerca. */
+var __srOld = v.sitiosReal && v.sitiosReal[siteId];
+if(__srOld && (__srOld.ingreso || __srOld.egreso)){
+var __srNew = Object.assign({}, v.sitiosReal);
+var __srSite = Object.assign({}, __srOld);
+delete __srSite.ingreso;
+delete __srSite.egreso;
+__srNew[siteId] = __srSite;
+patch.sitiosReal = __srNew;
+}
+if(v.dwellState && v.dwellState.siteId === siteId){ patch.dwellState = null; }
+GV.Storage.updateViaje(v.id, patch).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
 });
