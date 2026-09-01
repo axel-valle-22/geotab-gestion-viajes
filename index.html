@@ -468,9 +468,17 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
       if(!__vFresh) return;
       v = __vFresh;
       if(v.estado === 'planificado'){
-        if(!puedeIniciar(v)){ return; }
+        /* Antes se exigia puedeIniciar(v) aca: si el gerenciamiento de riesgos no estaba aprobado el
+           viaje no pasaba a "en curso" aunque el GPS ya mostrara la unidad en camino, y recien se
+           movia cuando checkDelays lo marcaba "demorado" a los 20 minutos (esa rama si ignora el
+           gerenciamiento a proposito). Que la unidad salio es un hecho fisico: se refleja en el
+           momento, y el gerenciamiento pendiente sigue avisado en el badge del viaje y en la alerta. */
         var __awayFromOrigin = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true;
-        if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > 5*60*1000){
+        /* Tampoco se esperan 5 minutos desde la hora programada: apenas el GPS confirma que la unidad
+           dejo el origen, el viaje pasa a "en curso" para que el coordinador lo vea en tiempo real. Se
+           admite hasta 30 minutos antes de lo programado, para no auto-iniciar viajes cuya unidad
+           todavia esta afectada a otra tarea lejos del origen. */
+        if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > -30*60*1000){
           var __demoraMsAuto = Date.now() - new Date(v.fechaSalida).getTime();
           var __salioTarde = __demoraMsAuto > 20*60*1000;
           var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true };
@@ -479,7 +487,7 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
           v.estado = 'en_curso';
           if(__salioTarde){ v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto.demoraSalidaMin; }
           var __msgAuto = __salioTarde ? (v.conductor + ' - ' + v.vehiculo + ': la unidad salio con ' + GV.fmtDurMin(__demoraMsAuto) + ' de demora sobre lo programado (se detecto en curso automaticamente por GPS, no se marco el inicio en la app del chofer).') : (v.conductor + ' - ' + v.vehiculo + ': el viaje se detecto en curso automaticamente por GPS (no se marco el inicio en la app del chofer).');
-          GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __msgAuto, fecha: new Date().toISOString(), viajeId: v.id });
+          GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __msgAuto + (puedeIniciar(v) ? '' : ' El gerenciamiento de riesgos todavia no fue aprobado.'), fecha: new Date().toISOString(), viajeId: v.id });
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
         } else { return; }
