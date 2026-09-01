@@ -1697,7 +1697,29 @@ return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendien
 }
 
 var tipoRows = rows.filter(function(r){ return r.tipo; });
-var salidaDemoraHtml = v.salioConDemora ? ('<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad salio de ' + (v.origen ? GV.escapeHtml(GV.siteNameFor(v.origen)) : 'origen') + ' con <b>' + GV.fmtDurMin((v.demoraSalidaMin||0)*60000) + '</b> de demora sobre lo programado.</div>') : '';
+/* Fila desde la que la unidad realmente arranco el viaje: normalmente el origen, pero si el origen
+   es un punto de paso que coincide con la primera carga/descarga (mismo lugar), el horario real de
+   salida queda registrado en esa primera parada y no en la fila del origen. */
+var __filaSalida = null;
+(function(){
+var __o = rows.filter(function(rr){ return rr.id === 'origen'; })[0];
+if(__o && __o.realOut){ __filaSalida = __o; return; }
+if(__o){ var __i = rows.indexOf(__o); if(rows[__i+1] && rows[__i+1].realOut){ __filaSalida = rows[__i+1]; } }
+})();
+/* La demora de salida se recalcula con el horario real de GPS (egreso real - egreso estimado de esa
+   fila). El valor guardado en demoraSalidaMin se sella cuando el panel detecta la salida, asi que si
+   el panel estuvo cerrado un rato queda inflado; solo se usa como respaldo cuando no hay dato de GPS. */
+var __demoraSalidaMs = (__filaSalida && __filaSalida.realOut && __filaSalida.egreso) ? (__filaSalida.realOut.getTime() - __filaSalida.egreso.getTime()) : null;
+var __nombreSalida = (__filaSalida && __filaSalida.id !== 'origen' && (__filaSalida.dir || __filaSalida.label)) ? (__filaSalida.dir || __filaSalida.label) : (v.origen ? GV.siteNameFor(v.origen) : 'origen');
+var salidaDemoraHtml = '';
+if(__demoraSalidaMs != null){
+if(__demoraSalidaMs > 60000){
+var __difGuardada = (v.demoraSalidaMin != null) ? Math.abs(Math.round(__demoraSalidaMs/60000) - v.demoraSalidaMin) : 0;
+salidaDemoraHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad salio de ' + GV.escapeHtml(__nombreSalida) + ' con <b>' + GV.fmtDurMin(__demoraSalidaMs) + '</b> de demora sobre lo programado.' + (__difGuardada > 2 ? ' <span style="font-size:.92em">(recalculado por GPS)</span>' : '') + '</div>';
+}
+} else if(v.salioConDemora){
+salidaDemoraHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad salio de ' + (v.origen ? GV.escapeHtml(GV.siteNameFor(v.origen)) : 'origen') + ' con <b>' + GV.fmtDurMin((v.demoraSalidaMin||0)*60000) + '</b> de demora sobre lo programado.</div>';
+}
 var progresoHtml = '';
 if(tipoRows.length){
 var completados = tipoRows.filter(function(r){ return r.realOut; }).length;
@@ -1731,10 +1753,19 @@ var __isParada = r.id.indexOf('parada') === 0;
 var __paradaIdx = __isParada ? r.id.replace('parada','') : '';
 var __isOrigen = r.id === 'origen';
 var __isDestino = r.id === 'destino';
+var __esFilaSalida = !!(__filaSalida && r.id === __filaSalida.id);
 var __salidaNote = '';
-if(__isOrigen && r.realOut){
-var __demoraMs = r.realOut.getTime() - new Date(v.fechaSalida).getTime();
-__salidaNote = __demoraMs > 60000 ? ('<br><span style="font-size:.7rem;color:#dc2626;font-weight:700">(salio con ' + GV.fmtDurMin(__demoraMs) + ' de demora)</span>') : '<br><span style="font-size:.7rem;color:#059669;font-weight:600">(salio a horario)</span>';
+/* Al lado del "Egreso real" se muestra cuanto se demoro la unidad en salir de ese sitio respecto de
+   lo programado. La referencia es el "Egreso est." de la propia fila: para el origen (punto de paso,
+   sin tiempo de permanencia) eso equivale a la hora de salida programada del viaje, y para un sitio
+   de carga/descarga equivale a ingreso estimado + minutos programados de carga/descarga. */
+if(!__isDestino && r.realOut && r.egreso){
+var __demoraMs = r.realOut.getTime() - r.egreso.getTime();
+if(__demoraMs > 60000){
+__salidaNote = '<br><span style="font-size:.7rem;color:#dc2626;font-weight:700">(salio con ' + GV.fmtDurMin(__demoraMs) + ' de demora)</span>';
+} else if(__isOrigen || __esFilaSalida){
+__salidaNote = '<br><span style="font-size:.7rem;color:#059669;font-weight:600">(salio a horario)</span>';
+}
 }
 var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco inicio de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoIngreso) + '</span>') : '';
 var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoEgreso) + '</span>') : '';
