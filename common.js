@@ -75,6 +75,95 @@ GV.isWithinSite = function(pt, siteLike){
   var d = GV.distKm(pt, siteLike);
   return d != null && d*1000 <= GV.SITE_GEOFENCE_M;
 };
+/* --- Sitios cercanos: radio efectivo y desambiguacion -----------------------------------------
+   Dos sitios de un mismo viaje pueden quedar mas cerca que el diametro del circulo automatico de
+   deteccion (300 m). En ese caso las geocercas se superponen, una misma posicion GPS cae "dentro"
+   de los dos sitios y los ingresos/egresos se cruzan entre uno y otro. Para evitarlo se recorta el
+   radio de cada sitio a la mitad de la distancia al sitio hermano mas cercano (menos un margen),
+   con un piso de GV.SITE_MIN_RADIUS_M, y se elige siempre UN solo sitio (el mas "adentro"). */
+GV.SITE_MIN_RADIUS_M = 80;
+GV.SITE_NEAR_WARN_M = 600;
+GV.SITE_EXIT_HYSTERESIS_M = 50;
+GV.MIN_DWELL_MIN = 3;
+GV.siteBaseRadiusM = function(loc){
+  var r = loc ? (typeof loc.radioM === "number" ? loc.radioM : null) : null;
+  return (r != null && r > 0) ? r : GV.SITE_GEOFENCE_M;
+};
+GV.effectiveRadiusM = function(loc, others){
+  var base = GV.siteBaseRadiusM(loc);
+  if(!loc || typeof loc.lat !== "number") return base;
+  var eff = base;
+  (others||[]).forEach(function(o){
+    if(!o || typeof o.lat !== "number") return;
+    if(o === loc) return;
+    if(o.id != null && loc.id != null && o.id === loc.id) return;
+    var d = GV.distKm(loc, o);
+    if(d == null) return;
+    var m = d*1000;
+    if(m <= 5) return;
+    var lim = m/2 - 25;
+    if(lim < eff) eff = lim;
+  });
+  if(eff < GV.SITE_MIN_RADIUS_M) eff = GV.SITE_MIN_RADIUS_M;
+  if(eff > base) eff = base;
+  return Math.round(eff);
+};
+GV.isWithinSiteEx = function(pt, siteLike, others, extraM){
+  if(!pt || !siteLike || typeof siteLike.lat !== "number") return false;
+  if(siteLike.poligono && siteLike.poligono.length >= 3) return GV.pointInPolygon(pt, siteLike.poligono);
+  var d = GV.distKm(pt, siteLike);
+  return d != null && d*1000 <= GV.effectiveRadiusM(siteLike, others) + (extraM || 0);
+};
+/* Pares de sitios de un mismo viaje demasiado cerca entre si (para avisarle al coordinador). */
+GV.sitiosCercanos = function(sites){
+  var out = [], list = sites || [];
+  list.forEach(function(a, i){
+    list.forEach(function(b, j){
+      if(j <= i) return;
+      if(!a || !b || typeof a.lat !== "number" || typeof b.lat !== "number") return;
+      var d = GV.distKm(a, b);
+      if(d == null) return;
+      var m = d*1000;
+      if(m > 5 && m < GV.SITE_NEAR_WARN_M) out.push({ a: a, b: b, metros: Math.round(m) });
+    });
+  });
+  return out;
+};
+/* Devuelve a que sitio del viaje corresponde una posicion GPS (o null). Reglas, en orden:
+   1) el poligono dibujado a mano gana sobre el circulo automatico;
+   2) si ya hay una permanencia abierta en un sitio candidato, se queda en ese (con histeresis de
+      salida) para no rebotar entre dos sitios vecinos;
+   3) entre los candidatos se prefieren los que todavia no fueron completados (sin egreso);
+   4) desempate por el mas "adentro" (distancia / radio) y, si empatan, por orden de itinerario. */
+GV.pickSiteAt = function(pt, sites, opts){
+  opts = opts || {};
+  var cands = [];
+  (sites||[]).forEach(function(s, idx){
+    if(!s || typeof s.lat !== "number") return;
+    var poly = !!(s.poligono && s.poligono.length >= 3);
+    var extra = (opts.stickyId && opts.stickyId === s.id) ? GV.SITE_EXIT_HYSTERESIS_M : 0;
+    var rEff = GV.effectiveRadiusM(s, sites);
+    var dKm = GV.distKm(pt, s);
+    var dM = (dKm == null) ? null : dKm*1000;
+    var dentro = poly ? GV.pointInPolygon(pt, s.poligono) : (dM != null && dM <= rEff + extra);
+    if(!dentro) return;
+    cands.push({ site: s, idx: idx, poly: poly, norm: (poly || dM == null) ? 0 : (dM/Math.max(rEff, 1)), done: !!(opts.doneIds && opts.doneIds.indexOf(s.id) >= 0) });
+  });
+  if(!cands.length) return null;
+  var conPoly = cands.filter(function(x){ return x.poly; });
+  if(conPoly.length) cands = conPoly;
+  if(opts.stickyId){
+    var st = cands.filter(function(x){ return x.site.id === opts.stickyId; })[0];
+    if(st) return st.site;
+  }
+  var pend = cands.filter(function(x){ return !x.done; });
+  var pool = pend.length ? pend : cands;
+  pool.sort(function(a, b){
+    if(Math.abs(a.norm - b.norm) > 0.05) return a.norm - b.norm;
+    return a.idx - b.idx;
+  });
+  return pool[0].site;
+};
 GV.siteNameFor = function(loc){ if(!loc || typeof loc.lat !== 'number') return (loc && loc.direccion) || ''; var sitios = (GV.Storage && GV.Storage.getSitios) ? GV.Storage.getSitios() : []; var best = null, bestD = null; sitios.forEach(function(s){ var within = GV.isWithinSite({lat:loc.lat,lng:loc.lng}, s); var d = GV.distKm({lat:loc.lat,lng:loc.lng},{lat:s.lat,lng:s.lng}); if(within){ if(bestD == null || d < bestD){ bestD = d; best = s; } } }); if(best && best.nombre) return best.nombre; return loc.direccion || ''; }; /* ---------------- CSS compartido ---------------- */
 GV.CSS = ""
 + "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');"
@@ -312,6 +401,7 @@ GV.pickLocation = function(opts){
           '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span style="font-size:.78rem;color:#6b7280">Area del sitio:</span><button type="button" id="gv-shape-circulo" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Circulo automatico</button><button type="button" id="gv-shape-manual" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Dibujar manualmente</button></div>' +
           '<div id="gv-shape-manual-hint" style="display:none;font-size:.76rem;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:6px 10px;margin-bottom:10px">Hace clic en el mapa para agregar los vertices del area del sitio (minimo 3 puntos). <button type="button" id="gv-shape-undo" style="background:none;border:none;color:#7c3aed;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Deshacer ultimo punto</button><button type="button" id="gv-shape-clear" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Borrar forma</button></div>' +
+          '<div id="gv-area-info" style="display:none;font-size:.76rem;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 10px;margin-bottom:10px"></div>' +
           '<div class="gv-search-row"><input type="text" id="gv-site-name" placeholder="Nombre para guardar este sitio (opcional)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-site-save-btn">Guardar sitio</button></div>' + '<div id="gv-site-edit-indicator" style="display:none;font-size:.78rem;color:#7c3aed;margin:-6px 0 10px 2px">Editando ubicacion del sitio guardado <button type="button" id="gv-site-edit-cancel" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:.78rem;text-decoration:underline;padding:0;margin-left:6px">Cancelar edicion</button></div>' +
           stopFieldsHtml +
           '<div class="gv-modal-actions">' +
@@ -335,8 +425,37 @@ GV.pickLocation = function(opts){
       }
       function updateManualPoly(){
         if(current) current.poligono = (shapeMode === 'manual' && manualPoly.length >= 3) ? manualPoly.slice() : null;
+        scheduleAreaPreview();
         redrawManualPoly();
       }
+      /* Vista previa del area de deteccion del sitio: se dibuja siempre sobre el mapa el poligono
+         dibujado a mano (si el sitio tiene uno) o el circulo automatico, con su radio en metros, para
+         que el coordinador vea exactamente donde se va a detectar el ingreso/egreso de la unidad. */
+      var areaLayer = null, areaBaseLayer = null;
+      function redrawAreaPreview(){
+        if(areaLayer){ try{ map.removeLayer(areaLayer); }catch(e){} areaLayer = null; }
+        if(areaBaseLayer){ try{ map.removeLayer(areaBaseLayer); }catch(e){} areaBaseLayer = null; }
+        var info = document.getElementById("gv-area-info");
+        if(!current || typeof current.lat !== "number"){ if(info) info.style.display = "none"; return; }
+        var poly = (shapeMode === "manual" && manualPoly.length >= 3) ? manualPoly : ((current.poligono && current.poligono.length >= 3) ? current.poligono : null);
+        if(info) info.style.display = "block";
+        if(poly){
+          if(shapeMode !== "manual"){
+            areaLayer = L.polygon(poly.map(function(pp){ return [pp.lat != null ? pp.lat : pp[0], pp.lng != null ? pp.lng : pp[1]]; }), { color:"#7c3aed", weight:2, fillColor:"#7c3aed", fillOpacity:.15 }).addTo(map);
+          }
+          if(info) info.innerHTML = "Area de deteccion: <b>poligono dibujado a mano</b> (" + poly.length + " vertices). El ingreso y el egreso del sitio se detectan cuando la unidad entra o sale de esa forma.";
+          return;
+        }
+        var otros = (opts.otros || []).filter(function(o){ return o && typeof o.lat === "number"; });
+        var base = GV.siteBaseRadiusM(current);
+        var eff = GV.effectiveRadiusM({ lat: current.lat, lng: current.lng }, otros);
+        if(eff < base){
+          areaBaseLayer = L.circle([current.lat, current.lng], { radius: base, color:"#9ca3af", weight:1, dashArray:"4,4", fill:false }).addTo(map);
+        }
+        areaLayer = L.circle([current.lat, current.lng], { radius: eff, color:"#2563eb", weight:2, fillColor:"#2563eb", fillOpacity:.12 }).addTo(map);
+        if(info) info.innerHTML = "Area de deteccion: <b>circulo automatico de " + eff + " m de radio</b>" + (eff < base ? (" &mdash; recortado desde " + base + " m porque hay otro sitio de este viaje a menos de " + (2*(eff+25)) + " m; asi no se cruzan los horarios de ingreso/egreso entre los dos sitios. Si el sitio real es mas grande, conviene dibujar el area a mano.") : ".");
+      }
+      function scheduleAreaPreview(){ setTimeout(redrawAreaPreview, 0); }
       function setShapeMode(mode){
         shapeMode = mode;
         var bC = document.getElementById('gv-shape-circulo'), bM = document.getElementById('gv-shape-manual');
@@ -353,12 +472,14 @@ GV.pickLocation = function(opts){
         if(marker){ map.removeLayer(marker); }
         marker = L.marker([lat, lng], { draggable: true }).addTo(map);
         marker.on('dragend', function(){ var p = marker.getLatLng(); onPoint(p.lat, p.lng); });
+        scheduleAreaPreview();
       }
 
       function onPoint(lat, lng){
         var __prevPoligono = current && current.poligono;
         current = { lat: lat, lng: lng, direccion: 'Buscando direccion...' };
         if(__prevPoligono) current.poligono = __prevPoligono;
+        scheduleAreaPreview();
         var addrEl = document.getElementById('gv-map-addr');
         if(addrEl) addrEl.textContent = current.direccion;
         var okBtn = document.getElementById('gv-map-ok');
@@ -372,6 +493,8 @@ GV.pickLocation = function(opts){
       if(opts.initial && typeof opts.initial.lat === 'number'){
         setMarker(opts.initial.lat, opts.initial.lng);
         current = { lat: opts.initial.lat, lng: opts.initial.lng, direccion: opts.initial.direccion || '' };
+        /* Si el sitio que se esta editando ya tenia un area dibujada a mano, se conserva y se muestra. */
+        if(opts.initial.poligono && opts.initial.poligono.length >= 3) current.poligono = opts.initial.poligono;
         var addrEl0 = document.getElementById('gv-map-addr');
         if(addrEl0) addrEl0.textContent = current.direccion || 'Punto seleccionado';
         document.getElementById('gv-map-ok').disabled = false;
