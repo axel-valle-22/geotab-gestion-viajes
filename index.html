@@ -154,7 +154,9 @@ function siteGeofenceLayer(L, loc, layerGroup, opts){
   if(loc && loc.poligono && loc.poligono.length >= 3){
     return L.polygon(loc.poligono.map(function(pt){ return [pt.lat, pt.lng]; }), { color: color, weight: weight, fillColor: color, fillOpacity: fillOpacity }).addTo(layerGroup);
   }
-  return L.circle([loc.lat, loc.lng], { radius: GV.SITE_GEOFENCE_M, color: color, weight: weight, fillColor: color, fillOpacity: fillOpacity }).addTo(layerGroup);
+  /* Se dibuja el radio EFECTIVO: si otro sitio del mismo viaje esta cerca, el circulo se recorta para
+     que las areas no se superpongan (opts.otros = los demas puntos del viaje). */
+  return L.circle([loc.lat, loc.lng], { radius: GV.effectiveRadiusM(loc, opts.otros || []), color: color, weight: weight, fillColor: color, fillOpacity: fillOpacity }).addTo(layerGroup);
 }
 
 function puedeIniciar(v){
@@ -519,9 +521,16 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
       var speed = r.speed || 0;
       var sites = siteListFor(v);
       if(!sites.length) return;
-      var atSite = null;
-      sites.forEach(function(s){ if(GV.isWithinSite({lat:r.latitude,lng:r.longitude}, s)){ atSite = s; } });
       var dw = v.dwellState || null;
+      /* Antes se recorria la lista de sitios y se quedaba con el ULTIMO cuya geocerca contenia al
+         punto GPS. Con dos sitios cercanos (geocercas superpuestas) eso hacia que la posicion se
+         atribuyera al sitio de mas abajo del itinerario, y los ingresos/egresos se cruzaban entre un
+         sitio y el otro. Ahora se elige un solo sitio con GV.pickSiteAt: prioridad al poligono
+         dibujado a mano, radio recortado cuando hay un sitio hermano cerca, permanencia "pegada" al
+         sitio ya abierto (con histeresis de salida) y desempate por el mas cercano / orden de itinerario. */
+      var __doneIds = [];
+      Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) __doneIds.push(k); });
+      var atSite = GV.pickSiteAt({lat:r.latitude,lng:r.longitude}, sites, { stickyId: dw ? dw.siteId : null, doneIds: __doneIds });
       if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){
         var __srD = Object.assign({}, v.sitiosReal || {});
         __srD.destino = Object.assign({}, __srD.destino || {});
@@ -535,12 +544,23 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
       }
       if(atSite){
         if(!dw || dw.siteId !== atSite.id){
+          /* La unidad aparece dentro de la geocerca de un sitio nuevo. Antes se sellaba el ingreso en
+             el acto: un solo punto GPS suelto (o una pasada por al lado sin detenerse) alcanzaba para
+             inventar un ingreso/egreso, y con sitios vecinos eso llenaba el itinerario de horarios
+             cruzados. Ahora la permanencia se abre TENTATIVA (confirmado:false) y el ingreso se sella
+             recien cuando la unidad lleva GV.MIN_DWELL_MIN minutos dentro del sitio. */
+          var __dwTent = { siteId: atSite.id, arrivedAt: new Date().toISOString(), alertado: false, lastAlertBucket: -1, confirmado: false };
+          GV.Storage.updateViaje(v.id, { dwellState: __dwTent });
+          v.dwellState = __dwTent;
+        } else if(dw.confirmado === false && (Date.now() - new Date(dw.arrivedAt).getTime()) < (GV.MIN_DWELL_MIN || 3)*60000){
+          /* Sigue adentro pero todavia no cumplio el minimo: no se sella ningun horario. */
+        } else if(dw.confirmado === false){
           var __sr = Object.assign({}, v.sitiosReal || {});
           __sr[atSite.id] = Object.assign({}, __sr[atSite.id] || {});
-          var __arrivalGuess = new Date().toISOString();
+          var __arrivalGuess = dw.arrivedAt;
           if(!__sr[atSite.id].ingreso) __sr[atSite.id].ingreso = __arrivalGuess;
-          GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: __arrivalGuess, alertado: false, lastAlertBucket: -1 }, sitiosReal: __sr });
-          v.dwellState = { siteId: atSite.id, arrivedAt: __arrivalGuess, alertado: false, lastAlertBucket: -1 };
+          GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: __arrivalGuess, alertado: false, lastAlertBucket: -1, confirmado: true }, sitiosReal: __sr });
+          v.dwellState = { siteId: atSite.id, arrivedAt: __arrivalGuess, alertado: false, lastAlertBucket: -1, confirmado: true };
           v.sitiosReal = __sr;
           /* Este chequeo solo corre mientras el panel del coordinador esta abierto: puede "descubrir"
              que la unidad ya esta en el sitio varios minutos despues de que realmente llego (por
@@ -553,7 +573,7 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
               if(!hist || !hist.length) return;
               var realArrival = null;
               for(var __hi = hist.length - 1; __hi >= 0; __hi--){
-                if(GV.isWithinSite({lat:hist[__hi].latitude,lng:hist[__hi].longitude}, siteRef)){ realArrival = hist[__hi].dateTime; }
+                if(GV.isWithinSiteEx({lat:hist[__hi].latitude,lng:hist[__hi].longitude}, siteRef, sites, 0)){ realArrival = hist[__hi].dateTime; }
                 else { break; }
               }
               if(realArrival && new Date(realArrival) < new Date(arrivalGuessIso)){
@@ -587,11 +607,20 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
             if(excessBucket > lastBucket){
               var aid = 'al_' + v.id + '_' + atSite.id + '_dwell_' + excessBucket;
               GV.Storage.addAlerta({ id: aid, tipo:'demora_carga', mensaje: v.conductor + ' - ' + v.vehiculo + ': sigue esperando ' + GV.tipoParadaLabel(atSite.tipo).toLowerCase() + ' en ' + atSite.label + ' - lleva ' + GV.fmtDurMin(elapsedMin*60000) + ' (programado ' + atSite.dur + ' min, excede por ' + GV.fmtDurMin(excessMin*60000) + ')', fecha: new Date().toISOString(), viajeId: v.id });
-              GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: dw.arrivedAt, alertado: true, lastAlertBucket: excessBucket } });
+              GV.Storage.updateViaje(v.id, { dwellState: { siteId: atSite.id, arrivedAt: dw.arrivedAt, alertado: true, lastAlertBucket: excessBucket, confirmado: true } });
             }
           }
         }
       } else if(dw){
+        if(dw.confirmado === false){
+          /* Era una permanencia TENTATIVA que nunca llego al minimo de GV.MIN_DWELL_MIN minutos: la
+             unidad solo paso por al lado del sitio (o fue un punto GPS suelto que cayo dentro de la
+             geocerca de un sitio vecino). Se descarta sin sellar ningun horario, asi el itinerario no
+             queda con un "ingreso/egreso" de un minuto que ademas desordena a los sitios siguientes. */
+          GV.Storage.updateViaje(v.id, { dwellState: null });
+          v.dwellState = null;
+          return;
+        }
         /* La unidad ya no esta dentro de ninguna geocerca del viaje y quedaba una permanencia abierta
            en dw.siteId. Antes se sellaba "egreso: ahora", pero ese "ahora" es la hora en que el panel
            se dio cuenta, no la hora en que el camion realmente salio: si el panel estuvo cerrado un
@@ -638,7 +667,7 @@ function classifyVehicleStatus(deviceId, rec){ var now = Date.now(); var fixTime
             var __salidaReal = null;
             if(hist && hist.length){
               for(var __hj = hist.length - 1; __hj >= 0; __hj--){
-                if(GV.isWithinSite({lat:hist[__hj].latitude,lng:hist[__hj].longitude}, __dwSite)){
+                if(GV.isWithinSiteEx({lat:hist[__hj].latitude,lng:hist[__hj].longitude}, __dwSite, sites, GV.SITE_EXIT_HYSTERESIS_M)){
                   __salidaReal = hist[Math.min(__hj + 1, hist.length - 1)].dateTime;
                   break;
                 }
@@ -700,6 +729,15 @@ function renderStopsList(){
       '<span>' + GV.escapeHtml(GV.siteNameFor(p)) + ' (' + p.duracionMin + ' min)</span>' +
       '<button type="button" class="gv-stop-remove" data-idx="' + idx + '">&times;</button></div>';
   }).join('');
+  /* Aviso de sitios muy cercanos entre si: con el circulo automatico de deteccion las areas se
+     superponen y los horarios de ingreso/egreso se pueden cruzar entre un sitio y el otro. El sistema
+     recorta el radio solo, pero lo mas preciso es dibujar el area de cada sitio a mano. */
+  var __cercanos = GV.sitiosCercanos([].concat(gOrigen ? [gOrigen] : [], gParadas || [], gDestino ? [gDestino] : []));
+  if(__cercanos.length){
+    sl.innerHTML += '<div style="font-size:.78rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:6px"><b>Sitios muy cercanos entre si.</b> ' +
+      __cercanos.map(function(x){ return GV.escapeHtml(GV.siteNameFor(x.a) || 'Sitio') + ' y ' + GV.escapeHtml(GV.siteNameFor(x.b) || 'Sitio') + ' estan a ' + x.metros + ' m'; }).join('; ') +
+      '. Las areas de deteccion se recortan automaticamente para que no se superpongan (asi no se cruzan los ingresos y egresos), pero conviene dibujar el area de cada sitio a mano desde <i>Ubicar en Mapa</i>.</div>';
+  }
   sl.querySelectorAll('.gv-stop-remove').forEach(function(btn){
     btn.addEventListener('click', function(){
       gParadas.splice(parseInt(btn.getAttribute('data-idx'),10), 1);
@@ -748,13 +786,13 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
 
   document.getElementById('gv-btn-origen').addEventListener('click', function(){
     var vSelOrigen = document.getElementById('gv-vehiculo');
-    GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: false, vehiculoId: vSelOrigen ? vSelOrigen.value : '', api: gApi }).then(function(res){
+    GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: false, vehiculoId: vSelOrigen ? vSelOrigen.value : '', api: gApi, otros: [].concat(gParadas || [], gDestino ? [gDestino] : []) }).then(function(res){
       if(res){ gOrigen = res; document.getElementById('gv-origen-txt').textContent = GV.siteNameFor(res) + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
     });
   });
 
   document.getElementById('gv-btn-destino').addEventListener('click', function(){
-    GV.pickLocation({ title: 'Punto de destino', initial: gDestino, withStopFields: false }).then(function(res){
+    GV.pickLocation({ title: 'Punto de destino', initial: gDestino, withStopFields: false, otros: [].concat(gOrigen ? [gOrigen] : [], gParadas || []) }).then(function(res){
       if(res){ gDestino = res; document.getElementById('gv-destino-txt').textContent = GV.siteNameFor(res) + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
     });
   });
@@ -765,7 +803,7 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
   });
 
   document.getElementById('gv-btn-add-stop').addEventListener('click', function(){
-    GV.pickLocation({ title: 'Punto de carga o descarga', withStopFields: true }).then(function(res){
+    GV.pickLocation({ title: 'Punto de carga o descarga', withStopFields: true, otros: [].concat(gOrigen ? [gOrigen] : [], gParadas || [], gDestino ? [gDestino] : []) }).then(function(res){
       if(res){ gParadas.push(res); renderStopsList(); }
     });
   });
@@ -887,12 +925,20 @@ function computeStopStatuses(v, fullHist){
   pts.forEach(function(p){
     if(seqBroken) return;
     var inside=false, inTime=null, outTime=null, hi=histCursor;
+    /* Igual que en el itinerario del detalle: radio efectivo (para que dos sitios cercanos no se
+       superpongan) y se descartan las ventanas mas cortas que GV.MIN_DWELL_MIN minutos, que son
+       pasadas por al lado y no permanencias. */
+    var minDwellMs = (GV.MIN_DWELL_MIN || 3) * 60000;
     for(; hi<fullHist.length; hi++){
       var hr = fullHist[hi];
-      var within = GV.isWithinSite({lat:hr.latitude,lng:hr.longitude}, p);
+      var within = GV.isWithinSiteEx({lat:hr.latitude,lng:hr.longitude}, p, pts, inside ? GV.SITE_EXIT_HYSTERESIS_M : 0);
       if(within && !inside){ inside=true; inTime=hr.dateTime; }
-      else if(!within && inside){ outTime=hr.dateTime; break; }
+      else if(!within && inside){
+        if(new Date(hr.dateTime).getTime() - new Date(inTime).getTime() >= minDwellMs){ outTime=hr.dateTime; break; }
+        inside=false; inTime=null;
+      }
     }
+    if(inTime && !outTime && inside && (new Date(fullHist[fullHist.length-1].dateTime).getTime() - new Date(inTime).getTime()) < minDwellMs){ inTime = null; }
     if(inTime){ result[p.id] = { ingreso: inTime, egreso: outTime, tipo: p.tipo, dur: p.dur, label: p.label }; histCursor = hi<fullHist.length?hi:fullHist.length; }
     else { seqBroken = true; }
   });
@@ -1016,17 +1062,17 @@ function renderTracking(){
       if(v.origen){
         var __oIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#059669">O</div>', iconSize: [26,26], iconAnchor: [13,13] });
         L.marker([v.origen.lat, v.origen.lng], { icon: __oIcon, zIndexOffset: 500 }).bindTooltip('Origen: ' + GV.siteNameFor(v.origen) + (v.origen.tipo ? ' (' + GV.tipoParadaLabel(v.origen.tipo) + ')' : '')).addTo(gTrackLayer);
-        if(v.origen.tipo) siteGeofenceLayer(L, v.origen, gTrackLayer);
+        if(v.origen.tipo) siteGeofenceLayer(L, v.origen, gTrackLayer, { otros: siteListFor(v) });
       }
       if(v.destino){
         var __dIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#dc2626">D</div>', iconSize: [26,26], iconAnchor: [13,13] });
         L.marker([v.destino.lat, v.destino.lng], { icon: __dIcon, zIndexOffset: 500 }).bindTooltip('Destino: ' + GV.siteNameFor(v.destino) + (v.destino.tipo ? ' (' + GV.tipoParadaLabel(v.destino.tipo) + ')' : '')).addTo(gTrackLayer);
-        if(v.destino.tipo) siteGeofenceLayer(L, v.destino, gTrackLayer);
+        if(v.destino.tipo) siteGeofenceLayer(L, v.destino, gTrackLayer, { otros: siteListFor(v) });
       }
       (v.paradas||[]).forEach(function(p, __pi){
         var __pIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#d97706">' + (__pi+1) + '</div>', iconSize: [26,26], iconAnchor: [13,13] });
         L.marker([p.lat, p.lng], { icon: __pIcon, zIndexOffset: 500 }).bindTooltip((__pi+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p)).addTo(gTrackLayer);
-        if(p.tipo) siteGeofenceLayer(L, p, gTrackLayer);
+        if(p.tipo) siteGeofenceLayer(L, p, gTrackLayer, { otros: siteListFor(v) });
       });
     });
 
@@ -1408,7 +1454,7 @@ if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, 
 var bounds = [];
 pts.forEach(function(p){
 var icon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:' + p.color + '">' + p.label + '</div>', iconSize: [26,26], iconAnchor: [13,13] });
-L.marker([p.lat, p.lng], { icon: icon }).bindTooltip(p.label + ': ' + (p.dir||'')).addTo(detLayer); if(p.tipo) siteGeofenceLayer(L, p, detLayer, {fillOpacity:.15});
+L.marker([p.lat, p.lng], { icon: icon }).bindTooltip(p.label + ': ' + (p.dir||'')).addTo(detLayer); if(p.tipo) siteGeofenceLayer(L, p, detLayer, {fillOpacity:.15, otros: pts});
 bounds.push([p.lat, p.lng]);
 });
 if(bounds.length){ detMap.fitBounds(bounds, {padding:[30,30]}); } else { detMap.setView([-38.951,-68.059], 9); }
@@ -1495,7 +1541,8 @@ var p = pts.filter(function(pp){ return pp.id === siteId; })[0];
 GV.pickLocation({
 title: 'Editar ubicacion: ' + (p ? (p.dir || p.label) : siteId),
 initial: { lat: cur.lat, lng: cur.lng, direccion: cur.direccion || (p && p.dir) || '', tipo: cur.tipo, duracionMin: cur.duracionMin, poligono: cur.poligono || null },
-withStopFields: isParada
+withStopFields: isParada,
+otros: pts.filter(function(pp){ return pp.id !== siteId; })
 }).then(function(res){
 if(!res) return;
 var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null };
@@ -1534,7 +1581,7 @@ abrirDetalleViaje(v.id);
 }
 
 function agregarParada(){
-GV.pickLocation({ title: 'Agregar parada', withStopFields: true }).then(function(res){
+GV.pickLocation({ title: 'Agregar parada', withStopFields: true, otros: siteListFor(v) }).then(function(res){
 if(!res) return;
 var nuevaParada = { lat: res.lat, lng: res.lng, direccion: res.direccion, tipo: res.tipo, duracionMin: res.duracionMin, poligono: res.poligono || null };
 var paradas = (v.paradas||[]).concat([nuevaParada]);
@@ -1635,12 +1682,30 @@ var __coincideConSiguiente = !p.tipo && pts[i+1] && pts[i+1].tipo && GV.isWithin
 if(__coincideConSiguiente){
 /* no se escanea: se deja sin ingreso/egreso propio */
 } else if(!__seqBroken && fullHist && fullHist.length){
+/* Barrido del historial de GPS para este sitio. Dos correcciones respecto de la version anterior:
+   1) se usa el radio EFECTIVO del sitio (GV.isWithinSiteEx con la lista completa de puntos del
+      viaje): si dos sitios estan mas cerca que 600 m, el circulo de cada uno se recorta para que no
+      se superpongan y una misma posicion no cuente como estar en los dos a la vez;
+   2) una ventana dentro de la geocerca que dura menos que GV.MIN_DWELL_MIN minutos NO se toma como
+      permanencia (fue una pasada sin detenerse) y se sigue buscando la siguiente, en lugar de sellar
+      un ingreso/egreso de un minuto que ademas corre la secuencia de los sitios que vienen despues.
+   Al salir se aplica una histeresis (GV.SITE_EXIT_HYSTERESIS_M) para que el ruido del GPS en el borde
+   de la geocerca no parta la permanencia en varios pedazos. */
 var __inside=false, __in=null, __out=null, __hi=__histCursor;
+var __minDwellMs = (p.tipo ? (GV.MIN_DWELL_MIN || 3) : 0) * 60000;
 for(; __hi<fullHist.length; __hi++){
 var __hr = fullHist[__hi];
-var __within = GV.isWithinSite({lat:__hr.latitude,lng:__hr.longitude}, p);
+var __within = GV.isWithinSiteEx({lat:__hr.latitude,lng:__hr.longitude}, p, pts, __inside ? GV.SITE_EXIT_HYSTERESIS_M : 0);
 if(__within && !__inside){ __inside=true; __in = __hr.dateTime; }
-else if(!__within && __inside){ __out = __hr.dateTime; break; }
+else if(!__within && __inside){
+if(new Date(__hr.dateTime).getTime() - new Date(__in).getTime() >= __minDwellMs){ __out = __hr.dateTime; break; }
+__inside=false; __in=null;
+}
+}
+if(__in && !__out && __inside && __minDwellMs > 0){
+/* Sigue adentro al final del historial: solo cuenta si ya lleva el minimo de permanencia. */
+var __ultimoTs = new Date(fullHist[fullHist.length-1].dateTime).getTime();
+if(__ultimoTs - new Date(__in).getTime() < __minDwellMs){ __in = null; }
 }
 if(__in){ __realIn = __in; __realOut = __out; __histCursor = __hi < fullHist.length ? __hi : fullHist.length; } else { __seqBroken = true; }
 }
@@ -1952,7 +2017,7 @@ if(broken) return;
 var hi = cursor, found = -1;
 for(; hi < hist.length; hi++){
 var hr = hist[hi];
-if(GV.isWithinSite({lat:hr.latitude,lng:hr.longitude}, p)){ found = hi; break; }
+if(GV.isWithinSiteEx({lat:hr.latitude,lng:hr.longitude}, p, sitePts, 0)){ found = hi; break; }
 }
 if(found >= 0){ result.push({idx: found, label: p.label}); cursor = found; } else { broken = true; }
 });
