@@ -522,12 +522,27 @@ if(!sitesN.filter(function(s){ return s.id === 'destino'; }).length) return;
 var doneIds = [];
 var srN = vv.sitiosReal || {};
 Object.keys(srN).forEach(function(k){ if(srN[k] && srN[k].egreso) doneIds.push(k); });
+/* Salvaguarda: si el viaje arranca parado en la base y la base es tambien el destino
+   (el caso tipico de ida y vuelta), los primeros puntos del historial ya caen dentro
+   del destino y el viaje se cerraria solo, recien iniciado. Antes de aceptar una
+   llegada hay que comprobar que la unidad efectivamente se fue de ahi: o porque ya
+   completo un sitio lejano, o porque aparece al menos un punto fuera del destino. */
+var __sDest = sitesN.filter(function(s){ return s.id === 'destino'; })[0];
+var __rDest = GV.effectiveRadiusM(__sDest, sitesN);
+var __salio = false;
+sitesN.forEach(function(s){
+if(s.id === 'destino') return;
+if(doneIds.indexOf(s.id) < 0) return;
+var dKm = GV.distKm(s, __sDest);
+if(dKm !== null && dKm * 1000 > __rDest) __salio = true;
+});
 var hit = null;
 for(var i = 0; i < hist.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
-var s = GV.pickSiteAt({ lat: rec.latitude, lng: rec.longitude }, sitesN, { doneIds: doneIds });
-if(s && s.id === 'destino'){ hit = rec; break; }
+var s2 = GV.pickSiteAt({ lat: rec.latitude, lng: rec.longitude }, sitesN, { doneIds: doneIds });
+if(!(s2 && s2.id === 'destino')){ __salio = true; continue; }
+if(__salio){ hit = rec; break; }
 }
 if(!hit) return;
 var hitISO = new Date(hit.dateTime).toISOString();
