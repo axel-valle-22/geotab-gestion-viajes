@@ -1069,7 +1069,7 @@ rayado el pendiente) y la bandera de meta al final. */
 function gvBarraAvanceHtml(v, estados){
 var av = gvAvanceViaje(v, estados);
 if(!av.hitos.length){
-return '<div class="gv-trk-bar" title="El viaje no tiene cargas, descargas ni destino programados"><div class="gv-trk-seg gv-trk-pend"></div><span class="gv-trk-flag">&#127937;</span></div>';
+return '<div class="gv-trk-bar" title="El viaje no tiene cargas, descargas ni destino programados"><div class="gv-trk-seg gv-trk-pend"></div><span class="gv-trk-flag"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true" style="display:block"><rect x="1" y="1" width="1.1" height="10" fill="#6b7280"/><rect x="2.3" y="1.3" width="8.2" height="5.2" fill="#ffffff" stroke="#9ca3af" stroke-width=".5"/><rect x="2.3" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="6.4" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="4.35" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="8.45" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="2.3" y="4.76" width="2.05" height="1.74" fill="#374151"/><rect x="6.4" y="4.76" width="2.05" height="1.74" fill="#374151"/></svg></span></div>';
 }
 var txt = { done:'cumplido', active:'la unidad esta en el sitio ahora', pending:'pendiente' };
 var segs = av.hitos.map(function(h, i){
@@ -1077,7 +1077,7 @@ var c = av.clases[i];
 var mod = c === 'done' ? 'done' : (c === 'active' ? 'active' : 'pend');
 return '<div class="gv-trk-seg gv-trk-' + mod + '" title="' + GV.escapeHtml(h.label + ' - ' + txt[c]) + '"></div>';
 }).join('');
-return '<div class="gv-trk-bar" title="' + av.pct + '% del recorrido cumplido (' + av.hitos.length + ' hitos)">' + segs + '<span class="gv-trk-flag" title="Fin del viaje">&#127937;</span></div>';
+return '<div class="gv-trk-bar" title="' + av.pct + '% del recorrido cumplido (' + av.hitos.length + ' hitos)">' + segs + '<span class="gv-trk-flag" title="Fin del viaje"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true" style="display:block"><rect x="1" y="1" width="1.1" height="10" fill="#6b7280"/><rect x="2.3" y="1.3" width="8.2" height="5.2" fill="#ffffff" stroke="#9ca3af" stroke-width=".5"/><rect x="2.3" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="6.4" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="4.35" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="8.45" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="2.3" y="4.76" width="2.05" height="1.74" fill="#374151"/><rect x="6.4" y="4.76" width="2.05" height="1.74" fill="#374151"/></svg></span></div>';
 }
 
 var GV_TRK_EST_COLORS = { planificado:['#e5e7eb','#374151'], en_curso:['#dbeafe','#1e40af'], demorado:['#fee2e2','#991b1b'], completado:['#d1fae5','#065f46'], cancelado:['#f3f4f6','#6b7280'] };
@@ -1275,7 +1275,7 @@ var sel = (v.id === gTrackSelectedId);
 var vp = vehiculoParts(v.vehiculo);
 /* Un viaje puede haber arrancado ayer y seguir en curso: se avisa en el mismo chip de
 estado para no agregar otra linea a la fila. */
-var contTxt = (GV.dateStr(v.fechaSalida) !== hoyStr) ? (' &middot; desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0]) : '';
+var contTxt = (GV.dateStr(v.fechaSalida) !== hoyStr) ? (' &middot; desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0].split('/').slice(0,2).join('/')) : '';
 var ec = GV_TRK_EST_COLORS[v.estado || 'planificado'] || GV_TRK_EST_COLORS.planificado;
 var av = gvAvanceViaje(v, v.sitiosReal);
 var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
