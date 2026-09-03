@@ -6,6 +6,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Gestion de Viajes</title>
+<style>
+/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------
+Cada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje
+(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el
+hito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora
+suma la mitad. */
+#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}
+#gv-track-list .gv-trk-row{display:grid;grid-template-columns:120px minmax(120px,1.1fr) 138px minmax(96px,1fr) 62px minmax(170px,2.2fr) 62px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}
+#gv-track-list .gv-trk-row:hover{background:#f8fbff}
+#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}
+#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}
+.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}
+.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}
+.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gv-trk-live{font-size:.7rem;font-weight:600}
+.gv-trk-live.gv-live-moving{color:#047857}
+.gv-trk-live.gv-live-stopped{color:#b45309}
+.gv-trk-live.gv-live-nocomm{color:#b91c1c}
+.gv-trk-live.gv-live-unknown{color:#9ca3af}
+.gv-trk-pct{font-weight:700;color:#111827;text-align:right}
+.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}
+.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}
+.gv-trk-seg.gv-trk-done{background:#7ac943}
+.gv-trk-seg.gv-trk-active{background:#5b62e8}
+.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}
+.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}
+.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}
+.gv-trk-warn{grid-column:1/-1;font-size:.7rem;color:#7f1d1d;background:#fee2e2;border-radius:6px;padding:3px 8px;margin-top:3px}
+@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:110px 1fr 62px minmax(140px,1.8fr) 58px}.gv-trk-hide-sm{display:none}}
+</style>
 </head>
 <body>
 <div id="gv-app">
@@ -1003,9 +1034,53 @@ abrirDetalleViaje(id);
   }
 }
 
-function trackStopBadge(v, siteId){
-  return '<span id="gv-trackbadge-' + v.id + '-' + siteId + '" class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
+/* Hitos operativos del viaje: son los puntos que definen el avance del recorrido (las
+cargas y descargas mas la llegada al destino). El origen solo cuenta como hito si ademas
+es una carga o descarga; si es solo el punto de partida no suma avance por si mismo. */
+function gvHitosViaje(v){
+var arr = [];
+if(v.origen && v.origen.tipo) arr.push({ id:'origen', tipo:v.origen.tipo, label:'Origen - ' + GV.tipoParadaLabel(v.origen.tipo) + ': ' + (GV.siteNameFor(v.origen)||'') });
+(v.paradas||[]).forEach(function(p, i){ arr.push({ id:'parada'+i, tipo:p.tipo||null, label:(i+1) + '. ' + (p.tipo ? (GV.tipoParadaLabel(p.tipo) + ': ') : '') + (GV.siteNameFor(p)||'') }); });
+if(v.destino) arr.push({ id:'destino', tipo:v.destino.tipo||null, esDestino:true, label:'Destino' + (v.destino.tipo ? (' - ' + GV.tipoParadaLabel(v.destino.tipo)) : '') + ': ' + (GV.siteNameFor(v.destino)||'') });
+return arr;
 }
+
+/* Porcentaje completado del viaje: un hito con egreso registrado ya esta cumplido (suma
+entero) y el hito donde la unidad esta ahora suma medio tramo, porque entro pero todavia
+no termino la carga/descarga. Se admite pasarle los estados reconstruidos del historial de
+GPS; si no, se usan los horarios sellados en el viaje (v.sitiosReal). */
+function gvAvanceViaje(v, estados){
+var hitos = gvHitosViaje(v);
+var sr = estados || (v && v.sitiosReal) || {};
+var puntos = 0;
+var clases = hitos.map(function(h){
+var s = sr[h.id];
+if(s && s.egreso){ puntos += 1; return 'done'; }
+if(s && s.ingreso){ puntos += .5; return 'active'; }
+return 'pending';
+});
+var pct = hitos.length ? Math.round(puntos / hitos.length * 100) : 0;
+if(v.estado === 'completado'){ pct = 100; clases = hitos.map(function(){ return 'done'; }); }
+return { hitos: hitos, clases: clases, pct: pct };
+}
+
+/* Barra segmentada: un tramo por hito (verde cumplido, violeta el que esta en curso,
+rayado el pendiente) y la bandera de meta al final. */
+function gvBarraAvanceHtml(v, estados){
+var av = gvAvanceViaje(v, estados);
+if(!av.hitos.length){
+return '<div class="gv-trk-bar" title="El viaje no tiene cargas, descargas ni destino programados"><div class="gv-trk-seg gv-trk-pend"></div><span class="gv-trk-flag">&#127937;</span></div>';
+}
+var txt = { done:'cumplido', active:'la unidad esta en el sitio ahora', pending:'pendiente' };
+var segs = av.hitos.map(function(h, i){
+var c = av.clases[i];
+var mod = c === 'done' ? 'done' : (c === 'active' ? 'active' : 'pend');
+return '<div class="gv-trk-seg gv-trk-' + mod + '" title="' + GV.escapeHtml(h.label + ' - ' + txt[c]) + '"></div>';
+}).join('');
+return '<div class="gv-trk-bar" title="' + av.pct + '% del recorrido cumplido (' + av.hitos.length + ' hitos)">' + segs + '<span class="gv-trk-flag" title="Fin del viaje">&#127937;</span></div>';
+}
+
+var GV_TRK_EST_COLORS = { planificado:['#e5e7eb','#374151'], en_curso:['#dbeafe','#1e40af'], demorado:['#fee2e2','#991b1b'], completado:['#d1fae5','#065f46'], cancelado:['#f3f4f6','#6b7280'] };
 
 function vehiculoParts(vehiculoStr){
   var s = (vehiculoStr || '').split(' - ');
@@ -1077,14 +1152,16 @@ function updateTrackBadges(v){
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
   fetchHistoryForViaje(v, dayStart, new Date()).then(function(hist){
     var statuses = computeStopStatuses(v, hist);
-    Object.keys(statuses).forEach(function(siteId){
-      var badgeEl = document.getElementById('gv-trackbadge-' + v.id + '-' + siteId);
-      if(!badgeEl) return;
-      var st = statuses[siteId];
-      if(st.egreso){ badgeEl.textContent = 'Finalizado'; badgeEl.style.background = '#d1fae5'; badgeEl.style.color = '#065f46'; }
-      else if(st.ingreso){ badgeEl.textContent = 'En sitio'; badgeEl.style.background = '#fef3c7'; badgeEl.style.color = '#78350f'; }
-    });
-    var waitEl = document.getElementById('gv-track-wait-' + v.id);
+    /* El historial de GPS es la fuente mas precisa de ingresos/egresos, pero solo reconstruye
+los sitios que pudo seguir en secuencia: se completa con los horarios ya sellados en el
+viaje para no perder avance ya conseguido. */
+var __estados = Object.assign({}, v.sitiosReal || {}, statuses);
+var __av = gvAvanceViaje(v, __estados);
+var __pctEl = document.getElementById('gv-trk-pct-' + v.id);
+if(__pctEl) __pctEl.textContent = __av.pct + '%';
+var __barEl = document.getElementById('gv-trk-bar-' + v.id);
+if(__barEl) __barEl.innerHTML = gvBarraAvanceHtml(v, __estados);
+var waitEl = document.getElementById('gv-track-wait-' + v.id);
     if(waitEl){
       var openSite = null;
       Object.keys(statuses).forEach(function(siteId){
@@ -1182,28 +1259,39 @@ function renderTracking(){
 
     if(listEl){
       var selectorHtml = gTrackSelectedId ? ('<div style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-track-ver-todos">&larr; Ver todos los viajes de hoy (' + todos.length + ')</button></div>') : '';
-      listEl.innerHTML = selectorHtml + todos.map(function(v){
-        var sel = (v.id === gTrackSelectedId);
-        var stopsChips = ((v.origen && v.origen.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.origen.tipo + '">Origen - ' + GV.tipoParadaLabel(v.origen.tipo) + '</span>' + trackStopBadge(v, 'origen') + '</div>') : '') +
-          (v.paradas||[]).map(function(p, i){ return '<div class="gv-stop-block"><span class="gv-stop-chip gv-' + p.tipo + '">' + (i+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(GV.siteNameFor(p)) + '</span>' + trackStopBadge(v, 'parada'+i) + '</div>'; }).join('') +
-          ((v.destino && v.destino.tipo) ? ('<div class="gv-stop-block"><span class="gv-stop-chip gv-' + v.destino.tipo + '">Destino - ' + GV.tipoParadaLabel(v.destino.tipo) + '</span>' + trackStopBadge(v, 'destino') + '</div>') : '');
-        var vp = vehiculoParts(v.vehiculo);
-        return '<div style="display:flex;gap:10px;align-items:stretch;margin-bottom:12px;cursor:pointer" data-track-id="' + v.id + '">' +
-          '<div class="gv-plate-box"' + (sel ? ' style="border-color:var(--gv-accent);box-shadow:0 0 0 2px rgba(var(--gv-accent-rgb),.25)"' : '') + '>' +
-            '<div class="gv-plate-interno">' + GV.escapeHtml(vp.interno) + '</div>' +
-            (vp.patente ? ('<div class="gv-plate-patente">' + GV.escapeHtml(vp.patente) + '</div>') : '') +
-          '</div>' +
-          '<div class="gv-trip-card" style="flex:1;margin-bottom:0' + (sel ? ';border-color:var(--gv-accent);box-shadow:0 0 0 2px rgba(var(--gv-accent-rgb),.25)' : '') + '">' +
-          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
-            '<div class="gv-trip-title">' + GV.escapeHtml(vp.interno) + (vp.patente ? (' - ' + GV.escapeHtml(vp.patente)) : '') + ' &mdash; ' + GV.escapeHtml(v.conductor) + '</div>' +
-            '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-detalle-id="' + v.id + '">Ver detalle</button>' +
-          '</div>' +
-          '<div class="gv-trip-info">' + GV.statusLabel(v.estado) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(v.origen?GV.siteNameFor(v.origen):'', v.destino?GV.siteNameFor(v.destino):'') + (GV.dateStr(v.fechaSalida) !== hoyStr ? ' &nbsp;|&nbsp; <span style="color:#d97706;font-weight:700">Continua desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0] + '</span>' : '') + '</div>' +
-          (stopsChips ? ('<div class="gv-stops">' + stopsChips + '</div>') : '') +
-          '<div id="gv-track-status-' + v.id + '" class="gv-live-banner gv-live-unknown">Obteniendo estado...</div>' +
-          '<div id="gv-track-wait-' + v.id + '" class="gv-live-banner" style="display:none;background:#fee2e2;color:#7f1d1d"></div></div></div>';
-      }).join('');
-      todos.forEach(function(v){ updateTrackBadges(v); });
+      listEl.innerHTML = selectorHtml +
+'<div class="gv-trk-table">' +
+'<div class="gv-trk-row gv-trk-head">' +
+'<div class="gv-trk-cell">Unidad</div>' +
+'<div class="gv-trk-cell">Conductor</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm">Estado</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm">En vivo</div>' +
+'<div class="gv-trk-cell" style="text-align:right">Avance %</div>' +
+'<div class="gv-trk-cell">Progreso</div>' +
+'<div></div>' +
+'</div>' +
+todos.map(function(v){
+var sel = (v.id === gTrackSelectedId);
+var vp = vehiculoParts(v.vehiculo);
+/* Un viaje puede haber arrancado ayer y seguir en curso: se avisa en el mismo chip de
+estado para no agregar otra linea a la fila. */
+var contTxt = (GV.dateStr(v.fechaSalida) !== hoyStr) ? (' &middot; desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0]) : '';
+var ec = GV_TRK_EST_COLORS[v.estado || 'planificado'] || GV_TRK_EST_COLORS.planificado;
+var av = gvAvanceViaje(v, v.sitiosReal);
+var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
+return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
+'<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + '</div>' +
+'<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + '</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-unknown" id="gv-track-status-' + v.id + '">Obteniendo estado...</div>' +
+'<div class="gv-trk-pct" id="gv-trk-pct-' + v.id + '">' + av.pct + '%</div>' +
+'<div id="gv-trk-bar-' + v.id + '">' + gvBarraAvanceHtml(v, v.sitiosReal) + '</div>' +
+'<button type="button" class="gv-trk-det" data-detalle-id="' + v.id + '">Detalle</button>' +
+'<div class="gv-trk-warn" id="gv-track-wait-' + v.id + '" style="display:none"></div>' +
+'</div>';
+}).join('') +
+'</div>';
+todos.forEach(function(v){ updateTrackBadges(v); });
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
       if(verTodosBtn) verTodosBtn.addEventListener('click', function(e){ e.stopPropagation(); gTrackSelectedId = null; renderTracking(); });
       listEl.querySelectorAll('[data-detalle-id]').forEach(function(btn){
@@ -1229,7 +1317,7 @@ function renderTracking(){
       gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
         if(res && res.length && res[0].latitude){
           var pos = [res[0].latitude, res[0].longitude];
-          var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-live-banner gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
+          var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
           if(activosIds[v.id]){
             bounds.push(pos);
             var __vp2 = vehiculoParts(v.vehiculo);
