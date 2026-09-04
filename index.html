@@ -1045,6 +1045,9 @@ return 'pending';
 });
 var pct = hitos.length ? Math.round(puntos / hitos.length * 100) : 0;
 if(v.estado === 'completado'){ pct = 100; clases = hitos.map(function(){ return 'done'; }); }
+      /* Mientras el viaje siga abierto no se muestra 100%: queda pendiente el cierre (llegada
+         al destino o cierre manual), asi el coordinador ve que todavia falta algo. */
+      else if(pct > 95) pct = 95;
 return { hitos: hitos, clases: clases, pct: pct };
 }
 
