@@ -1118,6 +1118,26 @@ function computeStopStatuses(v, fullHist){
   return result;
 }
 
+/* Persistencia del avance calculado por GPS: cualquier cliente que pueda leer el historial de
+posiciones (LogRecord) reconstruye los hitos cumplidos, pero no todos los perfiles de MyGeotab
+tienen permiso para leer ese historial (por ejemplo un usuario con autorizacion "Solo ver"); sin
+esto, esos perfiles quedarian viendo 0% para siempre aunque el viaje si tenga avance real, porque
+cada cliente recalcula el avance por su cuenta y nunca lo comparte con los demas. Por eso, apenas
+un cliente CON permiso reconstruye un hito nuevo (un ingreso o egreso que v.sitiosReal todavia no
+tenia), se guarda en el viaje para que todos los perfiles vean el mismo avance sin necesitar ellos
+mismos el permiso de leer el historial de GPS. Nunca se "baja" un hito ya confirmado. */
+function gvMergeSitiosRealForward(existing, computed){
+  var merged = Object.assign({}, existing || {});
+  var changed = false;
+  Object.keys(computed || {}).forEach(function(id){
+    var c = computed[id], e = merged[id];
+    if(!e){ merged[id] = c; changed = true; return; }
+    if(c.egreso && !e.egreso){ merged[id] = Object.assign({}, e, { ingreso: e.ingreso || c.ingreso, egreso: c.egreso }); changed = true; }
+    else if(c.ingreso && !e.ingreso){ merged[id] = Object.assign({}, e, { ingreso: c.ingreso }); changed = true; }
+  });
+  return { merged: merged, changed: changed };
+}
+
 function fetchHistoryForViaje(v, fromOverride, toOverride){
   if(!gApi || !v.vehiculoId) return Promise.resolve([]);
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
@@ -1149,7 +1169,12 @@ function updateTrackBadges(v){
     /* El historial de GPS es la fuente mas precisa de ingresos/egresos, pero solo reconstruye
 los sitios que pudo seguir en secuencia: se completa con los horarios ya sellados en el
 viaje para no perder avance ya conseguido. */
-var __estados = Object.assign({}, v.sitiosReal || {}, statuses);
+var __merge = gvMergeSitiosRealForward(v.sitiosReal, statuses);
+if(__merge.changed){
+  v.sitiosReal = __merge.merged;
+  GV.Storage.updateViaje(v.id, { sitiosReal: __merge.merged });
+}
+var __estados = Object.assign({}, __merge.merged, statuses);
 var __av = gvAvanceViaje(v, __estados);
 var __pctEl = document.getElementById('gv-trk-pct-' + v.id);
 if(__pctEl) __pctEl.textContent = __av.pct + '%';
