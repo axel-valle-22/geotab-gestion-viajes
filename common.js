@@ -712,6 +712,7 @@ GV.Storage = (function(){
     var _data = { viajes: [], alertas: [], sitios: [], conductores: [], gerenciamientos: [] };
   var _listeners = [];
       var _pendingWrites = 0;
+    var _dirtyViajeIds = {}; var _removedViajeIds = {};
     var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
 
   function loadFromLS(){
@@ -817,8 +818,35 @@ GV.Storage = (function(){
     });
   }
 
-  function persist(){ if(_fbReady && _fbDocRef){ _pendingWrites++; _fbDocRef.set({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos }).then(function(){ _pendingWrites--; }).catch(function(){ _pendingWrites--; }); }
-                     saveToLS();
+  function persist(){
+    var _dirtyIdsSnapshot = Object.keys(_dirtyViajeIds); _dirtyViajeIds = {};
+    var _removedIdsSnapshot = Object.keys(_removedViajeIds); _removedViajeIds = {};
+    if(_fbReady && _fbDocRef){
+      _pendingWrites++;
+      var _otherFields = { alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos };
+      var _writeOp;
+            if((_dirtyIdsSnapshot.length || _removedIdsSnapshot.length) && _fbDb){
+        var _localViajesById = {};
+        _dirtyIdsSnapshot.forEach(function(id){ var v = _data.viajes.find(function(x){ return x.id === id; }); if(v) _localViajesById[id] = v; });
+        _writeOp = _fbDb.runTransaction(function(tx){
+          return tx.get(_fbDocRef).then(function(doc){
+            var serverViajes = (doc.exists && doc.data().viajes) || [];
+            serverViajes = serverViajes.slice();
+            if(_removedIdsSnapshot.length){ serverViajes = serverViajes.filter(function(v){ return _removedIdsSnapshot.indexOf(v.id) < 0; }); }
+            Object.keys(_localViajesById).forEach(function(id){
+              var idx = -1;
+              for(var i = 0; i < serverViajes.length; i++){ if(serverViajes[i].id === id){ idx = i; break; } }
+              if(idx >= 0){ serverViajes[idx] = _localViajesById[id]; } else { serverViajes.push(_localViajesById[id]); }
+            });
+            tx.set(_fbDocRef, Object.assign({ viajes: serverViajes }, _otherFields), { merge: true });
+          });
+        });
+      } else {
+        _writeOp = _fbDocRef.set(_otherFields, { merge: true });
+      }
+      _writeOp.then(function(){ _pendingWrites--; }).catch(function(){ _pendingWrites--; });
+    }
+    saveToLS();
     notify();
     return new Promise(function(resolve){
       if(!_api || !_addInId){ resolve(false); return; }
@@ -841,14 +869,17 @@ GV.Storage = (function(){
     getConductores: function(){ return _data.conductores; },
     setConductores: function(list){ _data.conductores = list || []; return persist(); },
     getAlertas: function(){ return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
-    addViaje: function(v){ _data.viajes.push(v); return persist(); },
+    addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = true; return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; });
       if(v){ Object.keys(patch).forEach(function(k){ v[k] = patch[k]; }); }
+      if(id) _dirtyViajeIds[id] = true;
       return persist();
     },
+    markDirtyViaje: function(id){ if(id) _dirtyViajeIds[id] = true; },
     removeViaje: function(id){
       _data.viajes = _data.viajes.filter(function(v){ return v.id !== id; });
+      if(id){ _removedViajeIds[id] = true; delete _dirtyViajeIds[id]; }
       return persist();
     },
     getViaje: function(id){ return _data.viajes.find(function(v){ return v.id === id; }); },
