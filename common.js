@@ -711,6 +711,7 @@ GV.Storage = (function(){
   var _addInDataId = null;
     var _data = { viajes: [], alertas: [], sitios: [], conductores: [], gerenciamientos: [] };
   var _listeners = [];
+      var _pendingWrites = 0;
     var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
 
   function loadFromLS(){
@@ -787,6 +788,18 @@ GV.Storage = (function(){
       /* Igual que en init(): no se relee AddInData (quedaba desactualizado y pisaba viajes
          nuevos). En su lugar se fuerza una lectura fresca a Firestore directo al servidor,
          por si el listener en tiempo real (onSnapshot) se hubiera perdido algun cambio. */
+            /* Si en este momento hay un persist() propio todavia en vuelo (el commit al servidor no
+                     termino), esta lectura 'source: server' puede llegar y devolver una version del
+                              documento anterior a ese commit. Si eso pasa, se pisaria _data completo con datos
+                                       viejos, y si CUALQUIER otro cambio (por ejemplo el chequeo periodico de otro vehiculo)
+                                                llama a persist() poco despues, ese write reenviaria el documento entero con la
+                                                         version vieja y el cambio recien hecho se perderia en el servidor sin ningun error
+                                                                  visible. Bug real detectado el 4/9/2026: reabrir el viaje 258 quedaba pisado por este
+                                                                           refresh periodico (cada 60s en el panel, cada 20s en la app del chofer) mientras el
+                                                                                    commit todavia estaba en vuelo. Mientras haya una escritura propia en curso se evita
+                                                                                             este refresh: el listener en tiempo real (onSnapshot) ya refleja el commit apenas el
+                                                                                                      servidor lo confirma. */
+            if(_pendingWrites > 0){ resolve(_data); return; }
       if(_fbDocRef){
         _fbDocRef.get({ source: 'server' }).then(function(snap){
           var d = snap.exists ? snap.data() : null;
@@ -804,8 +817,8 @@ GV.Storage = (function(){
     });
   }
 
-  function persist(){ if(_fbReady && _fbDocRef){ _fbDocRef.set({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos }).catch(function(){}); }
-    saveToLS();
+  function persist(){ if(_fbReady && _fbDocRef){ _pendingWrites++; _fbDocRef.set({ viajes: _data.viajes, alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos }).then(function(){ _pendingWrites--; }).catch(function(){ _pendingWrites--; }); }
+                     saveToLS();
     notify();
     return new Promise(function(resolve){
       if(!_api || !_addInId){ resolve(false); return; }
