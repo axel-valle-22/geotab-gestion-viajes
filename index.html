@@ -428,7 +428,7 @@ function checkDelays(){
     if(v.estado === 'planificado'){
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
-        if(v.estado !== 'demorado'){ v.estado = 'demorado'; changed = true; }
+        if(v.estado !== 'demorado'){ v.estado = 'demorado'; changed = true; GV.Storage.markDirtyViaje(v.id); }
         var bucket = Math.floor(elapsedMs / DELAY);
         var st = v.demoraSalida || { lastAlertBucket: -1 };
         if(bucket > st.lastAlertBucket){
@@ -436,12 +436,16 @@ function checkDelays(){
           var __motivoGer = !puedeIniciar(v) ? ' El gerenciamiento de riesgos todavia no fue aprobado.' : '';
           GV.Storage.addAlerta({ id: aid, tipo: 'demora', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad no inicio aun el recorrido desde ' + (v.origen ? GV.siteNameFor(v.origen) : '') + ' (' + GV.fmtDurMin(elapsedMs) + ' de demora sobre lo programado).' + __motivoGer, fecha: new Date().toISOString(), viajeId: v.id });
           v.demoraSalida = { lastAlertBucket: bucket };
+          GV.Storage.markDirtyViaje(v.id);
           changed = true;
         }
       }
     }
   });
-  if(changed){ GV.Storage.updateViaje(null, {}); }
+  /* markDirtyViaje (arriba) ya marco cada viaje tocado para que el merge transaccional de
+    persist() lo incluya; este updateViaje(null, {}) solo dispara ese persist(), no toca
+    ningun viaje puntual (por eso el id null y el patch vacio). */
+    if(changed){ GV.Storage.updateViaje(null, {}); }
 }
 
 function abrirJustificarDemora(viajeId){
