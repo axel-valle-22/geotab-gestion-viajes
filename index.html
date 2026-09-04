@@ -1179,7 +1179,9 @@ function renderTracking(){
   GV.loadLeaflet().then(function(L){
     if(!gTrackMap){
       gTrackMap = L.map('gv-track-map').setView([-38.951, -68.059], 9);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(gTrackMap);
+      /* Capas base compartidas con el buscador de sitios: satelital hibrida (imagen + nombres de
+           calles) y callejero, con el selector arriba a la derecha del mapa. */
+        GV.addBaseLayers(gTrackMap);
       gTrackLayer = L.layerGroup().addTo(gTrackMap);
     }
     gTrackLayer.clearLayers();
@@ -1621,7 +1623,8 @@ overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDet
 
 GV.loadLeaflet().then(function(L){
 detMap = L.map('gv-det-map');
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(detMap);
+/* Mismas capas base que el mapa de seguimiento y el buscador de sitios. */
+      GV.addBaseLayers(detMap);
 detLayer = L.layerGroup().addTo(detMap);
 detHistLayer = L.layerGroup().addTo(detMap);
 
