@@ -782,8 +782,28 @@ function checkDwellAlerts(){
           }
           var __veniaDemoradoPorSitio = (__vAct.estado === 'demorado');
           if(__veniaDemoradoPorSitio){ __updatesSalidaSitio.estado = 'en_curso'; }
+          /* Cierre automatico cuando el viaje NO tiene destino programado (el ultimo sitio del
+             itinerario es directamente una parada de carga/descarga, no un destino aparte -- por
+             ejemplo "TDP ANELO (sin destino programado)"). En ese armado no hay un sitio "destino"
+             que dispare el cierre por llegada (mas arriba en checkDwellAlerts/checkDestinoLlegadas):
+             el equivalente logico es que el viaje termina cuando la unidad SALE del ultimo sitio,
+             no cuando llega. Antes esto se quedaba sin cerrar nunca y el viaje figuraba en curso
+             para siempre (bug real: viaje 318 de KETTE, salio del sitio 1 y nunca paso a
+             completado). Se exige __pos >= 0 (que dw.siteId siga en el itinerario actual) para no
+             completar por error si el sitio fue borrado del viaje mientras tanto. */
+          var __esUltimoSitioSinDestino = __pos >= 0 && __pos === __ids.length - 1
+            && (!__vAct.destino || typeof __vAct.destino.lat !== 'number')
+            && __vAct.estado !== 'completado' && __vAct.estado !== 'cancelado';
+          if(__esUltimoSitioSinDestino){
+            __updatesSalidaSitio.estado = 'completado';
+            __updatesSalidaSitio.completadoEn = egresoIso || new Date().toISOString();
+          }
           GV.Storage.updateViaje(v.id, __updatesSalidaSitio);
-          if(__veniaDemoradoPorSitio){
+          if(__esUltimoSitioSinDestino){
+            GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: __vAct.conductor + ' - ' + __vAct.vehiculo + ': el viaje FINALIZO. La unidad salio de ' + (__dwSite ? __dwSite.label : 'la ultima parada') + ' (el viaje no tiene destino programado, se cierra automaticamente al salir del ultimo sitio).', fecha: new Date().toISOString(), viajeId: v.id });
+            renderStats(); renderAlertas(); renderEventsWidget();
+            if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
+          } else if(__veniaDemoradoPorSitio){
             if(gPanelView === 'lista'){ renderTrips(); }
             renderStats();
           }
@@ -1527,31 +1547,64 @@ function detCamShow(clientX, clientY, rec){
   var ts = Math.floor(new Date(rec.dateTime).getTime() / 1000);
   if(!detCamBox){
     detCamBox = document.createElement('div');
-    detCamBox.style.cssText = 'position:fixed;z-index:10000;width:220px;height:165px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none';
+    detCamBox.style.cssText = 'position:fixed;z-index:10000;width:260px;height:215px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+    var vid = document.createElement('div');
+    vid.className = 'gv-cam-vidwrap';
+    vid.style.cssText = 'width:100%;height:165px;position:relative;background:#0b0f14';
+    var loading = document.createElement('div');
+    loading.className = 'gv-cam-loading';
+    loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.72rem;background:#0b0f14;z-index:2';
+    loading.textContent = 'Cargando imagen...';
+    vid.appendChild(loading);
+    var foot = document.createElement('div');
+    foot.className = 'gv-cam-foot';
+    foot.style.cssText = 'height:50px;padding:6px 9px;color:#e5e7eb;font-size:.68rem;line-height:1.35;background:#111827;border-top:1px solid rgba(255,255,255,.08)';
+    detCamBox.appendChild(vid);
+    detCamBox.appendChild(foot);
     document.body.appendChild(detCamBox);
   }
   detCamPosition(clientX, clientY);
   detCamBox.style.display = 'block';
+  var footEl = detCamBox.querySelector('.gv-cam-foot');
+  if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
   if(ts === detCamLastTs) return;
   detCamLastTs = ts;
+  var loadingEl = detCamBox.querySelector('.gv-cam-loading');
+  if(loadingEl) loadingEl.style.display = 'flex';
+  /* IMPORTANTE: el componente oficial <gvp-video-player> exige credenciales (database/username/
+     sessionId) para poder buscar la grabacion -- si se le fijan camera-serial-number/
+     playback-start-timestamp ANTES de que las credenciales esten puestas, pide la grabacion sin
+     sesion valida y falla mostrando "Video Unavailable" para siempre (el timestamp cambia despues
+     con cada hover, pero las credenciales nunca llegan a tiempo porque GV.getSession es async y
+     su .then() se resuelve recien en el proximo microtask, despues de que el codigo sincrono ya
+     habia fijado los atributos). Por eso ahora las credenciales se esperan primero, SIEMPRE,
+     antes de fijar ningun atributo de reproduccion -- fijarlas de nuevo en cada hover no tiene
+     costo real (GV.getSession es local, no golpea la red) y elimina la carrera por completo. */
   GV.loadGvpPlayer().then(function(){
-    if(!detCamEl){
-      detCamEl = document.createElement('gvp-video-player');
-      detCamEl.setAttribute('hide-header', '');
-      detCamEl.setAttribute('hide-controls', '');
-      detCamEl.setAttribute('hide-map', '');
-      detCamEl.setAttribute('hide-widgets', '');
-      detCamEl.setAttribute('hide-time-browser', '');
-      detCamEl.setAttribute('force-thumbnail-view', '');
-      detCamEl.style.cssText = 'width:100%;height:100%;display:block';
-      detCamBox.appendChild(detCamEl);
-      GV.getSession(gApi).then(function(session){
-        detCamEl.credentials = { database: session.database, username: session.userName, sessionId: session.sessionId };
-      });
-    }
-    detCamEl.setAttribute('camera-serial-number', detCamInfo.cameraSerialNumber);
-    detCamEl.setAttribute('playback-start-timestamp', String(ts));
-    try{ detCamEl.time = ts; }catch(e){}
+    return GV.getSession(gApi).then(function(session){
+      if(!detCamEl){
+        detCamEl = document.createElement('gvp-video-player');
+        detCamEl.setAttribute('hide-header', '');
+        detCamEl.setAttribute('hide-controls', '');
+        detCamEl.setAttribute('hide-map', '');
+        detCamEl.setAttribute('hide-widgets', '');
+        detCamEl.setAttribute('hide-time-browser', '');
+        detCamEl.setAttribute('force-thumbnail-view', '');
+        detCamEl.style.cssText = 'width:100%;height:100%;display:block;position:relative;z-index:1';
+        detCamEl.addEventListener('load', function(){ var l = detCamBox && detCamBox.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none'; });
+        detCamEl.addEventListener('event-loaded', function(){ var l = detCamBox && detCamBox.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none'; });
+        var vidWrap = detCamBox.querySelector('.gv-cam-vidwrap');
+        if(vidWrap) vidWrap.insertBefore(detCamEl, vidWrap.firstChild);
+      }
+      detCamEl.credentials = { database: session.database, username: session.userName, sessionId: session.sessionId };
+      detCamEl.setAttribute('camera-serial-number', detCamInfo.cameraSerialNumber);
+      detCamEl.setAttribute('playback-start-timestamp', String(ts));
+      try{ detCamEl.time = ts; }catch(e){}
+      /* Igual que el reproductor no siempre avisa "load"/"event-loaded" cuando simplemente no hay
+         grabacion para ese instante (SD card sin esa ventana, camara sin cobertura en ese momento),
+         el aviso de "Cargando..." se retira solo tambien despues de unos segundos por las dudas. */
+      setTimeout(function(){ if(detCamLastTs === ts){ var l = detCamBox && detCamBox.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none'; } }, 6000);
+    });
   });
 }
 function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
@@ -2414,7 +2467,17 @@ var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
 var line = recs.map(function(r){ return { lat: r.latitude, lng: r.longitude }; });
-var histPolyline = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3 });
+/* Mismo estilo que el Historial de viajes nativo de Geotab: el recorrido se dibuja con
+   flechitas de sentido repetidas cada cierta distancia sobre la linea (microsecciones), en vez
+   de una linea lisa. google.maps.Polyline lo resuelve solo con la propiedad "icons" + repeat,
+   no hace falta cortar la polilinea en segmentos de verdad. */
+var histPolyline = new google.maps.Polyline({
+  path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3,
+  icons: [{
+    icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.6, strokeColor: '#ffffff', strokeWeight: 1, fillColor: '#005674', fillOpacity: 1 },
+    offset: '0', repeat: '32px'
+  }]
+});
 /* Franja transparente mas ancha encima de la linea real: hace mucho mas facil "engancharla"
    con el mouse (la linea fina de 3px es un blanco muy chico para el hover). */
 var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 5 });
