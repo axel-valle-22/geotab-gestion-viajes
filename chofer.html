@@ -315,32 +315,33 @@ if(mapBox) mapBox.innerHTML = '<div style="display:flex;align-items:center;justi
 return;
 }
 
-GV.loadLeaflet().then(function(L){
+GV.loadGoogleMaps().then(function(google){
 if(!document.body.contains(overlay)) return;
-var map = L.map('gv-cdet-map').setView([puntos[0].lat, puntos[0].lng], 13);
-GV.addBaseLayers(map);
-var layer = L.layerGroup().addTo(map);
+var map = GV.createMap('gv-cdet-map', { center: { lat: puntos[0].lat, lng: puntos[0].lng }, zoom: 13 });
+var layer = GV.layerGroup(map);
 var bounds = [];
 
 puntos.forEach(function(pt){
-var icon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:' + pt.color + '">' + pt.label + '</div>', iconSize: [26,26], iconAnchor: [13,13] });
-L.marker([pt.lat, pt.lng], { icon: icon, zIndexOffset: 500 }).bindTooltip(pt.tooltip).addTo(layer);
-bounds.push([pt.lat, pt.lng]);
+layer.add(new google.maps.Marker({ position: { lat: pt.lat, lng: pt.lng }, icon: GV.stopIcon(pt.label, pt.color), zIndex: 500, title: pt.tooltip }));
+bounds.push({ lat: pt.lat, lng: pt.lng });
 });
 
 if(bounds.length > 1){
-var fallbackLine = L.polyline(bounds, { color: '#00A6E0', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(layer);
+var fallbackLine = layer.add(new google.maps.Polyline({ path: bounds, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
 GV.getRoute(puntos.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
 if(!document.body.contains(overlay)) return;
 if(route && route.coords && route.coords.length > 1){
 layer.removeLayer(fallbackLine);
-L.polyline(route.coords, { color: '#00A6E0', weight: 4, opacity: .8 }).addTo(layer);
+layer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
 }
 });
-map.fitBounds(bounds, { padding: [30,30] });
+GV.fitBoundsArr(map, bounds, 30);
 }
 
-setTimeout(function(){ try{ map.invalidateSize(); }catch(e){} }, 100);
+setTimeout(function(){ GV.fixMapSize(map); }, 100);
+}).catch(function(err){
+var mapBox2 = document.getElementById('gv-cdet-map');
+if(mapBox2) mapBox2.textContent = 'Error al cargar el mapa: ' + err.message;
 });
 }
 
