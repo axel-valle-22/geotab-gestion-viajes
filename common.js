@@ -745,9 +745,10 @@ GV.getCameraForDevice = function(api, deviceId){
   return new Promise(function(resolve){
     api.call('Get', { typeName: 'Camera', search: { deviceSearch: { deviceIds: deviceId } } }, function(res){
       var cam = (res && res.length) ? res[0] : null;
+      console.log('[GV-DEBUG] getCameraForDevice OK', deviceId, cam);
       GV._camCache[deviceId] = cam;
       resolve(cam);
-    }, function(){ GV._camCache[deviceId] = null; resolve(null); });
+    }, function(err){ console.log('[GV-DEBUG] getCameraForDevice FAIL', deviceId, err); GV._camCache[deviceId] = null; resolve(null); });
   });
 };
 
@@ -770,9 +771,11 @@ GV.hasVideoAccess = function(api){
     var now = new Date();
     var from = new Date(now.getTime() - 60000).toISOString();
     var to = now.toISOString();
-    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(){
+    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(res){
+      console.log('[GV-DEBUG] hasVideoAccess OK', res);
       GV._camAccessCache = true; resolve(true);
-    }, function(){
+    }, function(err){
+      console.log('[GV-DEBUG] hasVideoAccess FAIL', err);
       GV._camAccessCache = false; resolve(false);
     });
   });
