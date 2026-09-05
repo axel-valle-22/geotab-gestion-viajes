@@ -780,6 +780,23 @@ GV.hasVideoAccess = function(api){
       console.log('[GV-DEBUG] hasVideoAccess FAIL :: errStr=' + errStr + ' :: message=' + (err && err.message) + ' :: name=' + (err && err.name) + ' :: typeof=' + (typeof err) + ' :: keys=' + (err ? Object.keys(err).join(',') : 'null'));
       GV._camAccessCache = false; resolve(false);
     });
+    // DEBUG extra: probar tambien User Get (para ver securityGroups) y Camera Get, en paralelo, solo para diagnostico
+    api.call('Get', { typeName: 'User', search: { name: undefined } }, function(res){
+      console.log('[GV-DEBUG] User Get (sin filtro) OK :: count=' + (res && res.length));
+    }, function(err){
+      console.log('[GV-DEBUG] User Get (sin filtro) FAIL :: ' + (err && err.message));
+    });
+    api.getSession(function(session){
+      console.log('[GV-DEBUG] session :: ' + JSON.stringify(session));
+      if(session && session.userName){
+        api.call('Get', { typeName: 'User', search: { name: session.userName } }, function(res){
+          var u = res && res[0];
+          console.log('[GV-DEBUG] User propio Get OK :: securityGroups=' + JSON.stringify(u && u.securityGroups));
+        }, function(err){
+          console.log('[GV-DEBUG] User propio Get FAIL :: ' + (err && err.message));
+        });
+      }
+    });
   });
 };
 
