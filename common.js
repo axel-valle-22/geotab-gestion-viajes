@@ -775,6 +775,16 @@ GV.hasVideoAccess = function(api){
     }, function(){
       GV._camAccessCache = false; resolve(false);
     });
+    // DEBUG temporal: inspeccionar securityGroups del usuario actual (se revertira)
+    api.getSession(function(session){
+      if(!session || !session.userName) { console.log('[GV-DEBUG2] sin session.userName'); return; }
+      api.call('Get', { typeName: 'User', search: { name: session.userName } }, function(res){
+        var u = res && res[0];
+        console.log('[GV-DEBUG2] userName=' + session.userName + ' :: securityGroups=' + JSON.stringify(u && u.securityGroups));
+      }, function(err){
+        console.log('[GV-DEBUG2] User Get FAIL :: ' + (err && err.message));
+      });
+    });
   });
 };
 
