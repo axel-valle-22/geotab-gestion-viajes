@@ -743,7 +743,7 @@ GV.getCameraForDevice = function(api, deviceId){
   if(!api || !deviceId) return Promise.resolve(null);
   if(Object.prototype.hasOwnProperty.call(GV._camCache, deviceId)) return Promise.resolve(GV._camCache[deviceId]);
   return new Promise(function(resolve){
-    api.call('Get', { typeName: 'Camera', search: { deviceSearch: { deviceIds: deviceId } } }, function(res){
+    api.call('Get', { typeName: 'Camera', search: { deviceSearch: { deviceIds: [deviceId] } } }, function(res){
       var cam = (res && res.length) ? res[0] : null;
       GV._camCache[deviceId] = cam;
       resolve(cam);
