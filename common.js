@@ -758,31 +758,35 @@ recibe las credenciales de la sesion actual y, para "Recording Playback", el num
 de la camara (GV.getCameraForDevice) y un timestamp UNIX (playback-start-timestamp). */
 /* ---------------- Permiso para ver video/camara ----------------
 No existe un API documentado de MyGeotab para preguntar directamente "tiene este usuario
-el permiso ViewRecordedVideo?", asi que se usa una prueba de capacidad: se intenta un Get
-real de CameraEvent (acotado a los ultimos 60 segundos, para que sea liviano) y se toma el
-exito/fracaso de esa llamada como la señal de autorizacion. El resultado se cachea (una sola
-llamada por sesion) para no repetir la prueba en cada hover. */
+el permiso ViewRecordedVideo?". Se probo una prueba de capacidad (intentar un Get real de
+CameraEvent y usar el exito/fracaso como señal), pero esa llamada devuelve un error generico
+del servidor (GenericException, no relacionado con permisos) incluso para cuentas con acceso
+real a video -- por lo tanto no sirve para distinguir usuarios autorizados de no autorizados.
+
+En su lugar se revisan los "securityGroups" (el/los perfiles de seguridad/clearance) del
+usuario logueado -- MyGeotab siempre permite consultarlos vía User Get -- y se compara contra
+una lista de clearances que se consideran autorizados para ver camara. Por defecto se incluyen
+los dos clearances predefinidos de MyGeotab con mas privilegios (Administrador/"Everything" y
+Supervisor); "Solo lectura" y "Ninguno" quedan afuera. Si esta empresa usa un grupo de
+seguridad personalizado para dar acceso a video, agregar su id aqui. */
+GV.VIDEO_ACCESS_GROUP_IDS = [
+  'GroupEverythingSecurityId', // Administrador / acceso total
+  'GroupSupervisorSecurityId'  // Supervisor
+];
 GV._camAccessCache = null; // null = aun no se sabe, true/false = ya resuelto
 GV.hasVideoAccess = function(api){
   if(GV._camAccessCache !== null) return Promise.resolve(GV._camAccessCache);
   if(!api) return Promise.resolve(false);
   return new Promise(function(resolve){
-    var now = new Date();
-    var from = new Date(now.getTime() - 60000).toISOString();
-    var to = now.toISOString();
-    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(){
-      GV._camAccessCache = true; resolve(true);
-    }, function(){
-      GV._camAccessCache = false; resolve(false);
-    });
-    // DEBUG temporal: inspeccionar securityGroups del usuario actual (se revertira)
     api.getSession(function(session){
-      if(!session || !session.userName) { console.log('[GV-DEBUG2] sin session.userName'); return; }
+      if(!session || !session.userName){ GV._camAccessCache = false; resolve(false); return; }
       api.call('Get', { typeName: 'User', search: { name: session.userName } }, function(res){
         var u = res && res[0];
-        console.log('[GV-DEBUG2] userName=' + session.userName + ' :: securityGroups=' + JSON.stringify(u && u.securityGroups));
-      }, function(err){
-        console.log('[GV-DEBUG2] User Get FAIL :: ' + (err && err.message));
+        var groups = (u && u.securityGroups) || [];
+        var allowed = groups.some(function(g){ return GV.VIDEO_ACCESS_GROUP_IDS.indexOf(g.id) !== -1; });
+        GV._camAccessCache = allowed; resolve(allowed);
+      }, function(){
+        GV._camAccessCache = false; resolve(false);
       });
     });
   });
