@@ -1492,8 +1492,71 @@ retrasosHtml +
 document.body.appendChild(overlay);
 
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
+var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null;
 
-function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } overlay.remove(); }
+/* ---------------- Imagenes de la camara del vehiculo al pasar el mouse por el recorrido ----------------
+Igual que en el Historial de viajes nativo de Geotab: si la unidad tiene una camara instalada
+(Geotab Video / Lytx / Netradyne / Surfsight, etc.) se muestra ahi mismo la imagen que registro
+en ese momento del trayecto, usando el reproductor oficial de Geotab (misma sesion, sin clave
+ni costo aparte -- ver GV.getCameraForDevice / GV.loadGvpPlayer en common.js). Si la unidad no
+tiene camara, esto simplemente no hace nada. */
+function detCamNearestIdx(lat, lng){
+  if(!detHistPts.length) return null;
+  var best = 0, bestD = Infinity;
+  for(var i = 0; i < detHistPts.length; i++){
+    var r = detHistPts[i];
+    if(r.latitude == null) continue;
+    var dLat = r.latitude - lat, dLng = r.longitude - lng;
+    var d = dLat * dLat + dLng * dLng;
+    if(d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+function detCamPosition(clientX, clientY){
+  if(!detCamBox) return;
+  var w = 220, h = 165, pad = 14;
+  var x = clientX + pad, y = clientY - h - pad;
+  if(x + w > window.innerWidth - 8) x = clientX - w - pad;
+  if(x < 8) x = 8;
+  if(y < 8) y = clientY + pad;
+  detCamBox.style.left = x + 'px';
+  detCamBox.style.top = y + 'px';
+}
+function detCamShow(clientX, clientY, rec){
+  if(!detCamInfo || !detCamInfo.cameraSerialNumber || !rec) return;
+  var ts = Math.floor(new Date(rec.dateTime).getTime() / 1000);
+  if(!detCamBox){
+    detCamBox = document.createElement('div');
+    detCamBox.style.cssText = 'position:fixed;z-index:10000;width:220px;height:165px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none';
+    document.body.appendChild(detCamBox);
+  }
+  detCamPosition(clientX, clientY);
+  detCamBox.style.display = 'block';
+  if(ts === detCamLastTs) return;
+  detCamLastTs = ts;
+  GV.loadGvpPlayer().then(function(){
+    if(!detCamEl){
+      detCamEl = document.createElement('gvp-video-player');
+      detCamEl.setAttribute('hide-header', '');
+      detCamEl.setAttribute('hide-controls', '');
+      detCamEl.setAttribute('hide-map', '');
+      detCamEl.setAttribute('hide-widgets', '');
+      detCamEl.setAttribute('hide-time-browser', '');
+      detCamEl.setAttribute('force-thumbnail-view', '');
+      detCamEl.style.cssText = 'width:100%;height:100%;display:block';
+      detCamBox.appendChild(detCamEl);
+      GV.getSession(gApi).then(function(session){
+        detCamEl.credentials = { database: session.database, username: session.userName, sessionId: session.sessionId };
+      });
+    }
+    detCamEl.setAttribute('camera-serial-number', detCamInfo.cameraSerialNumber);
+    detCamEl.setAttribute('playback-start-timestamp', String(ts));
+    try{ detCamEl.time = ts; }catch(e){}
+  });
+}
+function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
+
+function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ if(!confirm('¿Marcar este viaje como finalizado?')) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, iniciadoEn: new Date().toISOString(), sitiosReal: {}, dwellState: null, autoIniciado: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 
 function abrirClonarViaje(){
@@ -1654,6 +1717,12 @@ detMap = GV.createMap('gv-det-map', { center: { lat: -38.951, lng: -68.059 }, zo
 /* Mismo mapa base (Google) que el mapa de seguimiento y el buscador de sitios. */
 detLayer = GV.layerGroup(detMap);
 detHistLayer = GV.layerGroup(detMap);
+if(v.vehiculoId){
+  GV.hasVideoAccess(gApi).then(function(allowed){
+    if(!allowed) return; // el perfil no tiene permiso para ver video/camara: no se muestra nada
+    GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){ detCamInfo = cam; });
+  });
+}
 
 var pts = [];
 if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, label: 'O', color: '#059669', dir: GV.siteNameFor(v.origen), tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null });
@@ -2345,7 +2414,19 @@ var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
 var line = recs.map(function(r){ return { lat: r.latitude, lng: r.longitude }; });
-detHistLayer.add(new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3 }));
+var histPolyline = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3 });
+/* Franja transparente mas ancha encima de la linea real: hace mucho mas facil "engancharla"
+   con el mouse (la linea fina de 3px es un blanco muy chico para el hover). */
+var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 5 });
+detHistLayer.add(histPolyline);
+detHistLayer.add(histPolylineHitArea);
+histPolylineHitArea.addListener('mousemove', function(e){
+if(!detCamInfo || !detCamInfo.cameraSerialNumber || !e.domEvent) return;
+var idx = detCamNearestIdx(e.latLng.lat(), e.latLng.lng());
+if(idx == null) return;
+detCamShow(e.domEvent.clientX, e.domEvent.clientY, detHistPts[idx]);
+});
+histPolylineHitArea.addListener('mouseout', detCamHide);
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;

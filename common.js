@@ -734,6 +734,70 @@ GV.getSession = function(api){
   });
 };
 
+/* ---------------- Camara del vehiculo (Geotab Video / dashcam) ----------------
+Reutiliza la MISMA sesion de MyGeotab (api.getSession) que ya usa el resto de la app -- el
+API de Video de Geotab (camaras propias y de socios: Lytx, Netradyne, Surfsight, etc.) no
+necesita una clave ni una autenticacion separada, es el mismo apiv1 con typeName "Camera". */
+GV._camCache = {};
+GV.getCameraForDevice = function(api, deviceId){
+  if(!api || !deviceId) return Promise.resolve(null);
+  if(Object.prototype.hasOwnProperty.call(GV._camCache, deviceId)) return Promise.resolve(GV._camCache[deviceId]);
+  return new Promise(function(resolve){
+    api.call('Get', { typeName: 'Camera', search: { deviceSearch: { deviceIds: deviceId } } }, function(res){
+      var cam = (res && res.length) ? res[0] : null;
+      GV._camCache[deviceId] = cam;
+      resolve(cam);
+    }, function(){ GV._camCache[deviceId] = null; resolve(null); });
+  });
+};
+
+/* ---------------- Reproductor de video de Geotab (web component <gvp-video-player>) ----------------
+Biblioteca oficial de Geotab Video para insertar imagenes/reproduccion de la camara de un
+vehiculo. Se carga una sola vez (CSS + JS) y despues cada <gvp-video-player> que se cree
+recibe las credenciales de la sesion actual y, para "Recording Playback", el numero de serie
+de la camara (GV.getCameraForDevice) y un timestamp UNIX (playback-start-timestamp). */
+/* ---------------- Permiso para ver video/camara ----------------
+No existe un API documentado de MyGeotab para preguntar directamente "tiene este usuario
+el permiso ViewRecordedVideo?", asi que se usa una prueba de capacidad: se intenta un Get
+real de CameraEvent (acotado a los ultimos 60 segundos, para que sea liviano) y se toma el
+exito/fracaso de esa llamada como la señal de autorizacion. El resultado se cachea (una sola
+llamada por sesion) para no repetir la prueba en cada hover. */
+GV._camAccessCache = null; // null = aun no se sabe, true/false = ya resuelto
+GV.hasVideoAccess = function(api){
+  if(GV._camAccessCache !== null) return Promise.resolve(GV._camAccessCache);
+  if(!api) return Promise.resolve(false);
+  return new Promise(function(resolve){
+    var now = new Date();
+    var from = new Date(now.getTime() - 60000).toISOString();
+    var to = now.toISOString();
+    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(){
+      GV._camAccessCache = true; resolve(true);
+    }, function(){
+      GV._camAccessCache = false; resolve(false);
+    });
+  });
+};
+
+GV.GVP_VERSION = '2026.29.02';
+GV._gvpLoadPromise = null;
+GV.loadGvpPlayer = function(){
+  if(GV._gvpLoadPromise) return GV._gvpLoadPromise;
+  GV._gvpLoadPromise = new Promise(function(resolve){
+    if(window.customElements && customElements.get('gvp-video-player')){ resolve(); return; }
+    var base = 'https://storage.googleapis.com/gvp-web-libs/gvp-video-player/' + GV.GVP_VERSION + '/gvp-video-player.min.';
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = base + 'css';
+    document.head.appendChild(link);
+    var script = document.createElement('script');
+    script.src = base + 'js';
+    script.onload = function(){ resolve(); };
+    script.onerror = function(){ resolve(); };
+    document.head.appendChild(script);
+  });
+  return GV._gvpLoadPromise;
+};
+
 /* ---------------- Almacenamiento compartido (AddInData + respaldo localStorage) ---------------- */
 /* ---------------- Ruteo real por calles (OSRM) ---------------- */
 GV.getRoute = function(points){
