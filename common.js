@@ -745,10 +745,9 @@ GV.getCameraForDevice = function(api, deviceId){
   return new Promise(function(resolve){
     api.call('Get', { typeName: 'Camera', search: { deviceSearch: { deviceIds: deviceId } } }, function(res){
       var cam = (res && res.length) ? res[0] : null;
-      console.log('[GV-DEBUG] getCameraForDevice OK', deviceId, cam);
       GV._camCache[deviceId] = cam;
       resolve(cam);
-    }, function(err){ console.log('[GV-DEBUG] getCameraForDevice FAIL', deviceId, err); GV._camCache[deviceId] = null; resolve(null); });
+    }, function(){ GV._camCache[deviceId] = null; resolve(null); });
   });
 };
 
@@ -771,31 +770,10 @@ GV.hasVideoAccess = function(api){
     var now = new Date();
     var from = new Date(now.getTime() - 60000).toISOString();
     var to = now.toISOString();
-    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(res){
-      console.log('[GV-DEBUG] hasVideoAccess OK :: ' + JSON.stringify(res));
+    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(){
       GV._camAccessCache = true; resolve(true);
-    }, function(err){
-      var errStr;
-      try { errStr = JSON.stringify(err); } catch(e2) { errStr = 'stringify-failed:' + e2.message; }
-      console.log('[GV-DEBUG] hasVideoAccess FAIL :: errStr=' + errStr + ' :: message=' + (err && err.message) + ' :: name=' + (err && err.name) + ' :: typeof=' + (typeof err) + ' :: keys=' + (err ? Object.keys(err).join(',') : 'null'));
+    }, function(){
       GV._camAccessCache = false; resolve(false);
-    });
-    // DEBUG extra: probar tambien User Get (para ver securityGroups) y Camera Get, en paralelo, solo para diagnostico
-    api.call('Get', { typeName: 'User', search: { name: undefined } }, function(res){
-      console.log('[GV-DEBUG] User Get (sin filtro) OK :: count=' + (res && res.length));
-    }, function(err){
-      console.log('[GV-DEBUG] User Get (sin filtro) FAIL :: ' + (err && err.message));
-    });
-    api.getSession(function(session){
-      console.log('[GV-DEBUG] session :: ' + JSON.stringify(session));
-      if(session && session.userName){
-        api.call('Get', { typeName: 'User', search: { name: session.userName } }, function(res){
-          var u = res && res[0];
-          console.log('[GV-DEBUG] User propio Get OK :: securityGroups=' + JSON.stringify(u && u.securityGroups));
-        }, function(err){
-          console.log('[GV-DEBUG] User propio Get FAIL :: ' + (err && err.message));
-        });
-      }
     });
   });
 };
