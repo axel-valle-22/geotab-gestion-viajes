@@ -313,7 +313,7 @@ GV.injectCSS = function(containerId){
  * dominios donde corre este complemento (por ejemplo https://my.geotab.com/* y el dominio donde
  * este alojado index.html/chofer.html, si estan afuera de Geotab). Sin una clave valida el mapa
  * no va a cargar y se va a mostrar un aviso en su lugar. */
-GV.GOOGLE_MAPS_API_KEY = 'TU_CLAVE_DE_GOOGLE_MAPS_AQUI';
+GV.GOOGLE_MAPS_API_KEY = 'AIzaSyAxnEKemi5U2aADw1y6FfEA2vuwgFovEPQ';
 
 GV.loadGoogleMaps = function(){
   if(GV._gmapsPromise) return GV._gmapsPromise;
