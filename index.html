@@ -1719,8 +1719,12 @@ detLayer = GV.layerGroup(detMap);
 detHistLayer = GV.layerGroup(detMap);
 if(v.vehiculoId){
   GV.hasVideoAccess(gApi).then(function(allowed){
+    console.log('[GV-DEBUG3] vehiculoId=' + v.vehiculoId + ' allowed=' + allowed);
     if(!allowed) return; // el perfil no tiene permiso para ver video/camara: no se muestra nada
-    GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){ detCamInfo = cam; });
+    GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){
+      detCamInfo = cam;
+      console.log('[GV-DEBUG3] getCameraForDevice :: ' + JSON.stringify(cam));
+    });
   });
 }
 
