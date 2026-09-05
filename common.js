@@ -772,10 +772,10 @@ GV.hasVideoAccess = function(api){
     var from = new Date(now.getTime() - 60000).toISOString();
     var to = now.toISOString();
     api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(res){
-      console.log('[GV-DEBUG] hasVideoAccess OK', res);
+      console.log('[GV-DEBUG] hasVideoAccess OK', JSON.stringify(res));
       GV._camAccessCache = true; resolve(true);
     }, function(err){
-      console.log('[GV-DEBUG] hasVideoAccess FAIL', err);
+      console.log('[GV-DEBUG] hasVideoAccess FAIL', JSON.stringify(err), err && err.message, err && err.name);
       GV._camAccessCache = false; resolve(false);
     });
   });
