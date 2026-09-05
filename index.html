@@ -161,17 +161,17 @@ function gerenciamientoBadge(v){
   return '<span class="gv-status" style="background:#fef3c7;color:#78350f">Esperando autorizacion</span>';
 }
 
-function siteGeofenceLayer(L, loc, layerGroup, opts){
+function siteGeofenceLayer(loc, layerGroup, opts){
   opts = opts || {};
   var color = opts.color || '#2563eb';
   var weight = opts.weight != null ? opts.weight : 1;
   var fillOpacity = opts.fillOpacity != null ? opts.fillOpacity : .12;
   if(loc && loc.poligono && loc.poligono.length >= 3){
-    return L.polygon(loc.poligono.map(function(pt){ return [pt.lat, pt.lng]; }), { color: color, weight: weight, fillColor: color, fillOpacity: fillOpacity }).addTo(layerGroup);
+    return layerGroup.add(new google.maps.Polygon({ paths: loc.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }), strokeColor: color, strokeWeight: weight, fillColor: color, fillOpacity: fillOpacity }));
   }
   /* Se dibuja el radio EFECTIVO: si otro sitio del mismo viaje esta cerca, el circulo se recorta para
      que las areas no se superpongan (opts.otros = los demas puntos del viaje). */
-  return L.circle([loc.lat, loc.lng], { radius: GV.effectiveRadiusM(loc, opts.otros || []), color: color, weight: weight, fillColor: color, fillOpacity: fillOpacity }).addTo(layerGroup);
+  return layerGroup.add(new google.maps.Circle({ center: { lat: loc.lat, lng: loc.lng }, radius: GV.effectiveRadiusM(loc, opts.otros || []), strokeColor: color, strokeWeight: weight, fillColor: color, fillOpacity: fillOpacity }));
 }
 
 function puedeIniciar(v){
@@ -1208,18 +1208,17 @@ function renderTracking(){
   var box = document.getElementById('gv-track-map');
   var listEl = document.getElementById('gv-track-list');
   if(!box) return;
-  GV.loadLeaflet().then(function(L){
+  GV.loadGoogleMaps().then(function(google){
     if(!gTrackMap){
-      gTrackMap = L.map('gv-track-map').setView([-38.951, -68.059], 9);
-      /* Capas base compartidas con el buscador de sitios: satelital hibrida (imagen + nombres de
-           calles) y callejero, con el selector arriba a la derecha del mapa. */
-        GV.addBaseLayers(gTrackMap);
-      gTrackLayer = L.layerGroup().addTo(gTrackMap);
+      gTrackMap = GV.createMap('gv-track-map', { center: { lat: -38.951, lng: -68.059 }, zoom: 9 });
+      /* Mismo mapa base (Google, con selector Mapa/Satelite y capa de Trafico) que el buscador de
+         sitios y el mapa de detalle. */
+      gTrackLayer = GV.layerGroup(gTrackMap);
     }
     gTrackLayer.clearLayers();
     gTrackRenderGen++;
     var myGen = gTrackRenderGen;
-    setTimeout(function(){ try{ gTrackMap.invalidateSize(); }catch(e){} }, 100);
+    setTimeout(function(){ GV.fixMapSize(gTrackMap); }, 100);
 
     var hoyStr = GV.dateStr(new Date());
     var todos = GV.Storage.getViajes().filter(function(v){
@@ -1245,36 +1244,33 @@ function renderTracking(){
     var bounds = [];
     activos.forEach(function(v){
       var pts = [];
-      if(v.origen) pts.push([v.origen.lat, v.origen.lng]);
-      (v.paradas||[]).forEach(function(p){ pts.push([p.lat, p.lng]); });
-      if(v.destino) pts.push([v.destino.lat, v.destino.lng]);
+      if(v.origen) pts.push({ lat: v.origen.lat, lng: v.origen.lng });
+      (v.paradas||[]).forEach(function(p){ pts.push({ lat: p.lat, lng: p.lng }); });
+      if(v.destino) pts.push({ lat: v.destino.lat, lng: v.destino.lng });
       if(pts.length > 1){
-              var __fallbackLine = L.polyline(pts, { color: '#00A6E0', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(gTrackLayer);
+              var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
-                GV.getRoute(pts.map(function(p){ return { lat: p[0], lng: p[1] }; })).then(function(route){
+                GV.getRoute(pts).then(function(route){
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
-                    L.polyline(route.coords, { color: '#00A6E0', weight: 4, opacity: .8 }).addTo(gTrackLayer);
+                    gTrackLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
                   }
                 });
               })(__fallbackLine, myGen);
             }
       pts.forEach(function(p){ bounds.push(p); });
       if(v.origen){
-        var __oIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#059669">O</div>', iconSize: [26,26], iconAnchor: [13,13] });
-        L.marker([v.origen.lat, v.origen.lng], { icon: __oIcon, zIndexOffset: 500 }).bindTooltip('Origen: ' + GV.siteNameFor(v.origen) + (v.origen.tipo ? ' (' + GV.tipoParadaLabel(v.origen.tipo) + ')' : '')).addTo(gTrackLayer);
-        if(v.origen.tipo) siteGeofenceLayer(L, v.origen, gTrackLayer, { otros: siteListFor(v) });
+        var __oMarker = gTrackLayer.add(new google.maps.Marker({ position: { lat: v.origen.lat, lng: v.origen.lng }, icon: GV.stopIcon('O', '#059669'), zIndex: 500, title: 'Origen: ' + GV.siteNameFor(v.origen) + (v.origen.tipo ? ' (' + GV.tipoParadaLabel(v.origen.tipo) + ')' : '') }));
+        if(v.origen.tipo) siteGeofenceLayer(v.origen, gTrackLayer, { otros: siteListFor(v) });
       }
       if(v.destino){
-        var __dIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#dc2626">D</div>', iconSize: [26,26], iconAnchor: [13,13] });
-        L.marker([v.destino.lat, v.destino.lng], { icon: __dIcon, zIndexOffset: 500 }).bindTooltip('Destino: ' + GV.siteNameFor(v.destino) + (v.destino.tipo ? ' (' + GV.tipoParadaLabel(v.destino.tipo) + ')' : '')).addTo(gTrackLayer);
-        if(v.destino.tipo) siteGeofenceLayer(L, v.destino, gTrackLayer, { otros: siteListFor(v) });
+        var __dMarker = gTrackLayer.add(new google.maps.Marker({ position: { lat: v.destino.lat, lng: v.destino.lng }, icon: GV.stopIcon('D', '#dc2626'), zIndex: 500, title: 'Destino: ' + GV.siteNameFor(v.destino) + (v.destino.tipo ? ' (' + GV.tipoParadaLabel(v.destino.tipo) + ')' : '') }));
+        if(v.destino.tipo) siteGeofenceLayer(v.destino, gTrackLayer, { otros: siteListFor(v) });
       }
       (v.paradas||[]).forEach(function(p, __pi){
-        var __pIcon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:#d97706">' + (__pi+1) + '</div>', iconSize: [26,26], iconAnchor: [13,13] });
-        L.marker([p.lat, p.lng], { icon: __pIcon, zIndexOffset: 500 }).bindTooltip((__pi+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p)).addTo(gTrackLayer);
-        if(p.tipo) siteGeofenceLayer(L, p, gTrackLayer, { otros: siteListFor(v) });
+        gTrackLayer.add(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, icon: GV.stopIcon(__pi+1, '#d97706'), zIndex: 500, title: (__pi+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p) }));
+        if(p.tipo) siteGeofenceLayer(p, gTrackLayer, { otros: siteListFor(v) });
       });
     });
 
@@ -1330,14 +1326,14 @@ todos.forEach(function(v){ updateTrackBadges(v); });
       });
     }
 
-    if(!gApi){ if(bounds.length) gTrackMap.fitBounds(bounds, {padding:[30,30]}); return; }
+    if(!gApi){ if(bounds.length) GV.fitBoundsArr(gTrackMap, bounds, 30); return; }
 
     var pending = todos.length;
-    if(!pending){ if(bounds.length) gTrackMap.fitBounds(bounds, {padding:[30,30]}); return; }
+    if(!pending){ if(bounds.length) GV.fitBoundsArr(gTrackMap, bounds, 30); return; }
     todos.forEach(function(v){
       gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
         if(res && res.length && res[0].latitude){
-          var pos = [res[0].latitude, res[0].longitude];
+          var pos = { lat: res[0].latitude, lng: res[0].longitude };
           var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
           if(activosIds[v.id]){
             bounds.push(pos);
@@ -1347,17 +1343,16 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             /* Etiqueta permanente (unidad - patente (chofer)) siempre visible sobre el camion,
                igual que en el mapa nativo de Geotab: asi se identifica cada unidad de un
                vistazo en pantalla grande, sin necesidad de pasar el mouse por encima. El estado
-               de movimiento (circulando/detenido) se ve al pasar el cursor, en el tooltip. */
-            L.marker(pos, { icon: GV.vehicleIcon(L, res[0].bearing, '#00A6E0'), zIndexOffset: 1000 })
-              .bindTooltip(__etiquetaCorta, { permanent: true, direction: 'top', offset: [0, -14], className: 'gv-truck-label' })
-              .on('mouseover', function(e){ e.target.setTooltipContent(__etiquetaHover); })
-              .on('mouseout', function(e){ e.target.setTooltipContent(__etiquetaCorta); })
-              .addTo(gTrackLayer);
+               de movimiento (circulando/detenido) se ve al pasar el cursor, en la etiqueta. */
+            var __truckMarker = gTrackLayer.add(new google.maps.Marker({ position: pos, icon: GV.vehicleIcon(res[0].bearing, '#00A6E0'), zIndex: 1000 }));
+            var __truckLabel = gTrackLayer.add(GV.makeLabelOverlay(pos, GV.escapeHtml(__etiquetaCorta)));
+            __truckMarker.addListener('mouseover', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaHover)); });
+            __truckMarker.addListener('mouseout', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaCorta)); });
           }
         }
         pending--;
-        if(pending <= 0 && bounds.length){ gTrackMap.fitBounds(bounds, {padding:[30,30]}); }
-      }, function(){ pending--; if(pending <= 0 && bounds.length){ gTrackMap.fitBounds(bounds, {padding:[30,30]}); } });
+        if(pending <= 0 && bounds.length){ GV.fitBoundsArr(gTrackMap, bounds, 30); }
+      }, function(){ pending--; if(pending <= 0 && bounds.length){ GV.fitBoundsArr(gTrackMap, bounds, 30); } });
     });
   }).catch(function(err){ if(box) box.textContent = 'Error al cargar el mapa: ' + err.message; });
 }
@@ -1654,12 +1649,11 @@ renderTrips(); renderTracking(); renderStats();
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
-GV.loadLeaflet().then(function(L){
-detMap = L.map('gv-det-map');
-/* Mismas capas base que el mapa de seguimiento y el buscador de sitios. */
-      GV.addBaseLayers(detMap);
-detLayer = L.layerGroup().addTo(detMap);
-detHistLayer = L.layerGroup().addTo(detMap);
+GV.loadGoogleMaps().then(function(google){
+detMap = GV.createMap('gv-det-map', { center: { lat: -38.951, lng: -68.059 }, zoom: 9 });
+/* Mismo mapa base (Google) que el mapa de seguimiento y el buscador de sitios. */
+detLayer = GV.layerGroup(detMap);
+detHistLayer = GV.layerGroup(detMap);
 
 var pts = [];
 if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, label: 'O', color: '#059669', dir: GV.siteNameFor(v.origen), tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null });
@@ -1668,12 +1662,11 @@ if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, 
 
 var bounds = [];
 pts.forEach(function(p){
-var icon = L.divIcon({ className: '', html: '<div class="gv-site-marker-lbl" style="background:' + p.color + '">' + p.label + '</div>', iconSize: [26,26], iconAnchor: [13,13] });
-L.marker([p.lat, p.lng], { icon: icon }).bindTooltip(p.label + ': ' + (p.dir||'')).addTo(detLayer); if(p.tipo) siteGeofenceLayer(L, p, detLayer, {fillOpacity:.15, otros: pts});
-bounds.push([p.lat, p.lng]);
+detLayer.add(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, icon: GV.stopIcon(p.label, p.color), title: p.label + ': ' + (p.dir||'') })); if(p.tipo) siteGeofenceLayer(p, detLayer, {fillOpacity:.15, otros: pts});
+bounds.push({ lat: p.lat, lng: p.lng });
 });
-if(bounds.length){ detMap.fitBounds(bounds, {padding:[30,30]}); } else { detMap.setView([-38.951,-68.059], 9); }
-setTimeout(function(){ try{ detMap.invalidateSize(); }catch(e){} }, 100);
+if(bounds.length){ GV.fitBoundsArr(detMap, bounds, 30); } else { detMap.setCenter({ lat: -38.951, lng: -68.059 }); detMap.setZoom(9); }
+setTimeout(function(){ GV.fixMapSize(detMap); }, 100);
 
 var itinEl = document.getElementById('gv-det-itin');
 var cachedRoute = null, cachedFullHist = null;
@@ -2183,9 +2176,9 @@ if(addParadaBtn) addParadaBtn.addEventListener('click', agregarParada);
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
 if(route && route.coords){
-L.polyline(route.coords, { color: '#00A6E0', weight: 4, opacity: .8 }).addTo(detLayer);
+detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
 } else {
-L.polyline(pts.map(function(p){ return [p.lat, p.lng]; }), { color: '#00A6E0', weight: 3, opacity: .6, dashArray: '6,6' }).addTo(detLayer);
+detLayer.add(new google.maps.Polyline({ path: pts.map(function(p){ return { lat: p.lat, lng: p.lng }; }), strokeColor: '#00A6E0', strokeOpacity: .6, strokeWeight: 3 }));
 }
 (function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? fetchHistoryForViaje(v, __dayStart, new Date(v.completadoEn || Date.now())) : Promise.resolve([]); __histP.then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
 });
@@ -2199,19 +2192,20 @@ function updateLivePosition(){
 gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
 if(!res || !res.length || res[0].latitude == null){ if(liveEl && !detLiveMarker) liveEl.textContent = 'Sin datos de posicion en vivo.'; return; }
 var r = res[0];
-var pos = [r.latitude, r.longitude];
+var pos = { lat: r.latitude, lng: r.longitude };
 var speed = Math.round(r.speed || 0);
 var estadoMov = speed > 2 ? 'En movimiento' : 'Detenido';
 var when = r.dateTime ? new Date(r.dateTime).toLocaleString('es-AR',{hour12:false}) : new Date().toLocaleString('es-AR',{hour12:false});
-var icon = GV.vehicleIcon(L, r.bearing, '#00A6E0');
+var icon = GV.vehicleIcon(r.bearing, '#00A6E0');
+var tooltipTxt = 'En vivo: ' + estadoMov + ' - ' + speed + ' km/h\n' + when;
 if(!detLiveMarker){
-detLiveMarker = L.marker(pos, { icon: icon, zIndexOffset: 1000 }).addTo(detLayer);
-detMap.fitBounds(bounds.concat([pos]), {padding:[30,30]});
+detLiveMarker = detLayer.add(new google.maps.Marker({ position: pos, icon: icon, zIndex: 1000, title: tooltipTxt }));
+GV.fitBoundsArr(detMap, bounds.concat([pos]), 30);
 } else {
-detLiveMarker.setLatLng(pos);
+detLiveMarker.setPosition(pos);
 detLiveMarker.setIcon(icon);
+detLiveMarker.setTitle(tooltipTxt);
 }
-detLiveMarker.bindTooltip('En vivo: ' + estadoMov + ' - ' + speed + ' km/h<br>' + when);
 if(liveEl) liveEl.innerHTML = '&#9679; Posicion en vivo: ' + estadoMov + ' - ' + speed + ' km/h (actualizado ' + when + ')';
 }, function(){ if(liveEl && !detLiveMarker) liveEl.textContent = 'No se pudo obtener la posicion en vivo.'; });
 }
@@ -2232,13 +2226,18 @@ return GV.computeBearing(prv.latitude, prv.longitude, cur.latitude, cur.longitud
 }
 return 0;
 }
+var histLabel = null;
 function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
 if(histMarker){ detHistLayer.removeLayer(histMarker); }
-histMarker = L.marker([r.latitude, r.longitude], { icon: GV.vehicleIcon(L, bearingAtIdx(idx), '#005674'), zIndexOffset: 900 }).addTo(detHistLayer);
+if(histLabel){ detHistLayer.removeLayer(histLabel); }
+var pos = { lat: r.latitude, lng: r.longitude };
+histMarker = detHistLayer.add(new google.maps.Marker({ position: pos, icon: GV.vehicleIcon(bearingAtIdx(idx), '#005674'), zIndex: 900 }));
 var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
-histMarker.bindTooltip('Posicion: ' + when + '<br>Velocidad: ' + Math.round(r.speed||0) + ' km/h').openTooltip();
+/* Se muestra siempre (no solo al pasar el mouse), igual que hacia el tooltip.openTooltip() de
+   Leaflet: asi se ve la hora/velocidad mientras se mueve el slider del historial. */
+histLabel = detHistLayer.add(GV.makeLabelOverlay(pos, GV.escapeHtml('Posicion: ' + when + ' - Velocidad: ' + Math.round(r.speed||0) + ' km/h')));
 }
 function fmtHHMM(d){ return d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function fmtHHMMSS(ms){
@@ -2345,8 +2344,8 @@ detHistLayer.clearLayers();
 var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
-var line = recs.map(function(r){ return [r.latitude, r.longitude]; });
-L.polyline(line, { color: '#005674', weight: 3, opacity: .6 }).addTo(detHistLayer);
+var line = recs.map(function(r){ return { lat: r.latitude, lng: r.longitude }; });
+detHistLayer.add(new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3 }));
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;

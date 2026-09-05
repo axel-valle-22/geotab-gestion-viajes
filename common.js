@@ -294,8 +294,7 @@ GV.CSS = ""
 + '.gv-site-marker-lbl{color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}'
 + '.gv-live-marker-lbl{background:var(--gv-accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 0 0 4px rgba(var(--gv-accent-rgb),.3),0 1px 4px rgba(0,0,0,.4);animation:gvLivePulse 1.6s infinite}'
 + '@keyframes gvLivePulse{0%{box-shadow:0 0 0 4px rgba(var(--gv-accent-rgb),.3),0 1px 4px rgba(0,0,0,.4)}50%{box-shadow:0 0 0 8px rgba(var(--gv-accent-rgb),.05),0 1px 4px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 4px rgba(var(--gv-accent-rgb),.3),0 1px 4px rgba(0,0,0,.4)}}'+'.gv-vehicle-marker{transition:transform 1s linear}'+'.gv-live-banner{display:inline-block;padding:4px 10px;border-radius:8px;font-size:.78rem;font-weight:700;margin:4px 0}'+'.gv-live-moving{background:#d1fae5;color:#065f46}'+'.gv-live-stopped{background:#fef3c7;color:#78350f}'+'.gv-live-nocomm{background:#fee2e2;color:#991b1b}'+'.gv-live-unknown{background:#f3f4f6;color:#6b7280}'
-+'.leaflet-tooltip.gv-truck-label{background:#152238;color:#fff;font-weight:700;font-size:12px;font-family:inherit;padding:5px 11px;border-radius:7px;border:none;box-shadow:0 2px 6px rgba(0,0,0,.45);white-space:nowrap;opacity:.96}'
-+'.leaflet-tooltip.gv-truck-label:before{display:none}';
++'.gv-truck-label-ov{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:#152238;color:#fff;font-weight:700;font-size:12px;font-family:inherit;padding:5px 11px;border-radius:7px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.45);opacity:.96;pointer-events:none;z-index:1}';
 
 GV.injectCSS = function(containerId){
   var el = document.getElementById(containerId || 'gv-style-container');
@@ -304,50 +303,159 @@ GV.injectCSS = function(containerId){
   }
 };
 
-/* ---------------- Leaflet loader ---------------- */
-GV.loadLeaflet = function(){
-  if(GV._leafletPromise) return GV._leafletPromise;
-  GV._leafletPromise = new Promise(function(resolve, reject){
-    if(window.L){ resolve(window.L); return; }
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(link);
+/* ---------------- Google Maps loader ---------------- */
+/* Antes esta app usaba Leaflet + capas gratuitas de Esri/OpenStreetMap para imitar el look del
+ * mapa nativo de Geotab (que usa Google Maps) sin necesitar una clave de API propia. Ahora se usa
+ * directamente Google Maps JavaScript API -- el mismo proveedor que usa Geotab -- para tener el
+ * selector real de Mapa/Satelite y la capa de Trafico en tiempo real de Google.
+ * IMPORTANTE: reemplazar GOOGLE_MAPS_API_KEY por una clave real de Google Cloud Console (con
+ * "Maps JavaScript API" habilitada y facturacion activa), restringida por HTTP referrer a los
+ * dominios donde corre este complemento (por ejemplo https://my.geotab.com/* y el dominio donde
+ * este alojado index.html/chofer.html, si estan afuera de Geotab). Sin una clave valida el mapa
+ * no va a cargar y se va a mostrar un aviso en su lugar. */
+GV.GOOGLE_MAPS_API_KEY = 'AIzaSyAxnEKemi5U2aADw1y6FfEA2vuwgFovEPQ';
+
+GV.loadGoogleMaps = function(){
+  if(GV._gmapsPromise) return GV._gmapsPromise;
+  GV._gmapsPromise = new Promise(function(resolve, reject){
+    if(window.google && window.google.maps){ resolve(window.google); return; }
+    if(!GV.GOOGLE_MAPS_API_KEY || GV.GOOGLE_MAPS_API_KEY.indexOf('TU_CLAVE') === 0){
+      reject(new Error('Falta configurar GV.GOOGLE_MAPS_API_KEY (en common.js) con una clave real de Google Maps JavaScript API.'));
+      return;
+    }
+    var cbName = '__gvGMapsReady' + Date.now();
+    window[cbName] = function(){ delete window[cbName]; resolve(window.google); };
     var script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.onload = function(){ resolve(window.L); };
-    script.onerror = function(){ reject(new Error('No se pudo cargar el mapa (Leaflet)')); };
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(GV.GOOGLE_MAPS_API_KEY) + '&callback=' + cbName + '&loading=async&v=weekly';
+    script.async = true;
+    script.onerror = function(){ reject(new Error('No se pudo cargar Google Maps (revisa la clave de API, la facturacion y las restricciones de dominio en Google Cloud Console).')); };
     document.head.appendChild(script);
   });
-  return GV._leafletPromise;
+  return GV._gmapsPromise;
 };
 
-/* ---------------- Capas base del mapa (satelite/hibrido como en el Mapa de Geotab) ---------------- */
-/* Geotab usa Google Maps (vista hibrida: satelite + calles) en su interfaz nativa. Como esa
- * clave de API es privada de Geotab y esta restringida a su dominio, replicamos el mismo look
- * (satelite + calles + nombres) con capas gratuitas de Esri, que no requieren API key:
- * World_Imagery (fotos satelitales) + World_Transportation (calles y sus nombres) +
- * World_Boundaries_and_Places (nombres de localidades y limites). */
-GV.addBaseLayers = function(map){
-  var L = window.L;
-  var satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19,
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, GIS User Community'
+/* ---------------- Grupo de overlays (equivalente al LayerGroup de Leaflet) ---------------- */
+/* Google Maps no tiene un contenedor nativo de "capa": cada Marker/Polygon/Circle/Polyline se
+ * agrega o quita del mapa individualmente con setMap(). Este helper junta un conjunto de overlays
+ * para poder limpiarlos todos juntos en cada re-render, igual que hacia L.layerGroup(). */
+GV.layerGroup = function(map){
+  var items = [];
+  return {
+    map: map,
+    add: function(overlay){ overlay.setMap(map); items.push(overlay); return overlay; },
+    removeLayer: function(overlay){ try{ overlay.setMap(null); }catch(e){} var i = items.indexOf(overlay); if(i >= 0) items.splice(i, 1); },
+    hasLayer: function(overlay){ return items.indexOf(overlay) !== -1; },
+    clearLayers: function(){ items.forEach(function(o){ try{ o.setMap(null); }catch(e){} }); items = []; }
+  };
+};
+
+/* ---------------- Mapa base (selector Mapa/Satelite + capa de Trafico, como en el Mapa nativo
+   de Geotab -- ahora con el Google Maps real, no una imitacion). ---------------- */
+GV.createMap = function(containerId, opts){
+  opts = opts || {};
+  var google = window.google;
+  var map = new google.maps.Map(document.getElementById(containerId), {
+    center: opts.center || { lat: -38.951, lng: -68.059 },
+    zoom: opts.zoom || 9,
+    mapTypeId: 'hybrid',
+    mapTypeControl: true,
+    mapTypeControlOptions: {
+      mapTypeIds: ['roadmap', 'hybrid'],
+      style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
+      position: google.maps.ControlPosition.TOP_RIGHT
+    },
+    fullscreenControl: true,
+    streetViewControl: false,
+    zoomControl: true
   });
-  var calleNombres = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19
+  /* Capa de Trafico real de Google (equivalente a la capa "Trafico" del panel de capas de
+     Geotab). Arranca apagada y se prende con el boton que se agrega arriba a la derecha. */
+  var trafficLayer = new google.maps.TrafficLayer();
+  var trafficOn = false;
+  var trafficBtn = document.createElement('button');
+  trafficBtn.type = 'button';
+  trafficBtn.textContent = 'Trafico';
+  trafficBtn.title = 'Mostrar/ocultar trafico en tiempo real (Google)';
+  trafficBtn.style.cssText = 'background:#fff;border:0;border-radius:2px;box-shadow:0 1px 4px -1px rgba(0,0,0,.3);margin:10px 10px 0 0;padding:0 12px;height:29px;font:500 13px Roboto,Arial,sans-serif;cursor:pointer;color:#565656';
+  trafficBtn.addEventListener('click', function(){
+    trafficOn = !trafficOn;
+    trafficLayer.setMap(trafficOn ? map : null);
+    trafficBtn.style.color = trafficOn ? '#1a73e8' : '#565656';
+    trafficBtn.style.fontWeight = trafficOn ? '700' : '500';
   });
-  var etiquetas = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19
-  });
-  var hibrido = L.layerGroup([satelite, calleNombres, etiquetas]);
-  var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  });
-  hibrido.addTo(map);
-  L.control.layers({ 'Satelite': hibrido, 'Calles': calles }, null, { position: 'topright', collapsed: true }).addTo(map);
-  return { hibrido: hibrido, calles: calles };
+  map.controls[google.maps.ControlPosition.TOP_RIGHT].push(trafficBtn);
+  map.__gvTrafficLayer = trafficLayer;
+  return map;
+};
+
+/* Equivalente a map.invalidateSize() de Leaflet: fuerza que Google Maps recalcule el tamano del
+ * contenedor cuando este estaba oculto (display:none) y recien se muestra. */
+GV.fixMapSize = function(map, center){
+  try{
+    window.google.maps.event.trigger(map, 'resize');
+    if(center) map.setCenter(center);
+  }catch(e){}
+};
+
+/* Ajusta el mapa para que se vean todos los puntos de la lista (equivalente a
+ * map.fitBounds([[lat,lng],...], {padding:[30,30]}) de Leaflet). Acepta puntos {lat,lng}. */
+GV.fitBoundsArr = function(map, points, paddingPx){
+  if(!points || !points.length) return;
+  var google = window.google;
+  if(points.length === 1){ map.setCenter(points[0]); map.setZoom(16); return; }
+  var b = new google.maps.LatLngBounds();
+  points.forEach(function(p){ b.extend(new google.maps.LatLng(p.lat, p.lng)); });
+  map.fitBounds(b, paddingPx || 30);
+};
+
+/* ---------------- Iconos de marcadores (equivalentes a los L.divIcon usados antes) ---------- */
+/* Circulo de color con una letra/numero adentro: usado para origen (O), destino (D) y paradas
+ * numeradas (1, 2, 3...). */
+GV.stopIcon = function(label, color){
+  var google = window.google;
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
+    '<circle cx="13" cy="13" r="11" fill="' + color + '" stroke="#fff" stroke-width="2"/>' +
+    '<text x="13" y="14" text-anchor="middle" dominant-baseline="middle" font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="700" fill="#fff">' + GV.escapeHtml(String(label)) + '</text>' +
+    '</svg>';
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(26, 26),
+    anchor: new google.maps.Point(13, 13)
+  };
+};
+
+/* ---------------- Etiqueta flotante sobre un marcador ---------------- */
+/* Google Maps no tiene un equivalente nativo al tooltip "permanent" de Leaflet (una etiqueta
+ * siempre visible, no solo al pasar el mouse). Este overlay dibuja un div posicionado sobre el
+ * mapa, igual que hacia el tooltip permanente con la etiqueta de cada camion en el mapa de
+ * seguimiento. */
+/* No recibe el mapa ni se auto-agrega: el que la crea la agrega con overlay.setMap(map) o con un
+ * GV.layerGroup(map).add(overlay), igual que con cualquier Marker/Polygon/Circle de este archivo. */
+GV.makeLabelOverlay = function(position, html){
+  var google = window.google;
+  function Ov(){}
+  Ov.prototype = new google.maps.OverlayView();
+  var ov = new Ov();
+  ov.__pos = position;
+  ov.__div = null;
+  ov.onAdd = function(){
+    var div = document.createElement('div');
+    div.className = 'gv-truck-label-ov';
+    div.innerHTML = html;
+    this.__div = div;
+    this.getPanes().floatPane.appendChild(div);
+  };
+  ov.draw = function(){
+    if(!this.__div) return;
+    var proj = this.getProjection();
+    if(!proj) return;
+    var pt = proj.fromLatLngToDivPixel(new google.maps.LatLng(this.__pos.lat, this.__pos.lng));
+    if(pt){ this.__div.style.left = pt.x + 'px'; this.__div.style.top = pt.y + 'px'; }
+  };
+  ov.onRemove = function(){ if(this.__div && this.__div.parentNode){ this.__div.parentNode.removeChild(this.__div); } this.__div = null; };
+  ov.setPosition = function(pos){ this.__pos = pos; this.draw(); };
+  ov.setContent = function(newHtml){ if(this.__div) this.__div.innerHTML = newHtml; };
+  return ov;
 };
 
 GV.FIREBASE_CONFIG = { apiKey: "AIzaSyC8e7EGfwvxZkCkmqG59OA2yRTcsAXkamE", authDomain: "gestion-de-viajes-f5f65.firebaseapp.com", projectId: "gestion-de-viajes-f5f65", storageBucket: "gestion-de-viajes-f5f65.firebasestorage.app", messagingSenderId: "147508872002", appId: "1:147508872002:web:ca2d0c8ee51eca0f81fedb", measurementId: "G-ECF2NS0YBY" }; GV.loadFirebase = function(){ if(GV._firebasePromise) return GV._firebasePromise; GV._firebasePromise = new Promise(function(resolve, reject){ if(window.firebase && window.firebase.firestore){ resolve(window.firebase); return; } var s1 = document.createElement('script'); s1.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'; s1.onload = function(){ var s2 = document.createElement('script'); s2.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'; s2.onload = function(){ resolve(window.firebase); }; s2.onerror = function(){ reject(new Error('No se pudo cargar Firebase Firestore')); }; document.head.appendChild(s2); }; s1.onerror = function(){ reject(new Error('No se pudo cargar Firebase App')); }; document.head.appendChild(s1); }); return GV._firebasePromise; }; /* ---------------- Geocoding (Nominatim / OpenStreetMap) ---------------- */
@@ -375,7 +483,7 @@ GV.reverseGeocode = function(lat, lng){
 /* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin]} o null si se cancela */
 GV.pickLocation = function(opts){
   opts = opts || {};
-  return GV.loadLeaflet().then(function(L){
+  return GV.loadGoogleMaps().then(function(google){
     return new Promise(function(resolve){
       var overlay = document.createElement('div');
       overlay.className = 'gv-modal-overlay';
@@ -412,16 +520,20 @@ GV.pickLocation = function(opts){
       document.body.appendChild(overlay);
 
       var initial = (opts.initial && typeof opts.initial.lat === 'number') ? opts.initial : { lat: -38.951, lng: -68.059 };
-      var map = L.map('gv-map-picker').setView([initial.lat, initial.lng], opts.initial ? 15 : 11);
-      GV.addBaseLayers(map);
+      var map = GV.createMap('gv-map-picker', { center: { lat: initial.lat, lng: initial.lng }, zoom: opts.initial ? 15 : 11 });
 
       var marker = null;
       var current = null;
       var shapeMode = 'circulo'; var manualPoly = []; var manualPolyLayer = null;
       function redrawManualPoly(){
-        if(manualPolyLayer){ try{ map.removeLayer(manualPolyLayer); }catch(e){} manualPolyLayer = null; }
-        if(manualPoly.length >= 2){ manualPolyLayer = L.polygon(manualPoly, { color:'#7c3aed', weight:2, fillColor:'#7c3aed', fillOpacity:.15, dashArray: manualPoly.length < 3 ? '4' : null }).addTo(map); }
-        else if(manualPoly.length === 1){ manualPolyLayer = L.circleMarker(manualPoly[0], { radius:5, color:'#7c3aed' }).addTo(map); }
+        if(manualPolyLayer){ try{ manualPolyLayer.setMap(null); }catch(e){} manualPolyLayer = null; }
+        if(manualPoly.length >= 3){
+          manualPolyLayer = new google.maps.Polygon({ paths: manualPoly, strokeColor:'#7c3aed', strokeWeight:2, fillColor:'#7c3aed', fillOpacity:.15, map: map });
+        } else if(manualPoly.length === 2){
+          manualPolyLayer = new google.maps.Polyline({ path: manualPoly, strokeColor:'#7c3aed', strokeWeight:2, map: map });
+        } else if(manualPoly.length === 1){
+          manualPolyLayer = new google.maps.Marker({ position: manualPoly[0], map: map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5, fillColor:'#7c3aed', fillOpacity:1, strokeWeight:0 } });
+        }
       }
       function updateManualPoly(){
         if(current) current.poligono = (shapeMode === 'manual' && manualPoly.length >= 3) ? manualPoly.slice() : null;
@@ -433,15 +545,15 @@ GV.pickLocation = function(opts){
          que el coordinador vea exactamente donde se va a detectar el ingreso/egreso de la unidad. */
       var areaLayer = null, areaBaseLayer = null;
       function redrawAreaPreview(){
-        if(areaLayer){ try{ map.removeLayer(areaLayer); }catch(e){} areaLayer = null; }
-        if(areaBaseLayer){ try{ map.removeLayer(areaBaseLayer); }catch(e){} areaBaseLayer = null; }
+        if(areaLayer){ try{ areaLayer.setMap(null); }catch(e){} areaLayer = null; }
+        if(areaBaseLayer){ try{ areaBaseLayer.setMap(null); }catch(e){} areaBaseLayer = null; }
         var info = document.getElementById("gv-area-info");
         if(!current || typeof current.lat !== "number"){ if(info) info.style.display = "none"; return; }
         var poly = (shapeMode === "manual" && manualPoly.length >= 3) ? manualPoly : ((current.poligono && current.poligono.length >= 3) ? current.poligono : null);
         if(info) info.style.display = "block";
         if(poly){
           if(shapeMode !== "manual"){
-            areaLayer = L.polygon(poly.map(function(pp){ return [pp.lat != null ? pp.lat : pp[0], pp.lng != null ? pp.lng : pp[1]]; }), { color:"#7c3aed", weight:2, fillColor:"#7c3aed", fillOpacity:.15 }).addTo(map);
+            areaLayer = new google.maps.Polygon({ paths: poly.map(function(pp){ return { lat: pp.lat != null ? pp.lat : pp[0], lng: pp.lng != null ? pp.lng : pp[1] }; }), strokeColor:"#7c3aed", strokeWeight:2, fillColor:"#7c3aed", fillOpacity:.15, map: map });
           }
           if(info) info.innerHTML = "Area de deteccion: <b>poligono dibujado a mano</b> (" + poly.length + " vertices). El ingreso y el egreso del sitio se detectan cuando la unidad entra o sale de esa forma.";
           return;
@@ -450,9 +562,9 @@ GV.pickLocation = function(opts){
         var base = GV.siteBaseRadiusM(current);
         var eff = GV.effectiveRadiusM({ lat: current.lat, lng: current.lng }, otros);
         if(eff < base){
-          areaBaseLayer = L.circle([current.lat, current.lng], { radius: base, color:"#9ca3af", weight:1, dashArray:"4,4", fill:false }).addTo(map);
+          areaBaseLayer = new google.maps.Circle({ center: { lat: current.lat, lng: current.lng }, radius: base, strokeColor:"#9ca3af", strokeWeight:1, fillOpacity:0, map: map });
         }
-        areaLayer = L.circle([current.lat, current.lng], { radius: eff, color:"#2563eb", weight:2, fillColor:"#2563eb", fillOpacity:.12 }).addTo(map);
+        areaLayer = new google.maps.Circle({ center: { lat: current.lat, lng: current.lng }, radius: eff, strokeColor:"#2563eb", strokeWeight:2, fillColor:"#2563eb", fillOpacity:.12, map: map });
         if(info) info.innerHTML = "Area de deteccion: <b>circulo automatico de " + eff + " m de radio</b>" + (eff < base ? (" &mdash; recortado desde " + base + " m porque hay otro sitio de este viaje a menos de " + (2*(eff+25)) + " m; asi no se cruzan los horarios de ingreso/egreso entre los dos sitios. Si el sitio real es mas grande, conviene dibujar el area a mano.") : ".");
       }
       function scheduleAreaPreview(){ setTimeout(redrawAreaPreview, 0); }
@@ -466,12 +578,12 @@ GV.pickLocation = function(opts){
         if(mode === 'circulo'){ manualPoly = []; }
         updateManualPoly();
       }
-      var tipo = 'carga'; var editingSiteId = null; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px"><span style="flex:1">' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-edit-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0">Editar</button></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; box.style.display='none'; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; if(site.poligono && site.poligono.length >= 3){ current.poligono = site.poligono; } var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); box.querySelectorAll('[data-edit-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-edit-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; editingSiteId = site.id; setMarker(site.lat, site.lng); map.setView([site.lat, site.lng], 16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl3 = document.getElementById('gv-map-addr'); if(addrEl3) addrEl3.textContent = current.direccion; var okBtn3 = document.getElementById('gv-map-ok'); if(okBtn3) okBtn3.disabled = false; var nameEl2 = document.getElementById('gv-site-name'); if(nameEl2) nameEl2.value = site.nombre || ''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display = 'block'; var saveBtn2 = document.getElementById('gv-site-save-btn'); if(saveBtn2) saveBtn2.textContent = 'Actualizar sitio'; if(site.poligono && site.poligono.length >= 3){ manualPoly = site.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }); setShapeMode('manual'); } else { manualPoly = []; setShapeMode('circulo'); } }); }); }
+      var tipo = 'carga'; var editingSiteId = null; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px"><span style="flex:1">' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-edit-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0">Editar</button></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; box.style.display='none'; setMarker(site.lat, site.lng); map.setCenter({ lat: site.lat, lng: site.lng }); map.setZoom(16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; if(site.poligono && site.poligono.length >= 3){ current.poligono = site.poligono; } var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); box.querySelectorAll('[data-edit-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-edit-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; editingSiteId = site.id; setMarker(site.lat, site.lng); map.setCenter({ lat: site.lat, lng: site.lng }); map.setZoom(16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl3 = document.getElementById('gv-map-addr'); if(addrEl3) addrEl3.textContent = current.direccion; var okBtn3 = document.getElementById('gv-map-ok'); if(okBtn3) okBtn3.disabled = false; var nameEl2 = document.getElementById('gv-site-name'); if(nameEl2) nameEl2.value = site.nombre || ''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display = 'block'; var saveBtn2 = document.getElementById('gv-site-save-btn'); if(saveBtn2) saveBtn2.textContent = 'Actualizar sitio'; if(site.poligono && site.poligono.length >= 3){ manualPoly = site.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }); setShapeMode('manual'); } else { manualPoly = []; setShapeMode('circulo'); } }); }); }
 
       function setMarker(lat, lng){
-        if(marker){ map.removeLayer(marker); }
-        marker = L.marker([lat, lng], { draggable: true }).addTo(map);
-        marker.on('dragend', function(){ var p = marker.getLatLng(); onPoint(p.lat, p.lng); });
+        if(marker){ marker.setMap(null); }
+        marker = new google.maps.Marker({ position: { lat: lat, lng: lng }, map: map, draggable: true });
+        marker.addListener('dragend', function(e){ onPoint(e.latLng.lat(), e.latLng.lng()); });
         scheduleAreaPreview();
       }
 
@@ -500,15 +612,15 @@ GV.pickLocation = function(opts){
         document.getElementById('gv-map-ok').disabled = false;
       }
 
-      map.on('click', function(e){
+      map.addListener('click', function(e){
         if(shapeMode === 'manual'){
-          manualPoly.push({ lat: e.latlng.lat, lng: e.latlng.lng });
-          if(manualPoly.length === 1 && !marker){ setMarker(e.latlng.lat, e.latlng.lng); onPoint(e.latlng.lat, e.latlng.lng); }
+          manualPoly.push({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+          if(manualPoly.length === 1 && !marker){ setMarker(e.latLng.lat(), e.latLng.lng()); onPoint(e.latLng.lat(), e.latLng.lng()); }
           updateManualPoly();
           return;
         }
-        setMarker(e.latlng.lat, e.latlng.lng);
-        onPoint(e.latlng.lat, e.latlng.lng);
+        setMarker(e.latLng.lat(), e.latLng.lng());
+        onPoint(e.latLng.lat(), e.latLng.lng());
       });
 
       function doSearch(){
@@ -517,7 +629,8 @@ GV.pickLocation = function(opts){
         GV.geocodeSearch(q).then(function(list){
           if(list && list.length){
             setMarker(list[0].lat, list[0].lng);
-            map.setView([list[0].lat, list[0].lng], 15);
+            map.setCenter({ lat: list[0].lat, lng: list[0].lng });
+            map.setZoom(15);
             current = { lat: list[0].lat, lng: list[0].lng, direccion: list[0].label };
             document.getElementById('gv-map-addr').textContent = list[0].label;
             document.getElementById('gv-map-ok').disabled = false;
@@ -542,7 +655,8 @@ GV.pickLocation = function(opts){
             restaurarBtn();
             if(res && res.length && res[0].latitude != null && res[0].longitude != null){
               setMarker(res[0].latitude, res[0].longitude);
-              map.setView([res[0].latitude, res[0].longitude], 16);
+              map.setCenter({ lat: res[0].latitude, lng: res[0].longitude });
+              map.setZoom(16);
               setShapeMode('circulo');
               onPoint(res[0].latitude, res[0].longitude);
             } else {
@@ -559,7 +673,7 @@ GV.pickLocation = function(opts){
         bd.addEventListener('click', function(){ selectTipo('descarga'); }); ba.addEventListener('click', function(){ selectTipo('ambos'); }); if(opts.initial && opts.initial.tipo){ selectTipo(opts.initial.tipo); } else { selectTipo('carga'); } if(opts.initial && typeof opts.initial.duracionMin === 'number'){ document.getElementById('gv-map-duracion').value = opts.initial.duracionMin; }
       }
 
-      function cleanup(){ try{ map.remove(); }catch(e){} overlay.remove(); }
+      function cleanup(){ overlay.remove(); }
 
       document.getElementById('gv-map-cancel').addEventListener('click', function(){ cleanup(); resolve(null); });
       document.getElementById('gv-map-ok').addEventListener('click', function(){
@@ -574,7 +688,7 @@ GV.pickLocation = function(opts){
         resolve(result);
       });
 
-      function gvFixMapSize(){ try{ map.invalidateSize(false); }catch(e){} }
+      function gvFixMapSize(){ GV.fixMapSize(map); }
       if (window.requestAnimationFrame) { requestAnimationFrame(function(){ requestAnimationFrame(gvFixMapSize); }); }
       setTimeout(gvFixMapSize, 60);
       setTimeout(gvFixMapSize, 150);
@@ -582,6 +696,9 @@ GV.pickLocation = function(opts){
       setTimeout(gvFixMapSize, 700);
       setTimeout(gvFixMapSize, 1200);
     });
+  }).catch(function(err){
+    alert('No se pudo abrir el mapa: ' + (err && err.message ? err.message : err));
+    return null;
   });
 };
 
@@ -655,15 +772,20 @@ var x = Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) - Math.sin(lat1 * toRad)
 var brng = Math.atan2(y, x) * toDeg;
 return (brng + 360) % 360;
 };
-GV.vehicleIcon = function(L, heading, color){
+GV.vehicleIcon = function(heading, color){
+var google = window.google;
 var deg = (typeof heading === 'number' && !isNaN(heading)) ? heading : 0;
 var c = color || '#00A6E0';
-var html = '<div style="width:28px;height:28px;transform:rotate(' + deg + 'deg)">' +
-'<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
+var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">' +
+'<g transform="rotate(' + deg + ' 14 14)">' +
 '<circle cx="14" cy="14" r="12.5" fill="' + c + '" stroke="#fff" stroke-width="2"/>' +
 '<path d="M14 6.5 L19 18.5 L14 15.3 L9 18.5 Z" fill="#fff"/>' +
-'</svg></div>';
-return L.divIcon({ className: 'gv-vehicle-marker', html: html, iconSize: [28,28], iconAnchor: [14,14] });
+'</g></svg>';
+return {
+url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+scaledSize: new google.maps.Size(28, 28),
+anchor: new google.maps.Point(14, 14)
+};
 };
 
 /* ---------------- Alerta sonora breve ---------------- */
