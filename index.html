@@ -1717,7 +1717,12 @@ detMap = GV.createMap('gv-det-map', { center: { lat: -38.951, lng: -68.059 }, zo
 /* Mismo mapa base (Google) que el mapa de seguimiento y el buscador de sitios. */
 detLayer = GV.layerGroup(detMap);
 detHistLayer = GV.layerGroup(detMap);
-if(v.vehiculoId){ GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){ detCamInfo = cam; }); }
+if(v.vehiculoId){
+  GV.hasVideoAccess(gApi).then(function(allowed){
+    if(!allowed) return; // el perfil no tiene permiso para ver video/camara: no se muestra nada
+    GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){ detCamInfo = cam; });
+  });
+}
 
 var pts = [];
 if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, label: 'O', color: '#059669', dir: GV.siteNameFor(v.origen), tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null });

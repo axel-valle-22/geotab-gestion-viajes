@@ -756,6 +756,28 @@ Biblioteca oficial de Geotab Video para insertar imagenes/reproduccion de la cam
 vehiculo. Se carga una sola vez (CSS + JS) y despues cada <gvp-video-player> que se cree
 recibe las credenciales de la sesion actual y, para "Recording Playback", el numero de serie
 de la camara (GV.getCameraForDevice) y un timestamp UNIX (playback-start-timestamp). */
+/* ---------------- Permiso para ver video/camara ----------------
+No existe un API documentado de MyGeotab para preguntar directamente "tiene este usuario
+el permiso ViewRecordedVideo?", asi que se usa una prueba de capacidad: se intenta un Get
+real de CameraEvent (acotado a los ultimos 60 segundos, para que sea liviano) y se toma el
+exito/fracaso de esa llamada como la señal de autorizacion. El resultado se cachea (una sola
+llamada por sesion) para no repetir la prueba en cada hover. */
+GV._camAccessCache = null; // null = aun no se sabe, true/false = ya resuelto
+GV.hasVideoAccess = function(api){
+  if(GV._camAccessCache !== null) return Promise.resolve(GV._camAccessCache);
+  if(!api) return Promise.resolve(false);
+  return new Promise(function(resolve){
+    var now = new Date();
+    var from = new Date(now.getTime() - 60000).toISOString();
+    var to = now.toISOString();
+    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from, toDate: to } }, function(){
+      GV._camAccessCache = true; resolve(true);
+    }, function(){
+      GV._camAccessCache = false; resolve(false);
+    });
+  });
+};
+
 GV.GVP_VERSION = '2026.29.02';
 GV._gvpLoadPromise = null;
 GV.loadGvpPlayer = function(){
