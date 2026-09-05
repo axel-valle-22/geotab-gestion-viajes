@@ -2471,8 +2471,13 @@ var line = recs.map(function(r){ return { lat: r.latitude, lng: r.longitude }; }
    flechitas de sentido repetidas cada cierta distancia sobre la linea (microsecciones), en vez
    de una linea lisa. google.maps.Polyline lo resuelve solo con la propiedad "icons" + repeat,
    no hace falta cortar la polilinea en segmentos de verdad. */
+/* zIndex explicito: el mapa del detalle tambien dibuja la ruta TEORICA (origen-paradas-destino
+   por calles, celeste #00A6E0 mas grueso y opaco) en detLayer, sobre el mismo detMap. Sin un
+   zIndex mayor aca, esa ruta teorica queda por encima y tapa las flechitas del recorrido real
+   (bug real: las flechitas nunca se veian en el detalle del viaje porque la linea celeste de la
+   ruta planificada, mas gruesa, quedaba dibujada arriba). */
 var histPolyline = new google.maps.Polyline({
-  path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3,
+  path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3, zIndex: 10,
   icons: [{
     icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.6, strokeColor: '#ffffff', strokeWeight: 1, fillColor: '#005674', fillOpacity: 1 },
     offset: '0', repeat: '32px'
@@ -2480,7 +2485,7 @@ var histPolyline = new google.maps.Polyline({
 });
 /* Franja transparente mas ancha encima de la linea real: hace mucho mas facil "engancharla"
    con el mouse (la linea fina de 3px es un blanco muy chico para el hover). */
-var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 5 });
+var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 11 });
 detHistLayer.add(histPolyline);
 detHistLayer.add(histPolylineHitArea);
 histPolylineHitArea.addListener('mousemove', function(e){
