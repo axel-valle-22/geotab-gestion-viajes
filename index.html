@@ -1478,6 +1478,7 @@ overlay.innerHTML =
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 ((v.estado==='planificado'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
+(v.vehiculoId ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-live-cam" style="display:none" title="Abre el mapa en vivo de Geotab para ver las camaras del vehiculo (chofer y ruta), si tu perfil tiene permiso de video">Ver camara en vivo</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
@@ -1853,6 +1854,30 @@ renderTrips(); renderTracking(); renderStats();
 });
 }
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
+/* Boton "Ver camara en vivo": confirmado en vivo que el video en vivo/en directo de Geotab (con
+   las dos lentes, chofer y ruta) NO se puede embeber en nuestra PIP -- lo pide un dominio propio
+   de Geotab para su producto de Video (api-central.video.geotab.com), separado de la apiv1
+   publica que usamos en el resto de la app, y no es un mecanismo documentado para add-ins de
+   terceros. Por eso este boton no intenta mostrar el video ADENTRO de esta pantalla: abre en una
+   pestana nueva el propio mapa en vivo de Geotab, ya filtrado a este vehiculo (parametro
+   liveVehicleIds del hash de la URL, probado en vivo), donde con un clic en su boton nativo
+   "Video en..." se ve la camara real -- mismo resultado que pedia el usuario, sin replicar nada
+   privado. El boton se mantiene oculto hasta confirmar que el perfil tiene permiso de video
+   (GV.hasVideoAccess, misma revision de securityGroups que ya se usa para la PIP de fotos mas
+   abajo) para no ofrecer un boton que lleve a una pantalla vacia si el perfil no tiene acceso. */
+var __detLiveCamBtn = document.getElementById('gv-det-live-cam');
+if(__detLiveCamBtn && v.vehiculoId){
+  GV.hasVideoAccess(gApi).then(function(allowed){
+    if(allowed) __detLiveCamBtn.style.display = '';
+  });
+  __detLiveCamBtn.addEventListener('click', function(){
+    GV.getSession(gApi).then(function(session){
+      var db = (session && session.database) || 'doloresparra';
+      var url = 'https://my.geotab.com/' + db + "/#map,drivers:all,liveVehicleIds:!('" + v.vehiculoId + "')";
+      window.open(url, '_blank');
+    });
+  });
+}
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
 GV.loadGoogleMaps().then(function(google){
