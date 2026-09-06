@@ -1486,7 +1486,6 @@ overlay.innerHTML =
 tramosHtml +
 retrasosHtml +
 (v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
-(v.vehiculoId ? '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:8px"><input type="checkbox" id="gv-det-recent" checked> Solo posiciones ultimas 4hs</label>' : '') +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
 (v.vehiculoId ? ('<div id="gv-det-playback" style="background:#0f172a;border-radius:10px;padding:12px 16px 10px;margin-bottom:14px">' +
 '<div style="display:flex;align-items:center;gap:12px">' +
@@ -1597,13 +1596,28 @@ function detCamShow(clientX, clientY, rec){
         if(vidWrap) vidWrap.insertBefore(detCamEl, vidWrap.firstChild);
       }
       detCamEl.credentials = { database: session.database, username: session.userName, sessionId: session.sessionId };
+      /* El componente solo dispara todo el ciclo de pedido (capabilities -> despertar la camara si
+         esta en reposo -> pedir la grabacion) cuando el atributo camera-serial-number CAMBIA de
+         verdad -- confirmado probando en vivo. Si la unidad tenia una camara "dormida" el numero
+         de serie puede ser el mismo entre un hover y el siguiente, pero el timestamp sí cambia; para
+         que cada hover dispare un pedido nuevo (y no se quede pegado al resultado del primer hover)
+         se lo saca y se lo vuelve a poner siempre. */
+      detCamEl.removeAttribute('camera-serial-number');
+      detCamEl.removeAttribute('playback-start-timestamp');
       detCamEl.setAttribute('camera-serial-number', detCamInfo.cameraSerialNumber);
       detCamEl.setAttribute('playback-start-timestamp', String(ts));
       try{ detCamEl.time = ts; }catch(e){}
-      /* Igual que el reproductor no siempre avisa "load"/"event-loaded" cuando simplemente no hay
-         grabacion para ese instante (SD card sin esa ventana, camara sin cobertura en ese momento),
-         el aviso de "Cargando..." se retira solo tambien despues de unos segundos por las dudas. */
-      setTimeout(function(){ if(detCamLastTs === ts){ var l = detCamBox && detCamBox.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none'; } }, 6000);
+      /* El ciclo real (despertar la camara + traer la grabacion) puede tardar bastante mas que un
+         par de segundos -- probado en vivo contra la API de Geotab Video. Si pasado ese tiempo
+         nunca llego "load"/"event-loaded", no es que este colgado: sencillamente no hay imagen
+         disponible para ese instante (camara apagada/sin señal en ese momento, por ejemplo con el
+         camion detenido). Se avisa eso en vez de dejar la caja negra para siempre. */
+      setTimeout(function(){
+        if(detCamLastTs === ts){
+          var l = detCamBox && detCamBox.querySelector('.gv-cam-loading');
+          if(l){ l.textContent = 'Imagen no disponible en este momento'; l.style.display = 'flex'; }
+        }
+      }, 15000);
     });
   });
 }
@@ -1773,7 +1787,16 @@ detHistLayer = GV.layerGroup(detMap);
 if(v.vehiculoId){
   GV.hasVideoAccess(gApi).then(function(allowed){
     if(!allowed) return; // el perfil no tiene permiso para ver video/camara: no se muestra nada
-    GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){ detCamInfo = cam; });
+    GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){
+      detCamInfo = cam;
+      if(!cam) return;
+      /* Corrige el numero de serie si el registro "Camera" quedo desactualizado (recambio de
+         equipo) -- ver comentario de GV.getActiveCameraSerial en common.js. Sin esto el
+         reproductor de video nunca mostraba ninguna imagen. */
+      GV.getActiveCameraSerial(gApi, v.vehiculoId, cam.cameraSerialNumber).then(function(serial){
+        if(serial) detCamInfo = Object.assign({}, cam, { cameraSerialNumber: serial });
+      });
+    });
   });
 }
 
@@ -2322,7 +2345,10 @@ var icon = GV.vehicleIcon(r.bearing, '#00A6E0');
 var tooltipTxt = 'En vivo: ' + estadoMov + ' - ' + speed + ' km/h\n' + when;
 if(!detLiveMarker){
 detLiveMarker = detLayer.add(new google.maps.Marker({ position: pos, icon: icon, zIndex: 1000, title: tooltipTxt }));
-GV.fitBoundsArr(detMap, bounds.concat([pos]), 30);
+/* Al abrir el detalle, centrar y hacer zoom hacia la ultima posicion conocida del camion (en vez
+   de dejar la vista abierta a todo el recorrido, donde el camion queda como un punto perdido). */
+detMap.setCenter(pos);
+detMap.setZoom(15);
 } else {
 detLiveMarker.setPosition(pos);
 detLiveMarker.setIcon(icon);
@@ -2333,7 +2359,6 @@ if(liveEl) liveEl.innerHTML = '&#9679; Posicion en vivo: ' + estadoMov + ' - ' +
 }
 updateLivePosition();
 detInterval = setInterval(updateLivePosition, 15000);
-var chk = document.getElementById('gv-det-recent');
 var slider = document.getElementById('gv-det-slider');
 var histMarker = null;
 function bearingAtIdx(idx){
@@ -2459,7 +2484,7 @@ function loadHist(){
 stopPlayback();
 var to = v.completadoEn ? new Date(v.completadoEn) : (v.canceladoEn ? new Date(v.canceladoEn) : new Date());
 var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
-var from = chk.checked ? new Date(to.getTime() - 4*3600*1000) : __dayStart2;
+var from = __dayStart2;
 fetchHistoryForViaje(v, from, to).then(function(recs){
 detHistPts = recs;
 detHistLayer.clearLayers();
@@ -2513,7 +2538,6 @@ renderSliderMarks([], 0);
 }
 });
 }
-chk.addEventListener('change', loadHist);
 slider.addEventListener('input', function(){ stopPlayback(); var idx = parseInt(slider.value, 10); updateHistMarker(idx); updateTimeLabels(idx); });
 loadHist();
 }

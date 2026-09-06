@@ -751,6 +751,42 @@ GV.getCameraForDevice = function(api, deviceId){
   });
 };
 
+/* ---------------- Numero de serie de camara REALMENTE activo (fix imagenes de camara) ----------------
+Bug encontrado y confirmado en vivo (probado directamente contra la API de MyGeotab, no solo en
+teoria): el objeto "Camera" que Geotab asocia a una unidad puede quedar desactualizado cuando se
+reemplaza el equipo fisico de la dashcam (recambio de hardware, garantia, etc.) -- el numero de
+serie que devuelve GV.getCameraForDevice sigue siendo el de la camara VIEJA, mientras que la
+camara nueva instalada en el vehiculo es la que realmente esta generando eventos y grabaciones.
+Con el numero de serie viejo, el reproductor <gvp-video-player> ni siquiera intenta pedir la
+grabacion (no genera ningun pedido de red) y se queda cargando para siempre -- por eso nunca
+aparecia ninguna imagen. La forma confiable de saber cual es el numero de serie realmente activo
+es mirar los eventos reales de camara (CameraEvent) de la unidad: el mas reciente trae el numero
+de serie correcto. CameraEvent no admite filtrar por dispositivo del lado del servidor (el
+parametro deviceSearch se ignora), asi que se trae una tanda reciente de toda la flota y se
+filtra por deviceId del lado del cliente. Si no aparece ningun evento propio en la ventana
+reciente, se usa como respaldo el numero de serie del registro "Camera" (comportamiento anterior). */
+GV._activeCamSerialCache = {};
+GV.getActiveCameraSerial = function(api, deviceId, fallbackSerial){
+  if(!api || !deviceId) return Promise.resolve(fallbackSerial || null);
+  if(Object.prototype.hasOwnProperty.call(GV._activeCamSerialCache, deviceId)){
+    return Promise.resolve(GV._activeCamSerialCache[deviceId] || fallbackSerial || null);
+  }
+  var to = new Date(), from = new Date(to.getTime() - 2 * 24 * 3600 * 1000);
+  return new Promise(function(resolve){
+    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: from.toISOString(), toDate: to.toISOString() } }, function(res){
+      var best = null;
+      (res || []).forEach(function(ev){
+        if(ev.deviceId !== deviceId || !ev.cameraSerialNumber) return;
+        var t = new Date(ev.recordingStart || ev.eventStart || 0).getTime();
+        if(!best || t > best.t){ best = { t: t, serial: ev.cameraSerialNumber }; }
+      });
+      var serial = (best && best.serial) || fallbackSerial || null;
+      GV._activeCamSerialCache[deviceId] = serial;
+      resolve(serial);
+    }, function(){ resolve(fallbackSerial || null); });
+  });
+};
+
 /* ---------------- Reproductor de video de Geotab (web component <gvp-video-player>) ----------------
 Biblioteca oficial de Geotab Video para insertar imagenes/reproduccion de la camara de un
 vehiculo. Se carga una sola vez (CSS + JS) y despues cada <gvp-video-player> que se cree
