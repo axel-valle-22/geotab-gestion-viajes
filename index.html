@@ -1485,7 +1485,7 @@ overlay.innerHTML =
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + '</div>' +
 tramosHtml +
 retrasosHtml +
-(v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
+((v.vehiculoId && (v.estado==='en_curso'||v.estado==='demorado')) ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 '<div id="gv-det-map-wrap" style="position:relative;margin-bottom:6px">' +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db"></div>' +
 '</div>' +
@@ -1545,21 +1545,24 @@ function ensureCamBox(){
   var anchor = document.getElementById('gv-det-map-wrap');
   if(!anchor) return null;
   detCamBox = document.createElement('div');
-  detCamBox.style.cssText = 'position:absolute;z-index:500;top:10px;right:10px;width:280px;height:230px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+  /* Tamaño reducido a pedido: la caja original (280x230) tapaba demasiado el mapa, que en el
+     detalle de viaje ya es chico (360px de alto). Se achica a ~160x134 manteniendo las mismas
+     proporciones relativas entre encabezado/imagen/pie. */
+  detCamBox.style.cssText = 'position:absolute;z-index:500;top:8px;right:8px;width:160px;height:140px;background:#0b0f14;border-radius:8px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
   var head = document.createElement('div');
-  head.style.cssText = 'height:22px;padding:0 9px;display:flex;align-items:center;color:#e5e7eb;font-size:.66rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
+  head.style.cssText = 'height:16px;padding:0 6px;display:flex;align-items:center;color:#e5e7eb;font-size:.58rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
   head.textContent = 'CAMARA';
   var vid = document.createElement('div');
   vid.className = 'gv-cam-vidwrap';
-  vid.style.cssText = 'width:100%;height:158px;position:relative;background:#0b0f14';
+  vid.style.cssText = 'width:100%;height:90px;position:relative;background:#0b0f14';
   var loading = document.createElement('div');
   loading.className = 'gv-cam-loading';
-  loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.72rem;text-align:center;padding:0 12px;background:#0b0f14;z-index:2';
+  loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.62rem;text-align:center;padding:0 8px;background:#0b0f14;z-index:2';
   loading.textContent = 'Cargando imagen...';
   vid.appendChild(loading);
   var foot = document.createElement('div');
   foot.className = 'gv-cam-foot';
-  foot.style.cssText = 'height:50px;padding:6px 9px;color:#e5e7eb;font-size:.68rem;line-height:1.35;background:#111827;border-top:1px solid rgba(255,255,255,.08)';
+  foot.style.cssText = 'height:34px;padding:3px 6px;color:#e5e7eb;font-size:.58rem;line-height:1.25;background:#111827;border-top:1px solid rgba(255,255,255,.08);overflow:hidden';
   detCamBox.appendChild(head);
   detCamBox.appendChild(vid);
   detCamBox.appendChild(foot);
@@ -1575,9 +1578,9 @@ function detCamIdle(){
   detCamBox.style.display = 'block';
   detCamLastTs = null;
   var loadingEl = detCamBox.querySelector('.gv-cam-loading');
-  if(loadingEl){ loadingEl.textContent = 'Sin imagen de camara en este tramo'; loadingEl.style.display = 'flex'; }
+  if(loadingEl){ loadingEl.textContent = 'Sin imagen para este tramo'; loadingEl.style.display = 'flex'; }
   var footEl = detCamBox.querySelector('.gv-cam-foot');
-  if(footEl) footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br><span style="color:#9ca3af">Solo hay imagen guardada cerca de un evento real de camara</span>';
+  if(footEl) footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br><span style="color:#9ca3af">Sin imagen para este tramo</span>';
 }
 function detCamShow(rec, serialOverride){
   var serial = serialOverride || (detCamInfo && detCamInfo.cameraSerialNumber);
@@ -2479,8 +2482,15 @@ detLiveMarker.setTitle(tooltipTxt);
 if(liveEl) liveEl.innerHTML = '&#9679; Posicion en vivo: ' + estadoMov + ' - ' + speed + ' km/h (actualizado ' + when + ')';
 }, function(){ if(liveEl && !detLiveMarker) liveEl.textContent = 'No se pudo obtener la posicion en vivo.'; });
 }
+/* Bug reportado: al abrir un viaje VIEJO (ya completado/cancelado) el mapa saltaba a la
+   posicion ACTUAL del camion hoy, pisando la vista del recorrido historico que se acaba de
+   ajustar mas arriba (GV.fitBoundsArr). El seguimiento en vivo (marcador + recentrado/zoom a
+   la posicion actual + polling cada 15s) solo tiene sentido para un viaje que todavia esta
+   pasando (en_curso/demorado); para uno completado o cancelado no debe ejecutarse en absoluto. */
+if(v.estado==='en_curso' || v.estado==='demorado'){
 updateLivePosition();
 detInterval = setInterval(updateLivePosition, 15000);
+}
 var slider = document.getElementById('gv-det-slider');
 var histMarker = null;
 function bearingAtIdx(idx){
