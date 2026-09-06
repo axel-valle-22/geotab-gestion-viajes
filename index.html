@@ -1478,7 +1478,6 @@ overlay.innerHTML =
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 ((v.estado==='planificado'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
-(v.vehiculoId ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-live-cam" style="display:none" title="Abre el mapa en vivo de Geotab para ver las camaras del vehiculo (chofer y ruta), si tu perfil tiene permiso de video">Ver camara en vivo</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
@@ -1515,9 +1514,11 @@ document.body.appendChild(overlay);
 
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
+var detCamLiveMode = false, detCamLiveToken = 0;
 
-/* ---------------- Ventana PIP de camara, fija arriba a la derecha del mapa, sincronizada con el
-   punto del recorrido que se esta viendo (reproduccion o arrastre del slider) ----------------
+/* ---------------- Ventana PIP de camara, fija arriba a la IZQUIERDA del mapa (a pedido: arriba a
+   la derecha tapaba los controles del mapa -- zoom, capas, etc.), sincronizada con el punto del
+   recorrido que se esta viendo (reproduccion o arrastre del slider) ----------------
 Antes esto se mostraba al pasar el mouse por la linea del recorrido (una caja que seguia al
 cursor). Ahora es una ventana FIJA en la esquina del mapa (por eso se ensancho el modal del
 detalle: para que el mapa tenga espacio de sobra aunque la PIP tape una esquina) que se actualiza
@@ -1525,13 +1526,23 @@ sola a medida que avanza la reproduccion o se mueve el slider, sin necesidad de 
 ningun lado. Usa el mismo reproductor oficial de Geotab (misma sesion, sin clave ni costo aparte
 -- ver GV.getCameraForDevice / GV.loadGvpPlayer en common.js). Si la unidad no tiene camara, la
 ventana ni se crea.
-Importante (confirmado en vivo contra la API de Geotab Video, ver comentario mas abajo en
-GV.getCameraEventsForDevice de common.js): NO existe forma de "interceptar" video en vivo ni de
-traer una imagen para cualquier instante arbitrario del recorrido -- solo hay imagen real
-guardada para los eventos que la propia camara ya marco (CameraEvent: frenada brusca, distraccion,
-etc.), igual que en el Historial de viajes nativo. Por eso la PIP muestra la imagen real cuando el
-recorrido pasa cerca (en el tiempo) de uno de esos eventos, y un cartel de "sin imagen en este
-tramo" el resto del viaje -- no hay forma de tener imagen continua de todo el trayecto. */
+Confirmado en vivo contra la API de Geotab Video (ver comentario mas abajo en
+GV.getCameraEventsForDevice de common.js): NO hay forma de traer una imagen para un instante
+ARBITRARIO del recorrido -- solo hay grabacion real guardada para los eventos que la propia
+camara ya marco (CameraEvent: frenada brusca, distraccion, etc.), igual que en el Historial de
+viajes nativo. Por eso la PIP muestra la imagen real cuando el recorrido pasa cerca (en el tiempo)
+de uno de esos eventos, y un cartel de "sin imagen en este tramo" el resto del viaje.
+Boton "EN VIVO" (detCamToggleLive mas abajo): a pedido, ademas de lo anterior (que es reproduccion
+de grabaciones ya hechas), el boton dentro de la PIP intenta pedirle a la camara una conexion en
+vivo AHORA MISMO -- usando el mismo componente oficial <gvp-video-player>, pero sin fijarle
+playback-start-timestamp (que es lo que lo pone en modo "grabacion de tal instante pasado"). Ojo:
+esto es DISTINTO de "video en vivo" nativo de Geotab con las dos lentes (chofer/ruta) que se ve en
+Mapa > vehiculo > "Video en...", que confirmamos que pide un dominio propio y privado de Geotab
+(api-central.video.geotab.com) -- eso no se replica. Lo que hace este boton es la unica forma
+DOCUMENTADA (mismo componente que ya usamos para las grabaciones) de intentar algo parecido; no
+se pudo probar en vivo de antemano si el componente realmente conecta la camara en tiempo real
+con solo el numero de serie (sin timestamp) o si tambien requiere el mismo mecanismo privado --
+por eso el boton puede terminar mostrando "no se pudo conectar" segun la camara/cuenta. */
 function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
 /* Crea la ventana PIP (una sola vez) si todavia no existe. OJO: antes esta creacion vivia
    solo adentro de detCamShow, y detCamIdle se limitaba a "if(!detCamBox) return" -- es decir,
@@ -1548,8 +1559,9 @@ function ensureCamBox(){
   detCamBox = document.createElement('div');
   /* Tamaño reducido a pedido: la caja original (280x230) tapaba demasiado el mapa, que en el
      detalle de viaje ya es chico (360px de alto). Se achica a ~160x134 manteniendo las mismas
-     proporciones relativas entre encabezado/imagen/pie. */
-  detCamBox.style.cssText = 'position:absolute;z-index:500;top:8px;right:8px;width:160px;height:140px;background:#0b0f14;border-radius:8px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+     proporciones relativas entre encabezado/imagen/pie. Posicion: arriba a la IZQUIERDA (a pedido
+     -- arriba a la derecha tapaba los controles nativos del mapa: zoom, capas, pantalla completa). */
+  detCamBox.style.cssText = 'position:absolute;z-index:500;top:8px;left:8px;width:160px;height:140px;background:#0b0f14;border-radius:8px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
   var head = document.createElement('div');
   head.style.cssText = 'height:16px;padding:0 6px;display:flex;align-items:center;color:#e5e7eb;font-size:.58rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
   head.textContent = 'CAMARA';
@@ -1561,6 +1573,17 @@ function ensureCamBox(){
   loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.62rem;text-align:center;padding:0 8px;background:#0b0f14;z-index:2';
   loading.textContent = 'Cargando imagen...';
   vid.appendChild(loading);
+  /* Boton "EN VIVO", superpuesto sobre la imagen -- ver detCamToggleLive. Oculto por defecto:
+     solo se muestra una vez que se confirma que la unidad tiene camara (detCamInfo). El resto de
+     la caja tiene pointer-events:none (para no tapar clics sobre el mapa que esta debajo), pero un
+     hijo puede reactivarlo -- por eso el boton en si tiene pointer-events:auto. */
+  var liveBtn = document.createElement('button');
+  liveBtn.type = 'button';
+  liveBtn.className = 'gv-cam-livebtn';
+  liveBtn.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;background:rgba(220,38,38,.92);border:none;color:#fff;font-size:.6rem;font-weight:700;letter-spacing:.02em;padding:5px 10px;border-radius:14px;cursor:pointer;pointer-events:auto;display:none;white-space:nowrap';
+  liveBtn.innerHTML = '&#9679; EN VIVO';
+  liveBtn.addEventListener('click', function(e){ e.stopPropagation(); detCamToggleLive(); });
+  vid.appendChild(liveBtn);
   var foot = document.createElement('div');
   foot.className = 'gv-cam-foot';
   foot.style.cssText = 'height:34px;padding:3px 6px;color:#e5e7eb;font-size:.58rem;line-height:1.25;background:#111827;border-top:1px solid rgba(255,255,255,.08);overflow:hidden';
@@ -1569,6 +1592,14 @@ function ensureCamBox(){
   detCamBox.appendChild(foot);
   anchor.appendChild(detCamBox);
   return detCamBox;
+}
+/* Muestra u oculta el boton "EN VIVO" segun si ya se confirmo que la unidad tiene camara. Se
+   llama apenas se resuelve GV.getCameraForDevice (mas abajo), no hace falta esperar a nada mas. */
+function detCamUpdateLiveBtnVisibility(){
+  var box = ensureCamBox();
+  if(!box) return;
+  var btn = box.querySelector('.gv-cam-livebtn');
+  if(btn) btn.style.display = (detCamInfo && detCamInfo.cameraSerialNumber) ? 'block' : 'none';
 }
 /* Sin evento real cerca: se deja la ventana visible (para que quede claro que la camara esta
    activa en este viaje) pero con un cartel neutro en vez de la imagen. detCamLastTs se limpia
@@ -1646,6 +1677,67 @@ function detCamShow(rec, serialOverride){
     });
   });
 }
+/* Prende/apaga el modo "EN VIVO" de la PIP (boton superpuesto sobre la imagen, ver ensureCamBox).
+   Mientras esta prendido, updateCamPip (mas abajo) no pisa la caja con la reproduccion historica
+   -- por eso hay que apagarlo para volver a ver las imagenes de eventos reales del viaje.
+   detCamLiveToken evita que una respuesta tardia de una conexion vieja (por ejemplo si el usuario
+   apreto EN VIVO, despues DETENER, y despues EN VIVO de nuevo) pise el estado de la conexion
+   actual. */
+function detCamToggleLive(){
+  if(!detCamInfo || !detCamInfo.cameraSerialNumber) return;
+  var box = ensureCamBox();
+  if(!box) return;
+  var btn = box.querySelector('.gv-cam-livebtn');
+  var loadingEl = box.querySelector('.gv-cam-loading');
+  var footEl = box.querySelector('.gv-cam-foot');
+  if(detCamLiveMode){
+    detCamLiveMode = false;
+    detCamLiveToken++;
+    if(btn){ btn.innerHTML = '&#9679; EN VIVO'; btn.style.background = 'rgba(220,38,38,.92)'; btn.style.display = 'block'; }
+    if(detCamEl) detCamEl.style.display = 'none';
+    detCamLastTs = null;
+    detCamIdle(); // estado neutro inmediato; el proximo tick de reproduccion/slider lo corrige solo
+    return;
+  }
+  detCamLiveMode = true;
+  var myToken = ++detCamLiveToken;
+  if(btn){ btn.innerHTML = 'DETENER'; btn.style.background = 'rgba(55,65,81,.92)'; }
+  box.style.display = 'block';
+  if(loadingEl){ loadingEl.textContent = 'Conectando camara en vivo...'; loadingEl.style.display = 'flex'; }
+  if(footEl) footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br><span style="color:#f87171">EN VIVO</span>';
+  GV.loadGvpPlayer().then(function(){
+    return GV.getSession(gApi).then(function(session){
+      if(myToken !== detCamLiveToken) return; // se apago o se reinicio mientras cargaba
+      if(!detCamEl){
+        detCamEl = document.createElement('gvp-video-player');
+        detCamEl.setAttribute('hide-header', '');
+        detCamEl.setAttribute('hide-controls', '');
+        detCamEl.setAttribute('hide-map', '');
+        detCamEl.setAttribute('hide-widgets', '');
+        detCamEl.setAttribute('hide-time-browser', '');
+        detCamEl.style.cssText = 'width:100%;height:100%;display:block;position:relative;z-index:1';
+        detCamEl.addEventListener('load', function(){ if(myToken === detCamLiveToken){ var l = box.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none'; } });
+        detCamEl.addEventListener('event-loaded', function(){ if(myToken === detCamLiveToken){ var l = box.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none'; } });
+        var vidWrap = box.querySelector('.gv-cam-vidwrap');
+        if(vidWrap) vidWrap.insertBefore(detCamEl, vidWrap.firstChild);
+      }
+      detCamEl.style.display = 'block';
+      detCamEl.credentials = { database: session.database, username: session.userName, sessionId: session.sessionId };
+      /* Sin playback-start-timestamp: es el intento de modo "en vivo/on-demand" del componente
+         (ver comentario grande mas arriba, encima de detCamHide) en vez del modo "grabacion de
+         tal instante pasado" que usa detCamShow. */
+      detCamEl.removeAttribute('playback-start-timestamp');
+      detCamEl.removeAttribute('camera-serial-number');
+      detCamEl.setAttribute('camera-serial-number', detCamInfo.cameraSerialNumber);
+      setTimeout(function(){
+        if(myToken === detCamLiveToken && detCamLiveMode){
+          var l = box.querySelector('.gv-cam-loading');
+          if(l && l.style.display !== 'none'){ l.textContent = 'No se pudo conectar la camara en vivo'; l.style.display = 'flex'; }
+        }
+      }, 20000);
+    });
+  });
+}
 /* Busca, para el instante simulado "whenDate" (el que se esta viendo ahora mismo en el mapa,
    sea por reproduccion o por arrastre del slider), el CameraEvent real mas cercano en el tiempo
    y actualiza la PIP: imagen real si hay uno a menos de 3 minutos, cartel neutro si no. Se llama
@@ -1663,6 +1755,7 @@ function updateCamPip(whenDate){
      mirar si HAY camara confirmada (detCamInfo), no si hay eventos: sin camara, se esconde;
      con camara pero sin eventos (o sin ninguno cercano), se muestra el cartel neutro via
      detCamIdle en vez de nada. */
+  if(detCamLiveMode) return; // no pisar el video en vivo mientras el boton EN VIVO esta prendido
   if(!detCamInfo || !detCamInfo.cameraSerialNumber){ detCamHide(); return; }
   var t = whenDate.getTime();
   var bestEv = null, bestDiffMs = Infinity;
@@ -1854,30 +1947,6 @@ renderTrips(); renderTracking(); renderStats();
 });
 }
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
-/* Boton "Ver camara en vivo": confirmado en vivo que el video en vivo/en directo de Geotab (con
-   las dos lentes, chofer y ruta) NO se puede embeber en nuestra PIP -- lo pide un dominio propio
-   de Geotab para su producto de Video (api-central.video.geotab.com), separado de la apiv1
-   publica que usamos en el resto de la app, y no es un mecanismo documentado para add-ins de
-   terceros. Por eso este boton no intenta mostrar el video ADENTRO de esta pantalla: abre en una
-   pestana nueva el propio mapa en vivo de Geotab, ya filtrado a este vehiculo (parametro
-   liveVehicleIds del hash de la URL, probado en vivo), donde con un clic en su boton nativo
-   "Video en..." se ve la camara real -- mismo resultado que pedia el usuario, sin replicar nada
-   privado. El boton se mantiene oculto hasta confirmar que el perfil tiene permiso de video
-   (GV.hasVideoAccess, misma revision de securityGroups que ya se usa para la PIP de fotos mas
-   abajo) para no ofrecer un boton que lleve a una pantalla vacia si el perfil no tiene acceso. */
-var __detLiveCamBtn = document.getElementById('gv-det-live-cam');
-if(__detLiveCamBtn && v.vehiculoId){
-  GV.hasVideoAccess(gApi).then(function(allowed){
-    if(allowed) __detLiveCamBtn.style.display = '';
-  });
-  __detLiveCamBtn.addEventListener('click', function(){
-    GV.getSession(gApi).then(function(session){
-      var db = (session && session.database) || 'doloresparra';
-      var url = 'https://my.geotab.com/' + db + "/#map,drivers:all,liveVehicleIds:!('" + v.vehiculoId + "')";
-      window.open(url, '_blank');
-    });
-  });
-}
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
 GV.loadGoogleMaps().then(function(google){
@@ -1905,6 +1974,7 @@ if(v.vehiculoId){
       detCamInfo = cam;
       if(!cam) return;
       refreshCamPipNow();
+      detCamUpdateLiveBtnVisibility();
       /* Corrige el numero de serie si el registro "Camera" quedo desactualizado (recambio de
          equipo) -- ver comentario de GV.getActiveCameraSerial en common.js. Sin esto el
          reproductor de video nunca mostraba ninguna imagen. */
