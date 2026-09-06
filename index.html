@@ -1842,10 +1842,26 @@ if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poli
 if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, label: 'D', color: '#dc2626', dir: GV.siteNameFor(v.destino), tipo: v.destino.tipo || null, dur: v.destino.duracionMin || null });
 
 var bounds = [];
+var siteLabelEntries = [];
 pts.forEach(function(p){
 detLayer.add(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, icon: GV.stopIcon(p.label, p.color), title: p.label + ': ' + (p.dir||'') })); if(p.tipo) siteGeofenceLayer(p, detLayer, {fillOpacity:.15, otros: pts});
+/* Etiqueta con el nombre del sitio SIEMPRE visible (no solo con el title al pasar el mouse):
+   asi, alejando el zoom para ver el viaje completo, se identifican el origen, las paradas de
+   carga/descarga y el destino de un vistazo. GV.declutterLabels (mas abajo) se encarga de que
+   estas etiquetas no se superpongan entre si al acercar/alejar el zoom. */
+var labelTxt;
+if(p.label === 'O'){ labelTxt = 'Origen: ' + (p.dir||''); }
+else if(p.label === 'D'){ labelTxt = 'Destino: ' + (p.dir||''); }
+else { labelTxt = p.label + '. ' + (p.tipo ? (GV.tipoParadaLabel(p.tipo) + ': ') : '') + (p.dir||''); }
+var dotHtml = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + p.color + ';margin-right:5px;vertical-align:middle"></span>';
+var siteLabel = detLayer.add(GV.makeLabelOverlay({ lat: p.lat, lng: p.lng }, dotHtml + GV.escapeHtml(labelTxt)));
+/* Prioridad: origen y destino siempre por delante de las paradas (si hay que ocultar alguna
+   por superposicion, se ocultan paradas antes que el origen/destino). */
+var priority = (p.label === 'O' || p.label === 'D') ? 0 : (parseInt(p.label, 10) || 1);
+siteLabelEntries.push({ overlay: siteLabel, priority: priority });
 bounds.push({ lat: p.lat, lng: p.lng });
 });
+GV.declutterLabels(detMap, siteLabelEntries);
 if(bounds.length){ GV.fitBoundsArr(detMap, bounds, 30); } else { detMap.setCenter({ lat: -38.951, lng: -68.059 }); detMap.setZoom(9); }
 setTimeout(function(){ GV.fixMapSize(detMap); }, 100);
 
@@ -2410,17 +2426,37 @@ return GV.computeBearing(prv.latitude, prv.longitude, cur.latitude, cur.longitud
 return 0;
 }
 var histLabel = null;
+/* Bug encontrado y confirmado: al darle play, el icono de la unidad dejaba de verse (recien
+   volvia a aparecer al pausar). La causa era que esta funcion, llamada en cada cuadro de la
+   animacion (requestAnimationFrame, hasta 60 veces por segundo durante el play), destruia el
+   marcador y la etiqueta viejos (removeLayer/setMap(null)) y creaba uno NUEVO desde cero en su
+   lugar -- incluyendo un icono SVG (data URI) recalculado con el nuevo rumbo en cada cuadro. Con
+   ese ritmo, el marcador nunca llegaba a terminar de pintarse antes de ser destruido de nuevo, asi
+   que quedaba invisible mientras la animacion seguia corriendo; al pausar, el ultimo marcador
+   creado por fin tenia tiempo de pintarse y aparecia. La solucion es reutilizar el MISMO marcador
+   y la MISMA etiqueta en cada cuadro (moverlos con setPosition/setIcon/setContent) en vez de
+   destruir y recrear -- igual de fluido pero sin el parpadeo/desaparicion. */
 function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
-if(histMarker){ detHistLayer.removeLayer(histMarker); }
-if(histLabel){ detHistLayer.removeLayer(histLabel); }
 var pos = { lat: r.latitude, lng: r.longitude };
-histMarker = detHistLayer.add(new google.maps.Marker({ position: pos, icon: GV.vehicleIcon(bearingAtIdx(idx), '#005674'), zIndex: 900 }));
+var icon = GV.vehicleIcon(bearingAtIdx(idx), '#005674');
+if(histMarker){
+histMarker.setPosition(pos);
+histMarker.setIcon(icon);
+} else {
+histMarker = detHistLayer.add(new google.maps.Marker({ position: pos, icon: icon, zIndex: 900 }));
+}
 var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
 /* Se muestra siempre (no solo al pasar el mouse), igual que hacia el tooltip.openTooltip() de
    Leaflet: asi se ve la hora/velocidad mientras se mueve el slider del historial. */
-histLabel = detHistLayer.add(GV.makeLabelOverlay(pos, GV.escapeHtml('Posicion: ' + when + ' - Velocidad: ' + Math.round(r.speed||0) + ' km/h')));
+var labelHtml = GV.escapeHtml('Posicion: ' + when + ' - Velocidad: ' + Math.round(r.speed||0) + ' km/h');
+if(histLabel){
+histLabel.setPosition(pos);
+histLabel.setContent(labelHtml);
+} else {
+histLabel = detHistLayer.add(GV.makeLabelOverlay(pos, labelHtml));
+}
 }
 function fmtHHMM(d){ return d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function fmtHHMMSS(ms){
@@ -2525,6 +2561,12 @@ fetchHistoryForViaje(v, from, to).then(function(recs){
 detHistPts = recs;
 detHistLayer.clearLayers();
 detCamMarkers = [];
+/* clearLayers() ya saco del mapa (setMap(null)) al marcador/etiqueta de posicion viejos -- hay
+   que soltar tambien las referencias JS, si no updateHistMarker() los reutilizaria creyendolos
+   todavia validos (setPosition/setIcon sobre un marcador que ya no esta en el mapa) y la unidad
+   no volveria a aparecer nunca en el nuevo recorrido. */
+histMarker = null;
+histLabel = null;
 var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
