@@ -424,6 +424,27 @@ GV.stopIcon = function(label, color){
   };
 };
 
+/* ---------------- Marcador de "aca hay un evento real de camara" en el mapa ---------------- */
+/* Mismo estilo que GV.stopIcon (circulo de color con algo adentro) pero con un pictograma de
+ * camara en vez de un numero/letra. Se usa para marcar, sobre el recorrido del detalle de viaje,
+ * los puntos donde SI hay un CameraEvent real (y por lo tanto imagen disponible al pasar el
+ * mouse) -- igual que el Historial de viajes nativo de Geotab, que solo marca con una camarita
+ * los eventos de su lista que tienen grabacion, no cualquier punto del recorrido. */
+GV.cameraIcon = function(color){
+  var google = window.google;
+  var c = color || '#7c3aed';
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">' +
+    '<circle cx="11" cy="11" r="10" fill="' + c + '" stroke="#fff" stroke-width="1.6"/>' +
+    '<path d="M6.3 8.6c0-.5.4-.9.9-.9h1l.5-.9c.15-.28.44-.45.76-.45h2.9c.32 0 .61.17.76.45l.5.9h1c.5 0 .9.4.9.9v5c0 .5-.4.9-.9.9H7.2c-.5 0-.9-.4-.9-.9v-5z" fill="#fff"/>' +
+    '<circle cx="11" cy="11.3" r="1.9" fill="' + c + '"/>' +
+    '</svg>';
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(22, 22),
+    anchor: new google.maps.Point(11, 11)
+  };
+};
+
 /* ---------------- Etiqueta flotante sobre un marcador ---------------- */
 /* Google Maps no tiene un equivalente nativo al tooltip "permanent" de Leaflet (una etiqueta
  * siempre visible, no solo al pasar el mouse). Este overlay dibuja un div posicionado sobre el
@@ -801,10 +822,22 @@ Por eso el historial nativo, cuando muestra imagenes, en realidad esta mostrando
 reales (los numeritos agrupados que se ven en su reproductor), no cualquier punto del recorrido.
 Con esta funcion se trae la lista completa de esos eventos reales del vehiculo en el rango de
 fechas del viaje, para que el hover pueda "engancharse" al evento real mas cercano en el tiempo
-en vez de pedir siempre el instante arbitrario donde cayo el mouse -- así, cuando el mouse pasa
-cerca de un evento real, se ve una imagen real igual que en el historial nativo; lejos de todo
-evento real, se sigue intentando el instante arbitrario (puede funcionar si la camara todavia
-tiene ese instante en su buffer, o puede no estar disponible -- ver detCamShow en index.html). */
+en vez de pedir siempre el instante arbitrario donde cayo el mouse.
+
+Actualizacion (comparando en vivo, red de por medio, contra el Historial de viajes nativo): el
+propio Geotab, para un punto cualquiera del recorrido que NO sea uno de estos eventos reales,
+tampoco muestra ninguna imagen -- al pasar el mouse por la linea del recorrido nativo solo se ve
+un cartel de estado (velocidad, detenido, etc.), nunca una foto. Las fotos/videos nativos SOLO
+aparecen para estos eventos reales marcados con camarita en su lista de "Eventos", y ahi las trae
+de un archivo ya subido a un servicio propio de Geotab (no del mismo componente <gvp-video-player>
+que usamos aca, que solo sabe pedir grabacion en vivo/on-demand a la camara -- probamos varios
+nombres de objeto de la API publica -- MediaFile, ExceptionEvent, CameraMediaFile -- y ninguno
+expone ese archivo ya subido). Por eso ahora, si el mouse esta lejos en el tiempo de todo evento
+real, directamente NO se intenta mostrar nada (antes se insistia con el instante arbitrario del
+GPS, que en la enorme mayoria de los casos termina en "Imagen no disponible" despues de una
+espera larga -- igual de "vacio" para el usuario pero con una demora y un cartel de error de mas).
+Ver detCamNearestIdx/renderCamEventMarkers en index.html: ahi se dibuja ademas una camarita en el
+mapa sobre la posicion de cada evento real, para que quede claro DONDE sí hay imagen disponible. */
 GV.getCameraEventsForDevice = function(api, deviceId, fromISO, toISO){
   if(!api || !deviceId) return Promise.resolve([]);
   return new Promise(function(resolve){
@@ -812,7 +845,7 @@ GV.getCameraEventsForDevice = function(api, deviceId, fromISO, toISO){
       var out = (res || [])
         .filter(function(ev){ return ev.deviceId === deviceId && ev.cameraSerialNumber; })
         .map(function(ev){
-          return { ts: Math.floor(new Date(ev.recordingStart || ev.eventStart).getTime() / 1000), serial: ev.cameraSerialNumber, eventType: ev.eventType };
+          return { ts: Math.floor(new Date(ev.recordingStart || ev.eventStart).getTime() / 1000), serial: ev.cameraSerialNumber, eventType: ev.eventType, ruleName: ev.ruleName || ev.eventType };
         })
         .sort(function(a, b){ return a.ts - b.ts; });
       resolve(out);

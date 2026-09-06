@@ -1511,7 +1511,7 @@ retrasosHtml +
 document.body.appendChild(overlay);
 
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
-var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [];
+var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
 
 /* ---------------- Imagenes de la camara del vehiculo al pasar el mouse por el recorrido ----------------
 Igual que en el Historial de viajes nativo de Geotab: si la unidad tiene una camara instalada
@@ -1566,7 +1566,7 @@ function detCamShow(clientX, clientY, rec, serialOverride){
   detCamPosition(clientX, clientY);
   detCamBox.style.display = 'block';
   var footEl = detCamBox.querySelector('.gv-cam-foot');
-  if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
+  if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b>' + (rec.eventLabel ? (' &nbsp;<span style="color:#a78bfa">' + GV.escapeHtml(rec.eventLabel) + '</span>') : '') + '<br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
   if(ts === detCamLastTs) return;
   detCamLastTs = ts;
   var loadingEl = detCamBox.querySelector('.gv-cam-loading');
@@ -1623,6 +1623,31 @@ function detCamShow(clientX, clientY, rec, serialOverride){
   });
 }
 function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
+
+/* Dibuja una camarita (GV.cameraIcon) sobre el recorrido en cada punto donde hay un CameraEvent
+   real -- exactamente donde el Historial de viajes nativo de Geotab tambien tiene imagen
+   disponible. Se llama tanto cuando llega el recorrido (loadHist) como cuando llega la lista de
+   eventos (GV.getCameraEventsForDevice), porque las dos cosas se piden en paralelo y puede
+   terminar primero cualquiera de las dos -- esta funcion no hace nada hasta tener ambas. */
+function renderCamEventMarkers(){
+  if(!detHistLayer || !detHistPts.length || !detCamEvents.length) return;
+  detCamMarkers.forEach(function(m){ detHistLayer.removeLayer(m); });
+  detCamMarkers = [];
+  detCamEvents.forEach(function(ev){
+    var targetMs = ev.ts * 1000, best = null, bestDiff = Infinity;
+    for(var i = 0; i < detHistPts.length; i++){
+      var r = detHistPts[i];
+      if(r.latitude == null) continue;
+      var diff = Math.abs(new Date(r.dateTime).getTime() - targetMs);
+      if(diff < bestDiff){ bestDiff = diff; best = r; }
+    }
+    if(!best || bestDiff > 5 * 60 * 1000) return; // el evento cayo fuera del tramo dibujado
+    var pos = { lat: best.latitude, lng: best.longitude };
+    var titleTxt = (ev.ruleName || 'Evento de camara') + ' - ' + GV.fmtDate(new Date(targetMs).toISOString());
+    var m = detHistLayer.add(new google.maps.Marker({ position: pos, icon: GV.cameraIcon('#7c3aed'), zIndex: 950, title: titleTxt }));
+    detCamMarkers.push(m);
+  });
+}
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ if(!confirm('¿Marcar este viaje como finalizado?')) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, iniciadoEn: new Date().toISOString(), sitiosReal: {}, dwellState: null, autoIniciado: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
@@ -1806,6 +1831,7 @@ if(v.vehiculoId){
     var __camTo = v.completadoEn ? new Date(v.completadoEn) : (v.canceladoEn ? new Date(v.canceladoEn) : new Date());
     GV.getCameraEventsForDevice(gApi, v.vehiculoId, __camDayStart.toISOString(), __camTo.toISOString()).then(function(evs){
       detCamEvents = evs || [];
+      renderCamEventMarkers();
     });
   });
 }
@@ -2498,6 +2524,7 @@ var from = __dayStart2;
 fetchHistoryForViaje(v, from, to).then(function(recs){
 detHistPts = recs;
 detHistLayer.clearLayers();
+detCamMarkers = [];
 var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
@@ -2523,30 +2550,27 @@ var histPolyline = new google.maps.Polyline({
 var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 11 });
 detHistLayer.add(histPolyline);
 detHistLayer.add(histPolylineHitArea);
+renderCamEventMarkers();
 histPolylineHitArea.addListener('mousemove', function(e){
-if(!detCamInfo || !detCamInfo.cameraSerialNumber || !e.domEvent) return;
+if(!detCamInfo || !detCamInfo.cameraSerialNumber || !e.domEvent || !detCamEvents.length){ detCamHide(); return; }
 var idx = detCamNearestIdx(e.latLng.lat(), e.latLng.lng());
-if(idx == null) return;
+if(idx == null){ detCamHide(); return; }
 var rec = detHistPts[idx];
-/* Si el mouse esta cerca en el TIEMPO de un evento real de camara (CameraEvent) de este viaje,
-   se usa el instante y la camara de ESE evento en vez del punto arbitrario del GPS: un evento
-   real tiene grabacion garantizada (es lo que se ve, por ejemplo, en el Historial de viajes
-   nativo de Geotab), mientras que un punto cualquiera del recorrido puede no tener nada
-   grabado. Si no hay ningun evento real cerca, se sigue intentando con el punto del mouse tal
-   cual (puede funcionar o no, ver detCamShow). */
-var chosenRec = rec, chosenSerial = detCamInfo.cameraSerialNumber;
-if(detCamEvents && detCamEvents.length){
-  var recT = new Date(rec.dateTime).getTime();
-  var bestEv = null, bestDiffMs = Infinity;
-  detCamEvents.forEach(function(ev){
-    var diff = Math.abs(ev.ts * 1000 - recT);
-    if(diff < bestDiffMs){ bestDiffMs = diff; bestEv = ev; }
-  });
-  if(bestEv && bestDiffMs <= 3 * 60 * 1000){
-    chosenRec = { dateTime: new Date(bestEv.ts * 1000).toISOString(), speed: rec.speed };
-    chosenSerial = bestEv.serial || chosenSerial;
-  }
-}
+/* Solo se intenta mostrar imagen cuando el mouse esta cerca en el TIEMPO de un evento real de
+   camara (CameraEvent) de este viaje: comprobado en vivo contra la API de Geotab Video que un
+   punto cualquiera del recorrido, sin evento real ahi, practicamente nunca trae nada (igual que
+   en el Historial de viajes nativo, que tampoco muestra imagen fuera de sus eventos marcados con
+   camarita) -- insistir con esos puntos solo termina en una espera larga y un cartel de "no
+   disponible". Por eso, lejos de todo evento real, directamente no se muestra la caja de camara
+   (ver tambien renderCamEventMarkers: los eventos reales quedan marcados en el mapa). */
+var bestEv = null, bestDiffMs = Infinity, recT = new Date(rec.dateTime).getTime();
+detCamEvents.forEach(function(ev){
+  var diff = Math.abs(ev.ts * 1000 - recT);
+  if(diff < bestDiffMs){ bestDiffMs = diff; bestEv = ev; }
+});
+if(!bestEv || bestDiffMs > 3 * 60 * 1000){ detCamHide(); return; }
+var chosenRec = { dateTime: new Date(bestEv.ts * 1000).toISOString(), speed: rec.speed, eventLabel: bestEv.ruleName };
+var chosenSerial = bestEv.serial || detCamInfo.cameraSerialNumber;
 detCamShow(e.domEvent.clientX, e.domEvent.clientY, chosenRec, chosenSerial);
 });
 histPolylineHitArea.addListener('mouseout', detCamHide);
