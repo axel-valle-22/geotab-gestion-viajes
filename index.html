@@ -1557,26 +1557,93 @@ function ensureCamBox(){
   var anchor = document.getElementById('gv-det-map-wrap');
   if(!anchor) return null;
   detCamBox = document.createElement('div');
-  /* Tamaño reducido a pedido: la caja original (280x230) tapaba demasiado el mapa, que en el
-     detalle de viaje ya es chico (360px de alto). Se achica a ~160x134 manteniendo las mismas
-     proporciones relativas entre encabezado/imagen/pie. Posicion: arriba a la IZQUIERDA (a pedido
-     -- arriba a la derecha tapaba los controles nativos del mapa: zoom, capas, pantalla completa). */
-  detCamBox.style.cssText = 'position:absolute;z-index:500;top:8px;left:8px;width:160px;height:140px;background:#0b0f14;border-radius:8px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+  /* Tamaño por defecto reducido a pedido: la caja original (280x230) tapaba demasiado el mapa, que
+     en el detalle de viaje ya es chico (360px de alto). Se achica a ~160x140 manteniendo las mismas
+     proporciones relativas entre encabezado/imagen/pie. Posicion inicial: arriba a la IZQUIERDA (a
+     pedido -- arriba a la derecha tapaba los controles nativos del mapa: zoom, capas, pantalla
+     completa).
+     A pedido: la caja ahora se puede mover libremente (arrastrando el encabezado) y agrandar o
+     achicar (agarrando de la esquina inferior derecha, resize:both nativo del navegador, o con el
+     boton de agrandar/achicar rapido del encabezado). Motivo: con la camara "EN VIVO" activa, el
+     componente oficial <gvp-video-player> muestra las DOS lentes (chofer + ruta) apiladas dentro
+     del mismo recuadro, y al tamaño chico original (160x140, pensado solo para fotos de eventos)
+     no se alcanzaba a distinguir nada en ninguna de las dos. display:flex/flex-direction:column
+     para que encabezado y pie mantengan su alto fijo y el video (flex:1) ocupe todo el alto
+     restante sin importar el tamaño final de la caja -- así el resize nativo "simplemente
+     funciona" sin tener que recalcular nada a mano en JS. pointer-events ya no es "none": al ser
+     ahora una ventana arrastrable/redimensionable no tiene sentido dejar pasar los clics del mapa
+     a traves suyo (igual que cualquier ventana flotante). */
+  detCamBox.style.cssText = 'position:absolute;z-index:500;top:8px;left:8px;width:160px;height:140px;min-width:120px;min-height:96px;max-width:560px;max-height:460px;background:#0b0f14;border-radius:8px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;flex-direction:column;pointer-events:auto;font-family:inherit;resize:both;box-sizing:border-box';
   var head = document.createElement('div');
-  head.style.cssText = 'height:16px;padding:0 6px;display:flex;align-items:center;color:#e5e7eb;font-size:.58rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
-  head.textContent = 'CAMARA';
+  head.style.cssText = 'flex:0 0 auto;height:16px;padding:0 4px 0 6px;display:flex;align-items:center;justify-content:space-between;gap:4px;color:#e5e7eb;font-size:.58rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08);cursor:move;user-select:none';
+  var headLabel = document.createElement('span');
+  headLabel.textContent = 'CAMARA';
+  var sizeBtn = document.createElement('button');
+  sizeBtn.type = 'button';
+  sizeBtn.className = 'gv-cam-sizebtn';
+  sizeBtn.title = 'Agrandar / achicar';
+  sizeBtn.style.cssText = 'flex:0 0 auto;background:transparent;border:none;color:#e5e7eb;font-size:.72rem;line-height:1;padding:2px 3px;cursor:pointer;border-radius:3px';
+  sizeBtn.innerHTML = '&#43;'; // agrandar ("+"; se evitan glifos de flechas diagonales poco soportados)
+  head.appendChild(headLabel);
+  head.appendChild(sizeBtn);
+  /* Arrastrar la caja: mousedown en el encabezado (pero no en el boton de agrandar) empieza el
+     arrastre; mousemove/mouseup se escuchan en document para no perder el gesto si el mouse sale
+     de la caja mientras se arrastra rapido. Se recalcula left/top en cada movimiento en base al
+     delta contra el punto donde empezo el arrastre -- así no importa si el mouse queda "adelantado"
+     respecto de la esquina de la caja. Clampeado contra el contenedor (anchor) para que no se
+     pueda soltar completamente afuera y quedar inagarrable. */
+  head.addEventListener('mousedown', function(e){
+    if(e.target === sizeBtn) return;
+    e.preventDefault();
+    var startX = e.clientX, startY = e.clientY;
+    var startLeft = detCamBox.offsetLeft, startTop = detCamBox.offsetTop;
+    var anchorEl = detCamBox.parentElement;
+    function onMove(ev){
+      var dx = ev.clientX - startX, dy = ev.clientY - startY;
+      var newLeft = startLeft + dx, newTop = startTop + dy;
+      if(anchorEl){
+        var maxLeft = Math.max(0, anchorEl.clientWidth - detCamBox.offsetWidth);
+        var maxTop = Math.max(0, anchorEl.clientHeight - detCamBox.offsetHeight);
+        newLeft = Math.min(Math.max(0, newLeft), maxLeft);
+        newTop = Math.min(Math.max(0, newTop), maxTop);
+      }
+      detCamBox.style.left = newLeft + 'px';
+      detCamBox.style.top = newTop + 'px';
+    }
+    function onUp(){ document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  /* Boton de agrandar/achicar rapido: alterna entre el tamaño compacto original (para ver fotos de
+     eventos puntuales) y un tamaño grande fijo (para cuando esta EN VIVO con las dos lentes). No
+     interfiere con el resize libre de la esquina -- son dos formas de llegar al mismo lugar, el
+     usuario puede usar la que le resulte mas comoda en cada momento. */
+  var camMaximized = false;
+  sizeBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    camMaximized = !camMaximized;
+    if(camMaximized){
+      detCamBox.style.width = '380px';
+      detCamBox.style.height = '320px';
+      sizeBtn.innerHTML = '&#8722;'; // achicar ("−")
+      sizeBtn.title = 'Achicar';
+    } else {
+      detCamBox.style.width = '160px';
+      detCamBox.style.height = '140px';
+      sizeBtn.innerHTML = '&#43;';
+      sizeBtn.title = 'Agrandar';
+    }
+  });
   var vid = document.createElement('div');
   vid.className = 'gv-cam-vidwrap';
-  vid.style.cssText = 'width:100%;height:90px;position:relative;background:#0b0f14';
+  vid.style.cssText = 'flex:1 1 auto;min-height:0;width:100%;position:relative;background:#0b0f14';
   var loading = document.createElement('div');
   loading.className = 'gv-cam-loading';
   loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.62rem;text-align:center;padding:0 8px;background:#0b0f14;z-index:2';
   loading.textContent = 'Cargando imagen...';
   vid.appendChild(loading);
   /* Boton "EN VIVO", superpuesto sobre la imagen -- ver detCamToggleLive. Oculto por defecto:
-     solo se muestra una vez que se confirma que la unidad tiene camara (detCamInfo). El resto de
-     la caja tiene pointer-events:none (para no tapar clics sobre el mapa que esta debajo), pero un
-     hijo puede reactivarlo -- por eso el boton en si tiene pointer-events:auto. */
+     solo se muestra una vez que se confirma que la unidad tiene camara (detCamInfo). */
   var liveBtn = document.createElement('button');
   liveBtn.type = 'button';
   liveBtn.className = 'gv-cam-livebtn';
@@ -1586,7 +1653,7 @@ function ensureCamBox(){
   vid.appendChild(liveBtn);
   var foot = document.createElement('div');
   foot.className = 'gv-cam-foot';
-  foot.style.cssText = 'height:34px;padding:3px 6px;color:#e5e7eb;font-size:.58rem;line-height:1.25;background:#111827;border-top:1px solid rgba(255,255,255,.08);overflow:hidden';
+  foot.style.cssText = 'flex:0 0 auto;height:34px;padding:3px 6px;color:#e5e7eb;font-size:.58rem;line-height:1.25;background:#111827;border-top:1px solid rgba(255,255,255,.08);overflow:hidden';
   detCamBox.appendChild(head);
   detCamBox.appendChild(vid);
   detCamBox.appendChild(foot);
@@ -1607,7 +1674,7 @@ function detCamUpdateLiveBtnVisibility(){
    y pida la imagen de nuevo. */
 function detCamIdle(){
   if(!ensureCamBox()) return;
-  detCamBox.style.display = 'block';
+  detCamBox.style.display = 'flex';
   detCamLastTs = null;
   var loadingEl = detCamBox.querySelector('.gv-cam-loading');
   if(loadingEl){ loadingEl.textContent = 'Sin imagen para este tramo'; loadingEl.style.display = 'flex'; }
@@ -1619,7 +1686,7 @@ function detCamShow(rec, serialOverride){
   if(!serial || !rec) return;
   var ts = Math.floor(new Date(rec.dateTime).getTime() / 1000);
   if(!ensureCamBox()) return;
-  detCamBox.style.display = 'block';
+  detCamBox.style.display = 'flex';
   var footEl = detCamBox.querySelector('.gv-cam-foot');
   if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b>' + (rec.eventLabel ? (' &nbsp;<span style="color:#a78bfa">' + GV.escapeHtml(rec.eventLabel) + '</span>') : '') + '<br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
   if(ts === detCamLastTs) return;
@@ -1702,7 +1769,7 @@ function detCamToggleLive(){
   detCamLiveMode = true;
   var myToken = ++detCamLiveToken;
   if(btn){ btn.innerHTML = 'DETENER'; btn.style.background = 'rgba(55,65,81,.92)'; }
-  box.style.display = 'block';
+  box.style.display = 'flex';
   if(loadingEl){ loadingEl.textContent = 'Conectando camara en vivo...'; loadingEl.style.display = 'flex'; }
   if(footEl) footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br><span style="color:#f87171">EN VIVO</span>';
   GV.loadGvpPlayer().then(function(){
