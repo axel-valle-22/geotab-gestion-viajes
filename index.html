@@ -1858,11 +1858,25 @@ detMap = GV.createMap('gv-det-map', { center: { lat: -38.951, lng: -68.059 }, zo
 detLayer = GV.layerGroup(detMap);
 detHistLayer = GV.layerGroup(detMap);
 if(v.vehiculoId){
+  /* detCamInfo (la camara) y detCamEvents (los eventos reales) se piden en paralelo -- Camera
+     Get y CameraEvent Get son dos pedidos de red independientes, y cualquiera de los dos puede
+     terminar primero. Antes solo se reevaluaba la PIP cuando TERMINABA el pedido de eventos; si
+     el pedido de la camara tardaba mas (algo comun, ya que ademas encadena GV.getActiveCameraSerial),
+     la PIP se evaluaba con detCamInfo todavia en null, se escondia, y nunca se volvia a evaluar
+     -- quedaba escondida para siempre aunque la camara si existiera. Por eso ahora esta misma
+     revision se dispara desde LOS TRES lugares que pueden cambiar el resultado (camara encontrada,
+     numero de serie corregido, eventos recibidos), no solo desde el ultimo. */
+  function refreshCamPipNow(){
+    if(!detHistPts.length) return;
+    var curIdx = parseInt(slider.value, 10) || 0;
+    if(detHistPts[curIdx]) updateCamPip(new Date(detHistPts[curIdx].dateTime));
+  }
   GV.hasVideoAccess(gApi).then(function(allowed){
     if(!allowed) return; // el perfil no tiene permiso para ver video/camara: no se muestra nada
     GV.getCameraForDevice(gApi, v.vehiculoId).then(function(cam){
       detCamInfo = cam;
       if(!cam) return;
+      refreshCamPipNow();
       /* Corrige el numero de serie si el registro "Camera" quedo desactualizado (recambio de
          equipo) -- ver comentario de GV.getActiveCameraSerial en common.js. Sin esto el
          reproductor de video nunca mostraba ninguna imagen. */
@@ -1882,10 +1896,7 @@ if(v.vehiculoId){
       /* Si el recorrido ya se dibujo (loadHist ya corrio) antes de que llegaran los eventos,
          hay que reevaluar la PIP para la posicion actual -- si no, se queda escondida/idle
          para siempre aunque despues aparezcan eventos reales cerca. */
-      if(detHistPts.length){
-        var curIdx = parseInt(slider.value, 10) || 0;
-        if(detHistPts[curIdx]) updateCamPip(new Date(detHistPts[curIdx].dateTime));
-      }
+      refreshCamPipNow();
     });
   });
 }
