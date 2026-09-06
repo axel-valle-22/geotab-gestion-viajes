@@ -476,7 +476,49 @@ GV.makeLabelOverlay = function(position, html){
   ov.onRemove = function(){ if(this.__div && this.__div.parentNode){ this.__div.parentNode.removeChild(this.__div); } this.__div = null; };
   ov.setPosition = function(pos){ this.__pos = pos; this.draw(); };
   ov.setContent = function(newHtml){ if(this.__div) this.__div.innerHTML = newHtml; };
+  ov.getDiv = function(){ return this.__div; };
   return ov;
+};
+
+/* ---------------- Des-solapado de etiquetas fijas del mapa (origen/paradas/destino) ----------------
+Pedido: que el origen y los puntos de carga/descarga del detalle de un viaje muestren su nombre
+siempre (no solo al pasar el mouse), y que al alejar o acercar el zoom esas etiquetas no queden
+una encima de la otra, sino que se puedan leer bien.
+
+Google Maps no trae un mecanismo nativo de "evitar superposicion" para overlays HTML propios (a
+diferencia de los labels nativos de algunos mapas vectoriales). Esta funcion lo resuelve a mano:
+en cada 'idle'/'zoom_changed' del mapa mide el rectangulo real en pantalla (getBoundingClientRect)
+de cada etiqueta ya dibujada por GV.makeLabelOverlay, y si dos rectangulos se solapan, oculta la
+de menor prioridad (numero mas alto = menos prioridad) hasta que, al cambiar el zoom, vuelvan a
+tener lugar de sobra y reaparezcan solas. Se llama una sola vez por grupo de etiquetas, pasandole
+la lista completa: [{overlay, priority}, ...]. */
+GV.declutterLabels = function(map, entries){
+  if(!map || !entries || !entries.length) return;
+  var pending = null;
+  function run(){
+    pending = null;
+    /* Primero se muestran todas: hace falta medirlas en su tamano real antes de decidir cuales
+       ocultar (una etiqueta oculta mide 0 y arruinaria la deteccion de superposicion). */
+    entries.forEach(function(e){ var div = e.overlay.getDiv ? e.overlay.getDiv() : e.overlay.__div; if(div) div.style.visibility = 'visible'; });
+    var sorted = entries.slice().sort(function(a, b){ return a.priority - b.priority; });
+    var kept = [];
+    sorted.forEach(function(e){
+      var div = e.overlay.getDiv ? e.overlay.getDiv() : e.overlay.__div;
+      if(!div) return;
+      var r = div.getBoundingClientRect();
+      var solapa = kept.some(function(k){
+        return !(r.right < k.left || r.left > k.right || r.bottom < k.top || r.top > k.bottom);
+      });
+      if(solapa){ div.style.visibility = 'hidden'; }
+      else { kept.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom }); }
+    });
+  }
+  /* Pequeno margen (un frame) para que Google Maps ya haya reposicionado (draw()) las etiquetas
+     tras el cambio de zoom/paneo antes de medirlas. */
+  function schedule(){ if(pending) clearTimeout(pending); pending = setTimeout(run, 30); }
+  map.addListener('idle', schedule);
+  map.addListener('zoom_changed', schedule);
+  schedule();
 };
 
 GV.FIREBASE_CONFIG = { apiKey: "AIzaSyC8e7EGfwvxZkCkmqG59OA2yRTcsAXkamE", authDomain: "gestion-de-viajes-f5f65.firebaseapp.com", projectId: "gestion-de-viajes-f5f65", storageBucket: "gestion-de-viajes-f5f65.firebasestorage.app", messagingSenderId: "147508872002", appId: "1:147508872002:web:ca2d0c8ee51eca0f81fedb", measurementId: "G-ECF2NS0YBY" }; GV.loadFirebase = function(){ if(GV._firebasePromise) return GV._firebasePromise; GV._firebasePromise = new Promise(function(resolve, reject){ if(window.firebase && window.firebase.firestore){ resolve(window.firebase); return; } var s1 = document.createElement('script'); s1.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'; s1.onload = function(){ var s2 = document.createElement('script'); s2.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'; s2.onload = function(){ resolve(window.firebase); }; s2.onerror = function(){ reject(new Error('No se pudo cargar Firebase Firestore')); }; document.head.appendChild(s2); }; s1.onerror = function(){ reject(new Error('No se pudo cargar Firebase App')); }; document.head.appendChild(s1); }); return GV._firebasePromise; }; /* ---------------- Geocoding (Nominatim / OpenStreetMap) ---------------- */
