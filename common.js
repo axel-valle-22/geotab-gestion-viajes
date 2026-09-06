@@ -617,6 +617,72 @@ GV.reverseGeocode = function(lat, lng){
     .catch(function(){ return lat.toFixed(5) + ', ' + lng.toFixed(5); });
 };
 
+/* Interpreta lo que el usuario pego en el buscador de direccion (del selector de ubicacion mas
+   abajo) como coordenadas sueltas ("-38.916399, -68.0968307") o como un link de Google Maps de
+   escritorio -- ya sea con el segmento "@lat,lng,zoom" que trae cualquier vista del mapa, o con
+   "!3d..!4d.." que es el que trae puntualmente el PIN de un lugar (mas preciso que el "@" cuando
+   difieren, por eso se prueba primero). Si reconoce algo devuelve {lat, lng, label}, con label
+   igual al nombre del lugar si se lo pudo sacar del link (el pedacito entre "/maps/place/" y la
+   siguiente "/"), o null si no. Si el texto CLARAMENTE es un link de Maps pero no se le pudo sacar
+   ninguna coordenada -- el caso mas comun es un link CORTO tipo maps.app.goo.gl o goo.gl/maps/...,
+   que no trae las coordenadas adentro sino un codigo que solo el servidor de Google puede resolver
+   -- devuelve {error:true} para que quien llama le avise al usuario que pegue el link COMPLETO
+   (el que se ve en la barra de direcciones despues de abrirlo), no el corto. Si el texto no tiene
+   nada que ver con coordenadas ni con Maps devuelve null, y quien llama sigue con la busqueda de
+   direccion de siempre (Nominatim). */
+GV.parseCoordsOrGmapsLink = function(text){
+  text = (text || '').trim();
+  if(!text) return null;
+  var coordMatch = text.match(/^(-?\d{1,3}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if(coordMatch){
+    var lat0 = parseFloat(coordMatch[1]), lng0 = parseFloat(coordMatch[2]);
+    if(Math.abs(lat0) <= 90 && Math.abs(lng0) <= 180) return { lat: lat0, lng: lng0, label: null };
+  }
+  if(!/google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(text)) return null;
+  var m3d4d = text.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  var mAt = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  var mQ = text.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  var mLl = text.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  var pair = m3d4d || mAt || mQ || mLl;
+  if(!pair) return { error: true };
+  var placeName = null;
+  var mPlace = text.match(/\/maps\/place\/([^/@]+)/);
+  if(mPlace){ try{ placeName = decodeURIComponent(mPlace[1].replace(/\+/g, ' ')); }catch(e){ placeName = mPlace[1].replace(/\+/g, ' '); } }
+  return { lat: parseFloat(pair[1]), lng: parseFloat(pair[2]), label: placeName };
+};
+
+/* Lee el texto de un archivo .KML (el formato de Google Earth / Google My Maps, es XML) y devuelve
+   la lista de puntos marcados: cada Placemark con <Point> pasa a ser {nombre, lat, lng}. Si un
+   Placemark es en cambio una linea o un poligono se usa su primer vertice como ubicacion
+   representativa -- alcanza para el caso de uso real (una lista de sitios/equipos, que son puntos
+   sueltos). OJO: esto NO lee .KMZ (que es un .zip con el .kml adentro) para no tener que sumar una
+   libreria de descompresion aparte -- Google My Maps deja exportar directamente en KML sin
+   comprimir con solo tildar esa opcion al exportar, que es lo que se le pide al usuario. */
+GV.parseKmlPlacemarks = function(xmlText){
+  var out = [];
+  try{
+    var doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if(doc.querySelector('parsererror')) return out;
+    var placemarks = doc.getElementsByTagName('Placemark');
+    for(var i = 0; i < placemarks.length; i++){
+      var pm = placemarks[i];
+      var nameEl = pm.getElementsByTagName('name')[0];
+      var nombre = nameEl ? nameEl.textContent.trim() : '';
+      var coordsEl = pm.getElementsByTagName('coordinates')[0];
+      if(!coordsEl) continue;
+      var raw = (coordsEl.textContent || '').trim();
+      var firstTuple = raw.split(/\s+/)[0];
+      if(!firstTuple) continue;
+      var parts = firstTuple.split(',');
+      if(parts.length < 2) continue;
+      var lngK = parseFloat(parts[0]), latK = parseFloat(parts[1]); // KML: orden lng,lat (al reves de lo usual)
+      if(isNaN(latK) || isNaN(lngK)) continue;
+      out.push({ nombre: nombre, lat: latK, lng: lngK });
+    }
+  }catch(e){}
+  return out;
+};
+
 /* ---------------- Selector de ubicacion en mapa ---------------- */
 /* opts: { title, initial:{lat,lng,direccion}, withStopFields:boolean } */
 /* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin]} o null si se cancela */
@@ -639,10 +705,20 @@ GV.pickLocation = function(opts){
         '<div class="gv-modal">' +
           '<h3>' + GV.escapeHtml(opts.title || 'Seleccionar ubicacion') + '</h3>' +
           '<div class="gv-search-row">' +
-            '<input type="text" id="gv-map-search" placeholder="Buscar direccion...">' +
+            '<input type="text" id="gv-map-search" placeholder="Direccion, coordenadas (lat,lng) o link de Google Maps...">' +
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
           '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
+          '<div class="gv-search-row" style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-import-btn" style="width:100%">Importar varios sitios desde un archivo KML</button></div>' +
+          '<input type="file" id="gv-kml-file-input" accept=".kml" style="display:none">' +
+          '<div id="gv-kml-import-panel" style="display:none;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#f9fafb">' +
+            '<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px">Se crea un sitio nuevo (circulo automatico) por cada punto que elijas. Si el archivo es .kmz, volve a exportarlo desde Google My Maps tildando "Exportar como KML" en vez de KMZ.</div>' +
+            '<div id="gv-kml-list" style="max-height:180px;overflow:auto;margin-bottom:8px"></div>' +
+            '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+              '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-cancel">Cancelar</button>' +
+              '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-kml-add-selected" disabled>Agregar seleccionados</button>' +
+            '</div>' +
+          '</div>' +
           (opts.vehiculoId ? '<div class="gv-search-row"><button type="button" id="gv-btn-ultima-pos" class="gv-btn gv-btn-sec gv-btn-sm" style="width:100%">Usar ultima posicion del camion</button></div>' : '') +
           '<div id="gv-map-picker" class="gv-map-box"></div>' +
           '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
@@ -717,7 +793,7 @@ GV.pickLocation = function(opts){
         if(mode === 'circulo'){ manualPoly = []; }
         updateManualPoly();
       }
-      var tipo = 'carga'; var editingSiteId = null; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px"><span style="flex:1">' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-edit-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0">Editar</button></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; box.style.display='none'; setMarker(site.lat, site.lng); map.setCenter({ lat: site.lat, lng: site.lng }); map.setZoom(16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; if(site.poligono && site.poligono.length >= 3){ current.poligono = site.poligono; } var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); box.querySelectorAll('[data-edit-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-edit-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; editingSiteId = site.id; setMarker(site.lat, site.lng); map.setCenter({ lat: site.lat, lng: site.lng }); map.setZoom(16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl3 = document.getElementById('gv-map-addr'); if(addrEl3) addrEl3.textContent = current.direccion; var okBtn3 = document.getElementById('gv-map-ok'); if(okBtn3) okBtn3.disabled = false; var nameEl2 = document.getElementById('gv-site-name'); if(nameEl2) nameEl2.value = site.nombre || ''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display = 'block'; var saveBtn2 = document.getElementById('gv-site-save-btn'); if(saveBtn2) saveBtn2.textContent = 'Actualizar sitio'; if(site.poligono && site.poligono.length >= 3){ manualPoly = site.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }); setShapeMode('manual'); } else { manualPoly = []; setShapeMode('circulo'); } }); }); }
+      var tipo = 'carga'; var editingSiteId = null; function renderSiteList(filter){ var box = document.getElementById('gv-site-list'); if(!box) return; var list = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || []; var f = (filter||'').toLowerCase(); if(f){ list = list.filter(function(s){ return (s.nombre||'').toLowerCase().indexOf(f) !== -1 || (s.direccion||'').toLowerCase().indexOf(f) !== -1; }); } if(!list.length){ box.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:6px">Sin sitios guardados' + (f?' que coincidan':'') + '</div>'; return; } box.innerHTML = list.map(function(s){ return '<div class="gv-stop-item" data-site-id="' + s.id + '" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px"><span style="flex:1">' + GV.escapeHtml(s.nombre||s.direccion||'') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-edit-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0">Editar</button><button type="button" class="gv-btn gv-btn-sm" data-del-id="' + s.id + '" style="padding:2px 8px;font-size:.72rem;flex-shrink:0;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca">Borrar</button></div>'; }).join(''); box.querySelectorAll('[data-site-id]').forEach(function(el){ el.addEventListener('click', function(){ var id = el.getAttribute('data-site-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; box.style.display='none'; setMarker(site.lat, site.lng); map.setCenter({ lat: site.lat, lng: site.lng }); map.setZoom(16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; if(site.poligono && site.poligono.length >= 3){ current.poligono = site.poligono; } var addrEl2 = document.getElementById('gv-map-addr'); if(addrEl2) addrEl2.textContent = current.direccion; var okBtn2 = document.getElementById('gv-map-ok'); if(okBtn2) okBtn2.disabled = false; if(opts.withStopFields && site.tipo){ var tb = document.getElementById('gv-tipo-' + site.tipo); if(tb) tb.click(); var durEl = document.getElementById('gv-map-duracion'); if(durEl && site.duracionMin != null) durEl.value = site.duracionMin; } }); }); box.querySelectorAll('[data-edit-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-edit-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; editingSiteId = site.id; setMarker(site.lat, site.lng); map.setCenter({ lat: site.lat, lng: site.lng }); map.setZoom(16); current = { lat: site.lat, lng: site.lng, direccion: site.direccion || site.nombre || '' }; var addrEl3 = document.getElementById('gv-map-addr'); if(addrEl3) addrEl3.textContent = current.direccion; var okBtn3 = document.getElementById('gv-map-ok'); if(okBtn3) okBtn3.disabled = false; var nameEl2 = document.getElementById('gv-site-name'); if(nameEl2) nameEl2.value = site.nombre || ''; var ind = document.getElementById('gv-site-edit-indicator'); if(ind) ind.style.display = 'block'; var saveBtn2 = document.getElementById('gv-site-save-btn'); if(saveBtn2) saveBtn2.textContent = 'Actualizar sitio'; if(site.poligono && site.poligono.length >= 3){ manualPoly = site.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }); setShapeMode('manual'); } else { manualPoly = []; setShapeMode('circulo'); } }); }); box.querySelectorAll('[data-del-id]').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation(); var id = el.getAttribute('data-del-id'); var site = list.find(function(s){ return s.id === id; }); if(!site) return; if(!confirm('Borrar el sitio "' + (site.nombre || site.direccion || 'sin nombre') + '"?')) return; GV.Storage.removeSitio(id).then(function(){ if(editingSiteId === id){ editingSiteId = null; var nameElD = document.getElementById('gv-site-name'); if(nameElD) nameElD.value=''; var indD = document.getElementById('gv-site-edit-indicator'); if(indD) indD.style.display='none'; var saveBtnD = document.getElementById('gv-site-save-btn'); if(saveBtnD) saveBtnD.textContent = 'Guardar sitio'; } renderSiteList(filter); }); }); }); }
 
       function setMarker(lat, lng){
         if(marker){ marker.setMap(null); }
@@ -762,18 +838,43 @@ GV.pickLocation = function(opts){
         onPoint(e.latLng.lat(), e.latLng.lng());
       });
 
+      function applyPoint(lat, lng, label, placeName){
+        setMarker(lat, lng);
+        map.setCenter({ lat: lat, lng: lng });
+        map.setZoom(16);
+        current = { lat: lat, lng: lng, direccion: label || (lat.toFixed(5) + ', ' + lng.toFixed(5)) };
+        document.getElementById('gv-map-addr').textContent = current.direccion;
+        document.getElementById('gv-map-ok').disabled = false;
+        setShapeMode('circulo');
+        if(placeName){
+          var nameElS = document.getElementById('gv-site-name');
+          if(nameElS && !nameElS.value.trim()) nameElS.value = placeName;
+        }
+        if(!label){
+          GV.reverseGeocode(lat, lng).then(function(rl){
+            current.direccion = rl;
+            var addrElS = document.getElementById('gv-map-addr');
+            if(addrElS) addrElS.textContent = rl;
+          });
+        }
+      }
       function doSearch(){
         var q = document.getElementById('gv-map-search').value.trim();
         if(!q) return;
+        var parsed = GV.parseCoordsOrGmapsLink(q);
+        if(parsed && parsed.error){
+          alert('Ese parece ser un link corto de Google Maps (tipo maps.app.goo.gl o goo.gl/maps), que no trae las coordenadas adentro. Abrilo en el navegador y pega aca el link completo que aparece en la barra de direcciones (por ejemplo, el que tiene "@lat,lng" o "!3d..!4d..").');
+          return;
+        }
+        if(parsed){
+          applyPoint(parsed.lat, parsed.lng, parsed.label, parsed.label);
+          return;
+        }
         GV.geocodeSearch(q).then(function(list){
           if(list && list.length){
-            setMarker(list[0].lat, list[0].lng);
-            map.setCenter({ lat: list[0].lat, lng: list[0].lng });
-            map.setZoom(15);
-            current = { lat: list[0].lat, lng: list[0].lng, direccion: list[0].label };
-            document.getElementById('gv-map-addr').textContent = list[0].label;
-            document.getElementById('gv-map-ok').disabled = false;
-            setShapeMode('circulo');
+            applyPoint(list[0].lat, list[0].lng, list[0].label, null);
+          } else {
+            alert('No se encontro ninguna direccion, coordenada o link valido para "' + q + '".');
           }
         });
       }
@@ -781,6 +882,91 @@ GV.pickLocation = function(opts){
       document.getElementById('gv-map-search').addEventListener('keydown', function(e){
         if(e.key === 'Enter'){ e.preventDefault(); doSearch(); }
       });
+
+      /* Importar varios sitios de una: el usuario sube un .kml exportado de Google My Maps (por
+         ejemplo una lista de equipos/sitios de un proveedor) y elige, con checkboxes, cuales de
+         los puntos que trae ese archivo quiere agregar como sitios guardados. Cada uno que quede
+         tildado se crea como un sitio nuevo con circulo automatico (igual que si se hubiera
+         guardado a mano desde el mapa). */
+      var kmlParsed = [];
+      var kmlImportBtn = document.getElementById('gv-kml-import-btn');
+      var kmlFileInput = document.getElementById('gv-kml-file-input');
+      var kmlPanel = document.getElementById('gv-kml-import-panel');
+      var kmlListBox = document.getElementById('gv-kml-list');
+      var kmlAddBtn = document.getElementById('gv-kml-add-selected');
+      var kmlCancelBtn = document.getElementById('gv-kml-cancel');
+      function renderKmlList(){
+        if(!kmlListBox) return;
+        kmlListBox.innerHTML = kmlParsed.map(function(p, i){
+          return '<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:.8rem;cursor:pointer"><input type="checkbox" class="gv-kml-chk" data-idx="' + i + '" checked><span>' + GV.escapeHtml(p.nombre || ('Punto ' + (i+1))) + ' <span style="color:#9ca3af">(' + p.lat.toFixed(5) + ', ' + p.lng.toFixed(5) + ')</span></span></label>';
+        }).join('');
+        updateKmlAddBtnState();
+      }
+      function updateKmlAddBtnState(){
+        if(!kmlAddBtn) return;
+        var anyChecked = !!kmlPanel.querySelector('.gv-kml-chk:checked');
+        kmlAddBtn.disabled = !anyChecked;
+      }
+      function closeKmlPanel(){
+        kmlParsed = [];
+        if(kmlPanel) kmlPanel.style.display = 'none';
+        if(kmlFileInput) kmlFileInput.value = '';
+      }
+      if(kmlImportBtn && kmlFileInput){
+        kmlImportBtn.addEventListener('click', function(){ kmlFileInput.click(); });
+        kmlFileInput.addEventListener('change', function(){
+          var file = kmlFileInput.files && kmlFileInput.files[0];
+          if(!file) return;
+          if(/\.kmz$/i.test(file.name)){
+            alert('Ese archivo es .kmz (comprimido). Volve a exportarlo desde Google My Maps tildando la opcion "Exportar como KML" en vez de KMZ, y subi ese archivo .kml.');
+            kmlFileInput.value = '';
+            return;
+          }
+          var reader = new FileReader();
+          reader.onload = function(){
+            var puntos = GV.parseKmlPlacemarks(String(reader.result || ''));
+            if(!puntos.length){
+              alert('No se encontro ningun punto (Placemark) valido dentro de ese archivo KML.');
+              kmlFileInput.value = '';
+              return;
+            }
+            kmlParsed = puntos;
+            renderKmlList();
+            if(kmlPanel) kmlPanel.style.display = 'block';
+          };
+          reader.onerror = function(){ alert('No se pudo leer el archivo.'); };
+          reader.readAsText(file);
+        });
+      }
+      if(kmlListBox){
+        kmlListBox.addEventListener('change', function(e){ if(e.target && e.target.classList.contains('gv-kml-chk')) updateKmlAddBtnState(); });
+      }
+      if(kmlCancelBtn) kmlCancelBtn.addEventListener('click', closeKmlPanel);
+      if(kmlAddBtn){
+        kmlAddBtn.addEventListener('click', function(){
+          var checks = kmlPanel.querySelectorAll('.gv-kml-chk:checked');
+          if(!checks.length) return;
+          var textoOriginal = kmlAddBtn.textContent;
+          kmlAddBtn.disabled = true;
+          kmlAddBtn.textContent = 'Agregando...';
+          var idxs = Array.prototype.map.call(checks, function(c){ return parseInt(c.getAttribute('data-idx'), 10); });
+          var chain = Promise.resolve();
+          idxs.forEach(function(idx){
+            var p = kmlParsed[idx];
+            if(!p) return;
+            chain = chain.then(function(){
+              return GV.Storage.addSitio({ id: GV.genId('site'), nombre: p.nombre || ('Sitio ' + (idx+1)), direccion: p.nombre || '', lat: p.lat, lng: p.lng });
+            });
+          });
+          chain.then(function(){
+            kmlAddBtn.textContent = textoOriginal;
+            closeKmlPanel();
+            renderSiteList(siteSearchEl ? siteSearchEl.value : '');
+            var siteListBox2 = document.getElementById('gv-site-list');
+            if(siteListBox2) siteListBox2.style.display = 'block';
+          });
+        });
+      }
 
       var ultimaPosBtn = document.getElementById('gv-btn-ultima-pos');
       if(ultimaPosBtn){
