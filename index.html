@@ -1532,12 +1532,46 @@ etc.), igual que en el Historial de viajes nativo. Por eso la PIP muestra la ima
 recorrido pasa cerca (en el tiempo) de uno de esos eventos, y un cartel de "sin imagen en este
 tramo" el resto del viaje -- no hay forma de tener imagen continua de todo el trayecto. */
 function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
+/* Crea la ventana PIP (una sola vez) si todavia no existe. OJO: antes esta creacion vivia
+   solo adentro de detCamShow, y detCamIdle se limitaba a "if(!detCamBox) return" -- es decir,
+   si el PRIMER llamado para un viaje era un idle (sin evento real cerca, que es el caso mas
+   comun, y el UNICO caso mientras el Get de CameraEvent siga devolviendo GenericException en
+   esta cuenta -- ver comentario de updateCamPip mas abajo), detCamIdle no hacia nada y la
+   ventana nunca llegaba a existir en el DOM. Se separo la creacion a esta funcion para que
+   tanto detCamIdle como detCamShow puedan garantizar que la caja exista antes de mostrar
+   cualquier contenido. */
+function ensureCamBox(){
+  if(detCamBox) return detCamBox;
+  var anchor = document.getElementById('gv-det-map-wrap');
+  if(!anchor) return null;
+  detCamBox = document.createElement('div');
+  detCamBox.style.cssText = 'position:absolute;z-index:500;top:10px;right:10px;width:280px;height:230px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+  var head = document.createElement('div');
+  head.style.cssText = 'height:22px;padding:0 9px;display:flex;align-items:center;color:#e5e7eb;font-size:.66rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
+  head.textContent = 'CAMARA';
+  var vid = document.createElement('div');
+  vid.className = 'gv-cam-vidwrap';
+  vid.style.cssText = 'width:100%;height:158px;position:relative;background:#0b0f14';
+  var loading = document.createElement('div');
+  loading.className = 'gv-cam-loading';
+  loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.72rem;text-align:center;padding:0 12px;background:#0b0f14;z-index:2';
+  loading.textContent = 'Cargando imagen...';
+  vid.appendChild(loading);
+  var foot = document.createElement('div');
+  foot.className = 'gv-cam-foot';
+  foot.style.cssText = 'height:50px;padding:6px 9px;color:#e5e7eb;font-size:.68rem;line-height:1.35;background:#111827;border-top:1px solid rgba(255,255,255,.08)';
+  detCamBox.appendChild(head);
+  detCamBox.appendChild(vid);
+  detCamBox.appendChild(foot);
+  anchor.appendChild(detCamBox);
+  return detCamBox;
+}
 /* Sin evento real cerca: se deja la ventana visible (para que quede claro que la camara esta
    activa en este viaje) pero con un cartel neutro en vez de la imagen. detCamLastTs se limpia
    para que, en cuanto vuelva a haber un evento real cerca, detCamShow no lo de por "ya mostrado"
    y pida la imagen de nuevo. */
 function detCamIdle(){
-  if(!detCamBox) return;
+  if(!ensureCamBox()) return;
   detCamBox.style.display = 'block';
   detCamLastTs = null;
   var loadingEl = detCamBox.querySelector('.gv-cam-loading');
@@ -1549,30 +1583,7 @@ function detCamShow(rec, serialOverride){
   var serial = serialOverride || (detCamInfo && detCamInfo.cameraSerialNumber);
   if(!serial || !rec) return;
   var ts = Math.floor(new Date(rec.dateTime).getTime() / 1000);
-  if(!detCamBox){
-    var anchor = document.getElementById('gv-det-map-wrap');
-    if(!anchor) return;
-    detCamBox = document.createElement('div');
-    detCamBox.style.cssText = 'position:absolute;z-index:500;top:10px;right:10px;width:280px;height:230px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
-    var head = document.createElement('div');
-    head.style.cssText = 'height:22px;padding:0 9px;display:flex;align-items:center;color:#e5e7eb;font-size:.66rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
-    head.textContent = 'CAMARA';
-    var vid = document.createElement('div');
-    vid.className = 'gv-cam-vidwrap';
-    vid.style.cssText = 'width:100%;height:158px;position:relative;background:#0b0f14';
-    var loading = document.createElement('div');
-    loading.className = 'gv-cam-loading';
-    loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.72rem;text-align:center;padding:0 12px;background:#0b0f14;z-index:2';
-    loading.textContent = 'Cargando imagen...';
-    vid.appendChild(loading);
-    var foot = document.createElement('div');
-    foot.className = 'gv-cam-foot';
-    foot.style.cssText = 'height:50px;padding:6px 9px;color:#e5e7eb;font-size:.68rem;line-height:1.35;background:#111827;border-top:1px solid rgba(255,255,255,.08)';
-    detCamBox.appendChild(head);
-    detCamBox.appendChild(vid);
-    detCamBox.appendChild(foot);
-    anchor.appendChild(detCamBox);
-  }
+  if(!ensureCamBox()) return;
   detCamBox.style.display = 'block';
   var footEl = detCamBox.querySelector('.gv-cam-foot');
   if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b>' + (rec.eventLabel ? (' &nbsp;<span style="color:#a78bfa">' + GV.escapeHtml(rec.eventLabel) + '</span>') : '') + '<br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
