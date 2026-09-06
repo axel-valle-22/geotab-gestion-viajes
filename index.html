@@ -1472,7 +1472,7 @@ return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px da
 var overlay = document.createElement('div');
 overlay.className = 'gv-modal-overlay';
 overlay.innerHTML =
-'<div class="gv-modal" style="max-width:760px">' +
+'<div class="gv-modal" style="max-width:1040px">' +
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
@@ -1486,7 +1486,9 @@ overlay.innerHTML =
 tramosHtml +
 retrasosHtml +
 (v.vehiculoId ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
-'<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db;margin-bottom:6px"></div>' +
+'<div id="gv-det-map-wrap" style="position:relative;margin-bottom:6px">' +
+'<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db"></div>' +
+'</div>' +
 (v.vehiculoId ? ('<div id="gv-det-playback" style="background:#0f172a;border-radius:10px;padding:12px 16px 10px;margin-bottom:14px">' +
 '<div style="display:flex;align-items:center;gap:12px">' +
 '<button type="button" id="gv-det-play" style="background:var(--gv-accent);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:.85rem;cursor:pointer;flex-shrink:0" disabled>&#9654;</button>' +
@@ -1513,64 +1515,71 @@ document.body.appendChild(overlay);
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
 
-/* ---------------- Imagenes de la camara del vehiculo al pasar el mouse por el recorrido ----------------
-Igual que en el Historial de viajes nativo de Geotab: si la unidad tiene una camara instalada
-(Geotab Video / Lytx / Netradyne / Surfsight, etc.) se muestra ahi mismo la imagen que registro
-en ese momento del trayecto, usando el reproductor oficial de Geotab (misma sesion, sin clave
-ni costo aparte -- ver GV.getCameraForDevice / GV.loadGvpPlayer en common.js). Si la unidad no
-tiene camara, esto simplemente no hace nada. */
-function detCamNearestIdx(lat, lng){
-  if(!detHistPts.length) return null;
-  var best = 0, bestD = Infinity;
-  for(var i = 0; i < detHistPts.length; i++){
-    var r = detHistPts[i];
-    if(r.latitude == null) continue;
-    var dLat = r.latitude - lat, dLng = r.longitude - lng;
-    var d = dLat * dLat + dLng * dLng;
-    if(d < bestD){ bestD = d; best = i; }
-  }
-  return best;
-}
-function detCamPosition(clientX, clientY){
+/* ---------------- Ventana PIP de camara, fija arriba a la derecha del mapa, sincronizada con el
+   punto del recorrido que se esta viendo (reproduccion o arrastre del slider) ----------------
+Antes esto se mostraba al pasar el mouse por la linea del recorrido (una caja que seguia al
+cursor). Ahora es una ventana FIJA en la esquina del mapa (por eso se ensancho el modal del
+detalle: para que el mapa tenga espacio de sobra aunque la PIP tape una esquina) que se actualiza
+sola a medida que avanza la reproduccion o se mueve el slider, sin necesidad de pasar el mouse por
+ningun lado. Usa el mismo reproductor oficial de Geotab (misma sesion, sin clave ni costo aparte
+-- ver GV.getCameraForDevice / GV.loadGvpPlayer en common.js). Si la unidad no tiene camara, la
+ventana ni se crea.
+Importante (confirmado en vivo contra la API de Geotab Video, ver comentario mas abajo en
+GV.getCameraEventsForDevice de common.js): NO existe forma de "interceptar" video en vivo ni de
+traer una imagen para cualquier instante arbitrario del recorrido -- solo hay imagen real
+guardada para los eventos que la propia camara ya marco (CameraEvent: frenada brusca, distraccion,
+etc.), igual que en el Historial de viajes nativo. Por eso la PIP muestra la imagen real cuando el
+recorrido pasa cerca (en el tiempo) de uno de esos eventos, y un cartel de "sin imagen en este
+tramo" el resto del viaje -- no hay forma de tener imagen continua de todo el trayecto. */
+function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
+/* Sin evento real cerca: se deja la ventana visible (para que quede claro que la camara esta
+   activa en este viaje) pero con un cartel neutro en vez de la imagen. detCamLastTs se limpia
+   para que, en cuanto vuelva a haber un evento real cerca, detCamShow no lo de por "ya mostrado"
+   y pida la imagen de nuevo. */
+function detCamIdle(){
   if(!detCamBox) return;
-  var w = 220, h = 165, pad = 14;
-  var x = clientX + pad, y = clientY - h - pad;
-  if(x + w > window.innerWidth - 8) x = clientX - w - pad;
-  if(x < 8) x = 8;
-  if(y < 8) y = clientY + pad;
-  detCamBox.style.left = x + 'px';
-  detCamBox.style.top = y + 'px';
+  detCamBox.style.display = 'block';
+  detCamLastTs = null;
+  var loadingEl = detCamBox.querySelector('.gv-cam-loading');
+  if(loadingEl){ loadingEl.textContent = 'Sin imagen de camara en este tramo'; loadingEl.style.display = 'flex'; }
+  var footEl = detCamBox.querySelector('.gv-cam-foot');
+  if(footEl) footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br><span style="color:#9ca3af">Solo hay imagen guardada cerca de un evento real de camara</span>';
 }
-function detCamShow(clientX, clientY, rec, serialOverride){
+function detCamShow(rec, serialOverride){
   var serial = serialOverride || (detCamInfo && detCamInfo.cameraSerialNumber);
   if(!serial || !rec) return;
   var ts = Math.floor(new Date(rec.dateTime).getTime() / 1000);
   if(!detCamBox){
+    var anchor = document.getElementById('gv-det-map-wrap');
+    if(!anchor) return;
     detCamBox = document.createElement('div');
-    detCamBox.style.cssText = 'position:fixed;z-index:10000;width:260px;height:215px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+    detCamBox.style.cssText = 'position:absolute;z-index:500;top:10px;right:10px;width:280px;height:230px;background:#0b0f14;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.15);display:none;pointer-events:none;font-family:inherit';
+    var head = document.createElement('div');
+    head.style.cssText = 'height:22px;padding:0 9px;display:flex;align-items:center;color:#e5e7eb;font-size:.66rem;font-weight:700;letter-spacing:.02em;background:#111827;border-bottom:1px solid rgba(255,255,255,.08)';
+    head.textContent = 'CAMARA';
     var vid = document.createElement('div');
     vid.className = 'gv-cam-vidwrap';
-    vid.style.cssText = 'width:100%;height:165px;position:relative;background:#0b0f14';
+    vid.style.cssText = 'width:100%;height:158px;position:relative;background:#0b0f14';
     var loading = document.createElement('div');
     loading.className = 'gv-cam-loading';
-    loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.72rem;background:#0b0f14;z-index:2';
+    loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.72rem;text-align:center;padding:0 12px;background:#0b0f14;z-index:2';
     loading.textContent = 'Cargando imagen...';
     vid.appendChild(loading);
     var foot = document.createElement('div');
     foot.className = 'gv-cam-foot';
     foot.style.cssText = 'height:50px;padding:6px 9px;color:#e5e7eb;font-size:.68rem;line-height:1.35;background:#111827;border-top:1px solid rgba(255,255,255,.08)';
+    detCamBox.appendChild(head);
     detCamBox.appendChild(vid);
     detCamBox.appendChild(foot);
-    document.body.appendChild(detCamBox);
+    anchor.appendChild(detCamBox);
   }
-  detCamPosition(clientX, clientY);
   detCamBox.style.display = 'block';
   var footEl = detCamBox.querySelector('.gv-cam-foot');
   if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b>' + (rec.eventLabel ? (' &nbsp;<span style="color:#a78bfa">' + GV.escapeHtml(rec.eventLabel) + '</span>') : '') + '<br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
   if(ts === detCamLastTs) return;
   detCamLastTs = ts;
   var loadingEl = detCamBox.querySelector('.gv-cam-loading');
-  if(loadingEl) loadingEl.style.display = 'flex';
+  if(loadingEl){ loadingEl.textContent = 'Cargando imagen...'; loadingEl.style.display = 'flex'; }
   /* IMPORTANTE: el componente oficial <gvp-video-player> exige credenciales (database/username/
      sessionId) para poder buscar la grabacion -- si se le fijan camera-serial-number/
      playback-start-timestamp ANTES de que las credenciales esten puestas, pide la grabacion sin
@@ -1622,7 +1631,23 @@ function detCamShow(clientX, clientY, rec, serialOverride){
     });
   });
 }
-function detCamHide(){ if(detCamBox) detCamBox.style.display = 'none'; detCamLastTs = null; }
+/* Busca, para el instante simulado "whenDate" (el que se esta viendo ahora mismo en el mapa,
+   sea por reproduccion o por arrastre del slider), el CameraEvent real mas cercano en el tiempo
+   y actualiza la PIP: imagen real si hay uno a menos de 3 minutos, cartel neutro si no. Se llama
+   en cada cuadro de la reproduccion y en cada movimiento del slider (ver tick()/updateHistMarker
+   mas abajo); detCamShow ya se encarga de no repetir el pedido de red si el evento no cambio. */
+function updateCamPip(whenDate){
+  if(!detCamInfo || !detCamInfo.cameraSerialNumber || !detCamEvents.length){ detCamHide(); return; }
+  var t = whenDate.getTime();
+  var bestEv = null, bestDiffMs = Infinity;
+  detCamEvents.forEach(function(ev){
+    var diff = Math.abs(ev.ts * 1000 - t);
+    if(diff < bestDiffMs){ bestDiffMs = diff; bestEv = ev; }
+  });
+  if(!bestEv || bestDiffMs > 3 * 60 * 1000){ detCamIdle(); return; }
+  var rec = { dateTime: new Date(bestEv.ts * 1000).toISOString(), eventLabel: bestEv.ruleName };
+  detCamShow(rec, bestEv.serial || detCamInfo.cameraSerialNumber);
+}
 
 /* Dibuja una camarita (GV.cameraIcon) sobre el recorrido en cada punto donde hay un CameraEvent
    real -- exactamente donde el Historial de viajes nativo de Geotab tambien tiene imagen
@@ -1832,6 +1857,13 @@ if(v.vehiculoId){
     GV.getCameraEventsForDevice(gApi, v.vehiculoId, __camDayStart.toISOString(), __camTo.toISOString()).then(function(evs){
       detCamEvents = evs || [];
       renderCamEventMarkers();
+      /* Si el recorrido ya se dibujo (loadHist ya corrio) antes de que llegaran los eventos,
+         hay que reevaluar la PIP para la posicion actual -- si no, se queda escondida/idle
+         para siempre aunque despues aparezcan eventos reales cerca. */
+      if(detHistPts.length){
+        var curIdx = parseInt(slider.value, 10) || 0;
+        if(detHistPts[curIdx]) updateCamPip(new Date(detHistPts[curIdx].dateTime));
+      }
     });
   });
 }
@@ -2481,6 +2513,7 @@ function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
 positionHistMarker(r.latitude, r.longitude, bearingAtIdx(idx), new Date(r.dateTime), r.speed);
+updateCamPip(new Date(r.dateTime));
 }
 function fmtHHMM(d){ return d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function fmtHHMMSS(ms){
@@ -2587,6 +2620,7 @@ return;
 var st = interpAtTime(detSimTime);
 slider.value = st.idx;
 positionHistMarker(st.lat, st.lng, st.bearing, st.when, st.speed);
+updateCamPip(st.when);
 updateTimeLabelsForDate(st.when);
 detRafId = requestAnimationFrame(tick);
 }
@@ -2643,29 +2677,6 @@ var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#
 detHistLayer.add(histPolyline);
 detHistLayer.add(histPolylineHitArea);
 renderCamEventMarkers();
-histPolylineHitArea.addListener('mousemove', function(e){
-if(!detCamInfo || !detCamInfo.cameraSerialNumber || !e.domEvent || !detCamEvents.length){ detCamHide(); return; }
-var idx = detCamNearestIdx(e.latLng.lat(), e.latLng.lng());
-if(idx == null){ detCamHide(); return; }
-var rec = detHistPts[idx];
-/* Solo se intenta mostrar imagen cuando el mouse esta cerca en el TIEMPO de un evento real de
-   camara (CameraEvent) de este viaje: comprobado en vivo contra la API de Geotab Video que un
-   punto cualquiera del recorrido, sin evento real ahi, practicamente nunca trae nada (igual que
-   en el Historial de viajes nativo, que tampoco muestra imagen fuera de sus eventos marcados con
-   camarita) -- insistir con esos puntos solo termina en una espera larga y un cartel de "no
-   disponible". Por eso, lejos de todo evento real, directamente no se muestra la caja de camara
-   (ver tambien renderCamEventMarkers: los eventos reales quedan marcados en el mapa). */
-var bestEv = null, bestDiffMs = Infinity, recT = new Date(rec.dateTime).getTime();
-detCamEvents.forEach(function(ev){
-  var diff = Math.abs(ev.ts * 1000 - recT);
-  if(diff < bestDiffMs){ bestDiffMs = diff; bestEv = ev; }
-});
-if(!bestEv || bestDiffMs > 3 * 60 * 1000){ detCamHide(); return; }
-var chosenRec = { dateTime: new Date(bestEv.ts * 1000).toISOString(), speed: rec.speed, eventLabel: bestEv.ruleName };
-var chosenSerial = bestEv.serial || detCamInfo.cameraSerialNumber;
-detCamShow(e.domEvent.clientX, e.domEvent.clientY, chosenRec, chosenSerial);
-});
-histPolylineHitArea.addListener('mouseout', detCamHide);
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
 slider.disabled = false;
