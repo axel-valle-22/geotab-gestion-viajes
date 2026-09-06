@@ -1637,7 +1637,18 @@ function detCamShow(rec, serialOverride){
    en cada cuadro de la reproduccion y en cada movimiento del slider (ver tick()/updateHistMarker
    mas abajo); detCamShow ya se encarga de no repetir el pedido de red si el evento no cambio. */
 function updateCamPip(whenDate){
-  if(!detCamInfo || !detCamInfo.cameraSerialNumber || !detCamEvents.length){ detCamHide(); return; }
+  /* OJO: antes este chequeo tambien escondia la PIP entera cuando detCamEvents.length era 0,
+     lo cual contradecia el comentario de detCamIdle de arriba (la ventana debe quedar visible
+     con un cartel neutro para dejar en claro que la camara esta activa, no desaparecer). Ese
+     bug hacia que la PIP nunca apareciera para NINGUN viaje mientras GV.getCameraEventsForDevice
+     no trajera ni un solo evento -- que es exactamente lo que pasa siempre en esta cuenta ahora
+     mismo, porque el Get de CameraEvent devuelve GenericException del lado del servidor de Geotab
+     (confirmado en vivo, ver comentario de GV.getCameraEventsForDevice en common.js) y el codigo
+     lo absorbe silenciosamente como si fueran "0 eventos". Por eso el chequeo de abajo solo debe
+     mirar si HAY camara confirmada (detCamInfo), no si hay eventos: sin camara, se esconde;
+     con camara pero sin eventos (o sin ninguno cercano), se muestra el cartel neutro via
+     detCamIdle en vez de nada. */
+  if(!detCamInfo || !detCamInfo.cameraSerialNumber){ detCamHide(); return; }
   var t = whenDate.getTime();
   var bestEv = null, bestDiffMs = Infinity;
   detCamEvents.forEach(function(ev){
