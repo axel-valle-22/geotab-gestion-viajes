@@ -1848,17 +1848,22 @@ detLayer.add(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, icon
 /* Etiqueta con el nombre del sitio SIEMPRE visible (no solo con el title al pasar el mouse):
    asi, alejando el zoom para ver el viaje completo, se identifican el origen, las paradas de
    carga/descarga y el destino de un vistazo. GV.declutterLabels (mas abajo) se encarga de que
-   estas etiquetas no se superpongan entre si al acercar/alejar el zoom. */
+   estas etiquetas no se superpongan entre si al acercar/alejar el zoom -- si dos quedarian
+   pisandose, corre una a un costado (nunca la oculta) y dibuja una lineita (leaderLine) que la
+   conecta de nuevo con el sitio real, para que el nombre de TODOS los sitios se pueda leer
+   siempre, aunque esten muy juntos en el mapa. */
 var labelTxt;
 if(p.label === 'O'){ labelTxt = 'Origen: ' + (p.dir||''); }
 else if(p.label === 'D'){ labelTxt = 'Destino: ' + (p.dir||''); }
 else { labelTxt = p.label + '. ' + (p.tipo ? (GV.tipoParadaLabel(p.tipo) + ': ') : '') + (p.dir||''); }
 var dotHtml = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + p.color + ';margin-right:5px;vertical-align:middle"></span>';
 var siteLabel = detLayer.add(GV.makeLabelOverlay({ lat: p.lat, lng: p.lng }, dotHtml + GV.escapeHtml(labelTxt)));
-/* Prioridad: origen y destino siempre por delante de las paradas (si hay que ocultar alguna
-   por superposicion, se ocultan paradas antes que el origen/destino). */
+var siteLeader = detLayer.add(GV.makeLeaderLine());
+/* Prioridad: origen y destino siempre por delante de las paradas (si dos etiquetas compiten por
+   el mismo lugar libre, se prioriza dejar al origen/destino en su posicion por defecto y correr
+   a la parada). */
 var priority = (p.label === 'O' || p.label === 'D') ? 0 : (parseInt(p.label, 10) || 1);
-siteLabelEntries.push({ overlay: siteLabel, priority: priority });
+siteLabelEntries.push({ overlay: siteLabel, leader: siteLeader, lat: p.lat, lng: p.lng, priority: priority });
 bounds.push({ lat: p.lat, lng: p.lng });
 });
 GV.declutterLabels(detMap, siteLabelEntries);
@@ -2435,28 +2440,47 @@ var histLabel = null;
    que quedaba invisible mientras la animacion seguia corriendo; al pausar, el ultimo marcador
    creado por fin tenia tiempo de pintarse y aparecia. La solucion es reutilizar el MISMO marcador
    y la MISMA etiqueta en cada cuadro (moverlos con setPosition/setIcon/setContent) en vez de
-   destruir y recrear -- igual de fluido pero sin el parpadeo/desaparicion. */
-function updateHistMarker(idx){
-var r = detHistPts[idx];
-if(!r) return;
-var pos = { lat: r.latitude, lng: r.longitude };
-var icon = GV.vehicleIcon(bearingAtIdx(idx), '#005674');
+   destruir y recrear.
+   Segunda vuelta (se seguia viendo "trabado" en vez de fluido como el reproductor nativo de
+   Geotab, que anda a 60fps): quedaban dos problemas mas.
+   1) Aunque se reutilizaba el marcador, se le generaba y decodificaba un icono SVG (data URI)
+      NUEVO en cada cuadro (60 veces por segundo) solo porque el rumbo cambiaba un poco -- ese
+      trabajo de sobra competia con la animacion y la hacia sentir menos fluida. Ahora el icono
+      solo se recalcula cuando el rumbo cambio lo suficiente como para notarse (mas de 3 grados);
+      mover el marcador de posicion (setPosition) es barato y se hace siempre.
+   2) tick() (ver mas abajo) saltaba directamente al proximo punto REAL del historial (LogRecord),
+      que llegan cada varios segundos -- el camion se quedaba quieto y de golpe "teleportaba" al
+      siguiente punto en vez de deslizarse. Ahora se interpola la posicion entre los dos puntos
+      reales mas cercanos segun la fraccion de tiempo ya transcurrida entre ambos (ver
+      interpAtTime), asi el movimiento es continuo cuadro a cuadro sin importar cada cuanto llegan
+      los puntos reales. */
+function positionHistMarker(lat, lng, bearingDeg, whenDate, speed){
+var pos = { lat: lat, lng: lng };
 if(histMarker){
 histMarker.setPosition(pos);
-histMarker.setIcon(icon);
-} else {
-histMarker = detHistLayer.add(new google.maps.Marker({ position: pos, icon: icon, zIndex: 900 }));
+if(histMarker.__lastBearing == null || Math.abs(((bearingDeg - histMarker.__lastBearing + 540) % 360) - 180) > 3){
+histMarker.setIcon(GV.vehicleIcon(bearingDeg, '#005674'));
+histMarker.__lastBearing = bearingDeg;
 }
-var when = new Date(r.dateTime).toLocaleString('es-AR',{hour12:false});
+} else {
+histMarker = detHistLayer.add(new google.maps.Marker({ position: pos, icon: GV.vehicleIcon(bearingDeg, '#005674'), zIndex: 900 }));
+histMarker.__lastBearing = bearingDeg;
+}
+var when = whenDate.toLocaleString('es-AR',{hour12:false});
 /* Se muestra siempre (no solo al pasar el mouse), igual que hacia el tooltip.openTooltip() de
    Leaflet: asi se ve la hora/velocidad mientras se mueve el slider del historial. */
-var labelHtml = GV.escapeHtml('Posicion: ' + when + ' - Velocidad: ' + Math.round(r.speed||0) + ' km/h');
+var labelHtml = GV.escapeHtml('Posicion: ' + when + ' - Velocidad: ' + Math.round(speed||0) + ' km/h');
 if(histLabel){
 histLabel.setPosition(pos);
 histLabel.setContent(labelHtml);
 } else {
 histLabel = detHistLayer.add(GV.makeLabelOverlay(pos, labelHtml));
 }
+}
+function updateHistMarker(idx){
+var r = detHistPts[idx];
+if(!r) return;
+positionHistMarker(r.latitude, r.longitude, bearingAtIdx(idx), new Date(r.dateTime), r.speed);
 }
 function fmtHHMM(d){ return d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function fmtHHMMSS(ms){
@@ -2467,11 +2491,8 @@ var mm = Math.floor(s/60); var ss = s - mm*60;
 function p2(n){ return (n<10?'0':'') + n; }
 return p2(hh) + ':' + p2(mm) + ':' + p2(ss);
 }
-function updateTimeLabels(idx){
+function updateTimeLabelsForDate(t){
 if(!detHistPts.length) return;
-var r = detHistPts[idx];
-if(!r) return;
-var t = new Date(r.dateTime);
 var curEl = document.getElementById('gv-det-time-cur');
 var elEl = document.getElementById('gv-det-time-elapsed');
 if(curEl) curEl.textContent = fmtHHMM(t);
@@ -2480,6 +2501,11 @@ var startT = new Date(detHistPts[0].dateTime).getTime();
 var endT = new Date(detHistPts[detHistPts.length - 1].dateTime).getTime();
 elEl.textContent = fmtHHMMSS(t.getTime() - startT) + ' / ' + fmtHHMMSS(endT - startT);
 }
+}
+function updateTimeLabels(idx){
+var r = detHistPts[idx];
+if(!r) return;
+updateTimeLabelsForDate(new Date(r.dateTime));
 }
 function findSiteIndices(sitePts, hist){
 var result = [];
@@ -2519,6 +2545,30 @@ var idx = parseInt(slider.value, 10) || 0;
 while(idx < detHistPts.length - 1 && new Date(detHistPts[idx+1].dateTime).getTime() <= t){ idx++; }
 return idx;
 }
+/* Interpola la posicion entre los dos puntos reales del historial (LogRecord) mas cercanos al
+   instante simulado "t", segun cuanto de ese tramo ya paso. El historial no llega en un flujo
+   continuo sino como puntos sueltos cada varios segundos; sin interpolar, tick() saltaba de golpe
+   de un punto real al siguiente recien cuando se cumplia el tiempo real entre ambos y el
+   movimiento se veia trabado/discontinuo (distinto del reproductor nativo de Geotab, que se ve
+   fluido). Con esto el camion se desliza en linea recta entre ambos puntos cuadro a cuadro. */
+function interpAtTime(t){
+var idx = findIdxForTime(t);
+var cur = detHistPts[idx];
+if(idx >= detHistPts.length - 1){
+return { lat: cur.latitude, lng: cur.longitude, bearing: bearingAtIdx(idx), speed: cur.speed, when: new Date(cur.dateTime), idx: idx };
+}
+var nxt = detHistPts[idx + 1];
+var t0 = new Date(cur.dateTime).getTime(), t1 = new Date(nxt.dateTime).getTime();
+var frac = (t1 > t0) ? Math.max(0, Math.min(1, (t - t0) / (t1 - t0))) : 0;
+return {
+lat: cur.latitude + (nxt.latitude - cur.latitude) * frac,
+lng: cur.longitude + (nxt.longitude - cur.longitude) * frac,
+bearing: GV.computeBearing(cur.latitude, cur.longitude, nxt.latitude, nxt.longitude),
+speed: (cur.speed || 0) + ((nxt.speed || 0) - (cur.speed || 0)) * frac,
+when: new Date(t0 + (t1 - t0) * frac),
+idx: idx
+};
+}
 function tick(ts){
 if(!detPlaying) return;
 if(detLastFrameTs == null) detLastFrameTs = ts;
@@ -2534,10 +2584,10 @@ updateTimeLabels(detHistPts.length - 1);
 stopPlayback();
 return;
 }
-var idx = findIdxForTime(detSimTime);
-slider.value = idx;
-updateHistMarker(idx);
-updateTimeLabels(idx);
+var st = interpAtTime(detSimTime);
+slider.value = st.idx;
+positionHistMarker(st.lat, st.lng, st.bearing, st.when, st.speed);
+updateTimeLabelsForDate(st.when);
 detRafId = requestAnimationFrame(tick);
 }
 if(playBtn) playBtn.addEventListener('click', function(){

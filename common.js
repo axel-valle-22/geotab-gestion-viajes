@@ -294,7 +294,8 @@ GV.CSS = ""
 + '.gv-site-marker-lbl{color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}'
 + '.gv-live-marker-lbl{background:var(--gv-accent);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 0 0 4px rgba(var(--gv-accent-rgb),.3),0 1px 4px rgba(0,0,0,.4);animation:gvLivePulse 1.6s infinite}'
 + '@keyframes gvLivePulse{0%{box-shadow:0 0 0 4px rgba(var(--gv-accent-rgb),.3),0 1px 4px rgba(0,0,0,.4)}50%{box-shadow:0 0 0 8px rgba(var(--gv-accent-rgb),.05),0 1px 4px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 4px rgba(var(--gv-accent-rgb),.3),0 1px 4px rgba(0,0,0,.4)}}'+'.gv-vehicle-marker{transition:transform 1s linear}'+'.gv-live-banner{display:inline-block;padding:4px 10px;border-radius:8px;font-size:.78rem;font-weight:700;margin:4px 0}'+'.gv-live-moving{background:#d1fae5;color:#065f46}'+'.gv-live-stopped{background:#fef3c7;color:#78350f}'+'.gv-live-nocomm{background:#fee2e2;color:#991b1b}'+'.gv-live-unknown{background:#f3f4f6;color:#6b7280}'
-+'.gv-truck-label-ov{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:#152238;color:#fff;font-weight:700;font-size:12px;font-family:inherit;padding:5px 11px;border-radius:7px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.45);opacity:.96;pointer-events:none;z-index:1}';
++'.gv-truck-label-ov{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:#152238;color:#fff;font-weight:700;font-size:12px;font-family:inherit;padding:5px 11px;border-radius:7px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.45);opacity:.96;pointer-events:none;z-index:1}'
++'.gv-label-leader{position:absolute;height:0;border-top:2px dashed rgba(255,255,255,.85);transform-origin:0 0;pointer-events:none;z-index:0;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.65))}';
 
 GV.injectCSS = function(containerId){
   var el = document.getElementById(containerId || 'gv-style-container');
@@ -459,6 +460,8 @@ GV.makeLabelOverlay = function(position, html){
   var ov = new Ov();
   ov.__pos = position;
   ov.__div = null;
+  ov.__offX = 0;
+  ov.__offY = 0;
   ov.onAdd = function(){
     var div = document.createElement('div');
     div.className = 'gv-truck-label-ov';
@@ -471,46 +474,119 @@ GV.makeLabelOverlay = function(position, html){
     var proj = this.getProjection();
     if(!proj) return;
     var pt = proj.fromLatLngToDivPixel(new google.maps.LatLng(this.__pos.lat, this.__pos.lng));
-    if(pt){ this.__div.style.left = pt.x + 'px'; this.__div.style.top = pt.y + 'px'; }
+    /* __offX/__offY: corrimiento en pixeles de pantalla respecto del punto real (0,0 = arriba del
+       marcador, como siempre). Lo usa GV.declutterLabels para separar del marcador las etiquetas
+       que quedarian superpuestas con otra, sin perder la posicion real del punto (para eso esta
+       tambien GV.makeLeaderLine: dibuja la lineita que conecta el sitio con su etiqueta corrida). */
+    if(pt){ this.__div.style.left = (pt.x + this.__offX) + 'px'; this.__div.style.top = (pt.y + this.__offY) + 'px'; }
   };
   ov.onRemove = function(){ if(this.__div && this.__div.parentNode){ this.__div.parentNode.removeChild(this.__div); } this.__div = null; };
   ov.setPosition = function(pos){ this.__pos = pos; this.draw(); };
   ov.setContent = function(newHtml){ if(this.__div) this.__div.innerHTML = newHtml; };
   ov.getDiv = function(){ return this.__div; };
+  ov.setOffset = function(dx, dy){ this.__offX = dx; this.__offY = dy; this.draw(); };
+  return ov;
+};
+
+/* ---------------- Linea que conecta un sitio con su etiqueta corrida ----------------
+Se usa junto con GV.makeLabelOverlay + setOffset: cuando una etiqueta se corre a un costado para
+no superponerse con otra (ver GV.declutterLabels), esta lineita conecta el punto real del sitio en
+el mapa con la etiqueta ya corrida, para que se siga entendiendo a que sitio pertenece. */
+GV.makeLeaderLine = function(){
+  var google = window.google;
+  function Ov(){}
+  Ov.prototype = new google.maps.OverlayView();
+  var ov = new Ov();
+  ov.__div = null;
+  ov.onAdd = function(){
+    var div = document.createElement('div');
+    div.className = 'gv-label-leader';
+    div.style.display = 'none';
+    this.__div = div;
+    this.getPanes().floatPane.appendChild(div);
+  };
+  /* La posicion la fija setEndpoints() (llamado desde GV.declutterLabels, que ya sabe donde va
+     cada punta) -- no hace falta recalcular nada en el draw() automatico de Google Maps. */
+  ov.draw = function(){};
+  ov.onRemove = function(){ if(this.__div && this.__div.parentNode){ this.__div.parentNode.removeChild(this.__div); } this.__div = null; };
+  ov.setEndpoints = function(x1, y1, x2, y2){
+    if(!this.__div) return;
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if(len < 1){ this.__div.style.display = 'none'; return; }
+    var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    this.__div.style.display = 'block';
+    this.__div.style.width = len + 'px';
+    this.__div.style.left = x1 + 'px';
+    this.__div.style.top = y1 + 'px';
+    this.__div.style.transform = 'rotate(' + angle + 'deg)';
+  };
+  ov.hide = function(){ if(this.__div) this.__div.style.display = 'none'; };
   return ov;
 };
 
 /* ---------------- Des-solapado de etiquetas fijas del mapa (origen/paradas/destino) ----------------
 Pedido: que el origen y los puntos de carga/descarga del detalle de un viaje muestren su nombre
 siempre (no solo al pasar el mouse), y que al alejar o acercar el zoom esas etiquetas no queden
-una encima de la otra, sino que se puedan leer bien.
+una encima de la otra, sino que se puedan leer bien -- SIN ocultar ninguna (a diferencia de la
+version anterior, que ocultaba la de menor prioridad cuando se superponian). Ahora, si la posicion
+por defecto (centrada arriba del marcador) quedaria pisando otra etiqueta ya ubicada, esta se corre
+a uno de varios costados posibles (CANDIDATES, de mas cerca a mas lejos) hasta encontrar un lugar
+libre, y se dibuja una lineita (GV.makeLeaderLine) que la conecta de nuevo con su sitio real. Si
+ningun candidato queda del todo libre (sitios muy amontonados), se deja igual en el candidato mas
+alejado -- el nombre nunca desaparece, en el peor caso queda un poco encimado.
 
 Google Maps no trae un mecanismo nativo de "evitar superposicion" para overlays HTML propios (a
-diferencia de los labels nativos de algunos mapas vectoriales). Esta funcion lo resuelve a mano:
-en cada 'idle'/'zoom_changed' del mapa mide el rectangulo real en pantalla (getBoundingClientRect)
-de cada etiqueta ya dibujada por GV.makeLabelOverlay, y si dos rectangulos se solapan, oculta la
-de menor prioridad (numero mas alto = menos prioridad) hasta que, al cambiar el zoom, vuelvan a
-tener lugar de sobra y reaparezcan solas. Se llama una sola vez por grupo de etiquetas, pasandole
-la lista completa: [{overlay, priority}, ...]. */
+diferencia de los labels nativos de algunos mapas vectoriales), asi que esto se resuelve a mano:
+en cada 'idle'/'zoom_changed' del mapa se mide el rectangulo real en pantalla de cada etiqueta
+(getBoundingClientRect) probando cada candidato, y se elige el primero que no pisa a ninguna de
+las ya ubicadas (procesando primero las de mayor prioridad -- origen/destino antes que las
+paradas). Se llama una sola vez por grupo de etiquetas, pasandole la lista completa:
+[{overlay, leader, lat, lng, priority}, ...] (leader es opcional, un GV.makeLeaderLine()). */
 GV.declutterLabels = function(map, entries){
   if(!map || !entries || !entries.length) return;
+  var google = window.google;
+  var CANDIDATES = [
+    { dx: 0, dy: 0 },
+    { dx: 62, dy: -6 }, { dx: -62, dy: -6 },
+    { dx: 98, dy: 20 }, { dx: -98, dy: 20 },
+    { dx: 0, dy: -46 },
+    { dx: 132, dy: -6 }, { dx: -132, dy: -6 },
+    { dx: 0, dy: 46 },
+    { dx: 168, dy: 20 }, { dx: -168, dy: 20 }
+  ];
   var pending = null;
   function run(){
     pending = null;
-    /* Primero se muestran todas: hace falta medirlas en su tamano real antes de decidir cuales
-       ocultar (una etiqueta oculta mide 0 y arruinaria la deteccion de superposicion). */
-    entries.forEach(function(e){ var div = e.overlay.getDiv ? e.overlay.getDiv() : e.overlay.__div; if(div) div.style.visibility = 'visible'; });
+    entries.forEach(function(e){ var div = e.overlay.getDiv(); if(div) div.style.visibility = 'visible'; });
     var sorted = entries.slice().sort(function(a, b){ return a.priority - b.priority; });
     var kept = [];
     sorted.forEach(function(e){
-      var div = e.overlay.getDiv ? e.overlay.getDiv() : e.overlay.__div;
+      var div = e.overlay.getDiv();
       if(!div) return;
-      var r = div.getBoundingClientRect();
-      var solapa = kept.some(function(k){
-        return !(r.right < k.left || r.left > k.right || r.bottom < k.top || r.top > k.bottom);
-      });
-      if(solapa){ div.style.visibility = 'hidden'; }
-      else { kept.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom }); }
+      var proj = e.overlay.getProjection();
+      var sitePt = proj ? proj.fromLatLngToDivPixel(new google.maps.LatLng(e.lat, e.lng)) : null;
+      var chosen = CANDIDATES[0], chosenRect = null;
+      for(var i = 0; i < CANDIDATES.length; i++){
+        var c = CANDIDATES[i];
+        e.overlay.setOffset(c.dx, c.dy);
+        var r = div.getBoundingClientRect();
+        var solapa = kept.some(function(k){
+          return !(r.right < k.left || r.left > k.right || r.bottom < k.top || r.top > k.bottom);
+        });
+        chosen = c; chosenRect = r;
+        if(!solapa) break; // libre: nos quedamos con este candidato
+        // si es el ultimo candidato y todos se superponian, igual se deja puesto (nunca se oculta)
+      }
+      e.overlay.setOffset(chosen.dx, chosen.dy);
+      kept.push({ left: chosenRect.left, right: chosenRect.right, top: chosenRect.top, bottom: chosenRect.bottom });
+      if(e.leader){
+        if((chosen.dx !== 0 || chosen.dy !== 0) && sitePt){
+          e.leader.setEndpoints(sitePt.x, sitePt.y, sitePt.x + chosen.dx, sitePt.y + chosen.dy);
+        } else {
+          e.leader.hide();
+        }
+      }
     });
   }
   /* Pequeno margen (un frame) para que Google Maps ya haya reposicionado (draw()) las etiquetas
