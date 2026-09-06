@@ -787,6 +787,39 @@ GV.getActiveCameraSerial = function(api, deviceId, fallbackSerial){
   });
 };
 
+/* ---------------- Lista de eventos reales de camara de un viaje (para "enganchar" el hover) ----------------
+Motivo de este agregado: comparando con el Historial de viajes NATIVO de Geotab (mismo vehiculo,
+mismo dia), se vio que ahi SI aparece imagen real y en nuestro hover a veces no, aun con el numero
+de serie correcto. Se confirmo en vivo, probando directamente contra la API de Video con el mismo
+numero de serie: pedir la grabacion de un instante donde SI hubo un CameraEvent real (el mismo
+que mostraba el historial nativo) funciona y trae una imagen real -- pero pedir la grabacion de un
+instante arbitrario del GPS a solo 9 minutos de diferencia, sin evento real ahi, no trae nada (ni
+siquiera con el numero de serie correcto). Esto no es un bug de nuestro codigo: la "Recording
+Playback" bajo demanda de Geotab Video no garantiza tener grabacion guardada para cualquier
+instante del pasado, solo para los instantes de eventos reales (los que Geotab ya sincronizo).
+Por eso el historial nativo, cuando muestra imagenes, en realidad esta mostrando esos eventos
+reales (los numeritos agrupados que se ven en su reproductor), no cualquier punto del recorrido.
+Con esta funcion se trae la lista completa de esos eventos reales del vehiculo en el rango de
+fechas del viaje, para que el hover pueda "engancharse" al evento real mas cercano en el tiempo
+en vez de pedir siempre el instante arbitrario donde cayo el mouse -- así, cuando el mouse pasa
+cerca de un evento real, se ve una imagen real igual que en el historial nativo; lejos de todo
+evento real, se sigue intentando el instante arbitrario (puede funcionar si la camara todavia
+tiene ese instante en su buffer, o puede no estar disponible -- ver detCamShow en index.html). */
+GV.getCameraEventsForDevice = function(api, deviceId, fromISO, toISO){
+  if(!api || !deviceId) return Promise.resolve([]);
+  return new Promise(function(resolve){
+    api.call('Get', { typeName: 'CameraEvent', search: { fromDate: fromISO, toDate: toISO } }, function(res){
+      var out = (res || [])
+        .filter(function(ev){ return ev.deviceId === deviceId && ev.cameraSerialNumber; })
+        .map(function(ev){
+          return { ts: Math.floor(new Date(ev.recordingStart || ev.eventStart).getTime() / 1000), serial: ev.cameraSerialNumber, eventType: ev.eventType };
+        })
+        .sort(function(a, b){ return a.ts - b.ts; });
+      resolve(out);
+    }, function(){ resolve([]); });
+  });
+};
+
 /* ---------------- Reproductor de video de Geotab (web component <gvp-video-player>) ----------------
 Biblioteca oficial de Geotab Video para insertar imagenes/reproduccion de la camara de un
 vehiculo. Se carga una sola vez (CSS + JS) y despues cada <gvp-video-player> que se cree
