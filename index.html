@@ -109,7 +109,7 @@ estilos del add-in (el mismo que usa common.js). */
 if(document.getElementById('gv-trk-styles')) return;
 var st = document.createElement('style');
 st.id = 'gv-trk-styles';
-st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:118px minmax(140px,1.4fr) 152px minmax(132px,1.2fr) 64px minmax(160px,2fr) 128px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:110px 1fr 62px minmax(140px,1.8fr) 92px 58px}.gv-trk-hide-sm{display:none}}";
+st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:118px minmax(140px,1.2fr) 152px minmax(150px,1.6fr) minmax(120px,1fr) 64px minmax(140px,1.6fr) 128px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:110px 1fr minmax(110px,1.4fr) 62px minmax(140px,1.8fr) 92px 58px}.gv-trk-hide-sm{display:none}}";
 /* No se usa #gv-style-container: common.js (GV.injectCSS) omite inyectar el CSS base
        del add-in si ese contenedor ya tiene un <style>, y la vista quedaba sin estilos. */
     (document.head || document.documentElement || document.body).appendChild(st);
@@ -1059,6 +1059,45 @@ if(v.destino) arr.push({ id:'destino', tipo:v.destino.tipo||null, esDestino:true
 return arr;
 }
 
+/* Misma secuencia de hitos que gvHitosViaje (el origen solo si ademas es carga/descarga,
+cada parada y por ultimo el destino) pero con el nombre del sitio solo, sin el prefijo de
+tipo/numero: es lo que necesita la columna "Detalle" de Seguimiento para armar una frase
+en lenguaje llano ("En camino a X", no "En camino a 2. Descarga: X"). */
+function gvHitosNav(v){
+var arr = [];
+if(v.origen && v.origen.tipo) arr.push({ id:'origen', label: GV.siteNameFor(v.origen) || '', esDestino:false });
+(v.paradas||[]).forEach(function(p, i){ arr.push({ id:'parada'+i, label: GV.siteNameFor(p) || '', esDestino:false }); });
+if(v.destino) arr.push({ id:'destino', label: GV.siteNameFor(v.destino) || '', esDestino:true });
+return arr;
+}
+
+/* Texto de una sola linea para la columna "Detalle" de Seguimiento: en que tramo del
+recorrido esta la unidad ahora mismo, en lenguaje llano, sin que el coordinador tenga que
+interpretar el Estado ni la barra de Avance. Recorre los hitos del viaje en orden y se
+detiene en el primero que todavia no esta totalmente cumplido:
+- si ese hito ya tiene ingreso (por GPS o marcado por el chofer) pero no egreso, la unidad
+  esta adentro ahora mismo -> "En sitio: <nombre>".
+- si todavia no tiene ingreso, ese es el proximo lugar al que va -> "En camino a: <nombre>",
+  salvo que sea el destino final del viaje, en cuyo caso es "Desmovilizando a: <nombre>".
+El origen se trata como ya "ingresado" desde el arranque (el viaje literalmente empieza
+ahi): solo importa si ya lo dejo (egreso, se paso al hito siguiente) o si la unidad todavia
+esta cargando/descargando alli. Si hay mas de un sitio de carga/descarga la logica se repite
+para cada uno, en orden, hasta llegar al destino. */
+function gvNavDetalleTexto(v, estados){
+var hitos = gvHitosNav(v);
+if(!hitos.length) return null;
+var sr = estados || (v && v.sitiosReal) || {};
+for(var i=0; i<hitos.length; i++){
+var h = hitos[i];
+var st = sr[h.id];
+var yaIngreso = (h.id === 'origen') ? true : !!(st && st.ingreso);
+if(yaIngreso && st && st.egreso) continue;
+if(yaIngreso) return { kind:'sitio', texto: 'En sitio: ' + (h.label || '?') };
+return { kind: h.esDestino ? 'desmov' : 'camino', texto: (h.esDestino ? 'Desmovilizando a: ' : 'En camino a: ') + (h.label || '?') };
+}
+return { kind:'fin', texto: 'Llego a destino' };
+}
+
 /* Porcentaje completado del viaje: un hito con egreso registrado ya esta cumplido (suma
 entero) y el hito donde la unidad esta ahora suma medio tramo, porque entro pero todavia
 no termino la carga/descarga. Se admite pasarle los estados reconstruidos del historial de
@@ -1114,7 +1153,13 @@ function computeStopStatuses(v, fullHist){
      nada disponible al sitio real, y la carga quedaria trabada en "Pendiente" para siempre. */
   if(v.origen && v.origen.tipo) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, tipo: v.origen.tipo, dur: v.origen.duracionMin || 0, label: 'Origen (' + (GV.siteNameFor(v.origen)||'') + ')' });
   (v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, poligono: p.poligono || null, tipo: p.tipo || null, dur: p.duracionMin || 0, label: (i+1) + '. ' + (GV.siteNameFor(p)||'') }); });
-  if(v.destino && v.destino.tipo) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, tipo: v.destino.tipo, dur: v.destino.duracionMin || 0, label: 'Destino (' + (GV.siteNameFor(v.destino)||'') + ')' });
+  /* El destino SI se incluye aca aunque no sea carga/descarga (a diferencia del origen de arriba):
+     a diferencia de un origen sin tipo -- que suele coincidir geograficamente con la primera carga
+     y arruinaria el barrido secuencial -- el destino es siempre el ULTIMO punto de la lista, asi que
+     agregarlo no le puede quitar historial a ningun sitio real que venga despues (no hay nada
+     despues). Sin esto, la columna "Detalle" de Seguimiento nunca podria saber que la unidad ya
+     esta "desmovilizando" hacia un destino que es solo un punto de entrega, sin tipo. */
+  if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, tipo: v.destino.tipo || null, dur: v.destino.duracionMin || 0, label: 'Destino (' + (GV.siteNameFor(v.destino)||'') + ')' });
   var result = {};
   if(!fullHist || !fullHist.length) return result;
   var histCursor = 0, seqBroken = false;
@@ -1203,6 +1248,14 @@ var __pctEl = document.getElementById('gv-trk-pct-' + v.id);
 if(__pctEl) __pctEl.textContent = __av.pct + '%';
 var __barEl = document.getElementById('gv-trk-bar-' + v.id);
 if(__barEl) __barEl.innerHTML = gvBarraAvanceHtml(v, __estados);
+var navEl = document.getElementById('gv-track-nav-' + v.id);
+if(navEl){
+  var __nav = gvNavDetalleTexto(v, __estados);
+  var __navTxt = __nav ? __nav.texto : '';
+  navEl.className = 'gv-trk-cell gv-trk-nav' + (__nav ? (' gv-trk-nav-' + __nav.kind) : '');
+  navEl.textContent = __navTxt;
+  navEl.title = __navTxt;
+}
 var waitEl = document.getElementById('gv-track-wait-' + v.id);
     if(waitEl){
       /* openSite: entre los sitios que statuses (computeStopStatuses, reconstruido del historial de
@@ -1315,6 +1368,7 @@ function renderTracking(){
 '<div class="gv-trk-cell">Unidad</div>' +
 '<div class="gv-trk-cell">Conductor</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm">Estado</div>' +
+'<div class="gv-trk-cell">Detalle</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm">En vivo</div>' +
 '<div class="gv-trk-cell" style="text-align:right">Avance %</div>' +
 '<div class="gv-trk-cell">Progreso</div>' +
@@ -1329,11 +1383,17 @@ estado para no agregar otra linea a la fila. */
 var contTxt = (GV.dateStr(v.fechaSalida) !== hoyStr) ? (' &middot; desde ' + GV.fmtDate(v.fechaSalida).split(' ')[0].split('/').slice(0,2).join('/')) : '';
 var ec = GV_TRK_EST_COLORS[v.estado || 'planificado'] || GV_TRK_EST_COLORS.planificado;
 var av = gvAvanceViaje(v, v.sitiosReal);
+/* Calculado primero con lo ya guardado en el viaje (v.sitiosReal) para que la celda no
+quede vacia hasta que vuelva la consulta al historial de GPS; updateTrackBadges la
+actualiza enseguida con el dato fresco (mismo patron que la barra de Avance de arriba). */
+var __navInit = gvNavDetalleTexto(v, v.sitiosReal);
+var __navInitTxt = __navInit ? __navInit.texto : '';
 var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
 '<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + '</div>' +
 '<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
+'<div class="gv-trk-cell gv-trk-nav' + (__navInit ? (' gv-trk-nav-' + __navInit.kind) : '') + '" id="gv-track-nav-' + v.id + '" title="' + GV.escapeHtml(__navInitTxt) + '">' + GV.escapeHtml(__navInitTxt) + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-unknown" id="gv-track-status-' + v.id + '">Obteniendo estado...</div>' +
 '<div class="gv-trk-pct" id="gv-trk-pct-' + v.id + '">' + av.pct + '%</div>' +
 '<div id="gv-trk-bar-' + v.id + '">' + gvBarraAvanceHtml(v, v.sitiosReal) + '</div>' +
