@@ -243,6 +243,18 @@ GV.CSS = ""
 + '.gv-tipo-toggle button{flex:1;padding:9px;border:1.5px solid var(--gv-border);border-radius:var(--gv-radius);background:#F8F9FB;cursor:pointer;font-weight:600;font-size:.85rem;font-family:inherit}'
 + '.gv-tipo-toggle button.gv-sel-carga{background:var(--gv-accent-light);border-color:var(--gv-accent);color:var(--gv-accent-dark)}'
 + '.gv-tipo-toggle button.gv-sel-descarga{background:#fef3c7;border-color:#d97706;color:#92400e}' + '.gv-tipo-toggle button.gv-sel-ambos{background:#ede9fe;border-color:#7c3aed;color:#5b21b6}'
++ /* Version compacta usada solo por el selector de ubicacion (GV.pickLocation), para que entren
+     todas las opciones (buscador, mapa, area del sitio, tipo de parada) sin tener que scrollear. */
+  '.gv-modal-loc{padding:16px}'
++ '.gv-modal-loc h3{margin:0 0 8px;font-size:1rem}'
++ '.gv-modal-loc .gv-search-row{margin-bottom:6px}'
++ '.gv-modal-loc .gv-search-row input{padding:7px 10px;font-size:.82rem}'
++ '.gv-modal-loc .gv-tipo-toggle{margin-bottom:6px}'
++ '.gv-modal-loc .gv-tipo-toggle button{padding:6px;font-size:.8rem}'
++ '.gv-modal-loc .gv-form-row{margin-bottom:6px}'
++ '.gv-modal-loc .gv-form-row label{margin-bottom:3px;font-size:.78rem}'
++ '.gv-modal-loc .gv-form-row input{padding:6px 10px;font-size:.82rem}'
++ '.gv-modal-loc .gv-modal-actions{margin-top:8px}'
 + '.gv-banner{border-radius:var(--gv-radius-lg);padding:16px 18px;margin-bottom:16px}'
 + '.gv-banner h3{margin:0 0 6px;font-size:1rem}'
 + '.gv-banner p{margin:0;font-size:.88rem}'
@@ -780,20 +792,20 @@ GV.pickLocation = function(opts){
           '<input type="number" id="gv-map-duracion" min="0" step="5" value="30"></div>';
       }
       overlay.innerHTML =
-        '<div class="gv-modal" style="max-width:min(880px, 94vw)">' +
+        '<div class="gv-modal gv-modal-loc" style="max-width:min(880px, 94vw)">' +
           '<h3>' + GV.escapeHtml(opts.title || 'Seleccionar ubicacion') + '</h3>' +
           '<div class="gv-search-row">' +
             '<input type="text" id="gv-map-search" placeholder="Direccion, coordenadas (lat,lng) o link de Google Maps...">' +
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
-          '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
+          '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:6px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
           (opts.vehiculoId ? '<div class="gv-search-row"><button type="button" id="gv-btn-ultima-pos" class="gv-btn gv-btn-sec gv-btn-sm" style="width:100%">Usar ultima posicion del camion</button></div>' : '') +
-          '<div id="gv-map-picker" class="gv-map-box" style="height:400px"></div>' +
-          '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span style="font-size:.78rem;color:#6b7280">Area del sitio:</span><button type="button" id="gv-shape-circulo" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Circulo automatico</button><button type="button" id="gv-shape-manual" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:4px 10px;font-size:.72rem">Dibujar manualmente</button></div>' +
-          '<div id="gv-shape-manual-hint" style="display:none;font-size:.76rem;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:6px 10px;margin-bottom:10px">Hace clic en el mapa para agregar los vertices del area del sitio (minimo 3 puntos). <button type="button" id="gv-shape-undo" style="background:none;border:none;color:#7c3aed;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Deshacer ultimo punto</button><button type="button" id="gv-shape-clear" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.76rem;padding:0;margin-left:6px">Borrar forma</button></div>' +
-          '<div id="gv-area-info" style="display:none;font-size:.76rem;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 10px;margin-bottom:10px"></div>' +
-          '<div class="gv-search-row"><input type="text" id="gv-site-name" placeholder="Nombre para guardar este sitio (opcional)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-site-save-btn">Guardar sitio</button></div>' + '<div id="gv-site-edit-indicator" style="display:none;font-size:.78rem;color:#7c3aed;margin:-6px 0 10px 2px">Editando ubicacion del sitio guardado <button type="button" id="gv-site-edit-cancel" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:.78rem;text-decoration:underline;padding:0;margin-left:6px">Cancelar edicion</button></div>' +
+          '<div id="gv-map-picker" class="gv-map-box" style="height:260px;margin-bottom:6px"></div>' +
+          '<div id="gv-map-addr" style="font-size:.8rem;color:#374151;margin-bottom:6px">Hace clic en el mapa para marcar el punto</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap"><span style="font-size:.74rem;color:#6b7280">Area del sitio:</span><button type="button" id="gv-shape-circulo" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:3px 8px;font-size:.7rem">Circulo automatico</button><button type="button" id="gv-shape-manual" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:3px 8px;font-size:.7rem">Dibujar manualmente</button></div>' +
+          '<div id="gv-shape-manual-hint" style="display:none;font-size:.74rem;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:5px 8px;margin-bottom:6px">Hace clic en el mapa para agregar los vertices del area del sitio (minimo 3 puntos). <button type="button" id="gv-shape-undo" style="background:none;border:none;color:#7c3aed;text-decoration:underline;cursor:pointer;font-size:.74rem;padding:0;margin-left:6px">Deshacer ultimo punto</button><button type="button" id="gv-shape-clear" style="background:none;border:none;color:#dc2626;text-decoration:underline;cursor:pointer;font-size:.74rem;padding:0;margin-left:6px">Borrar forma</button></div>' +
+          '<div id="gv-area-info" style="display:none;font-size:.74rem;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:5px 8px;margin-bottom:6px"></div>' +
+          '<div class="gv-search-row"><input type="text" id="gv-site-name" placeholder="Nombre para guardar este sitio (opcional)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-site-save-btn">Guardar sitio</button></div>' + '<div id="gv-site-edit-indicator" style="display:none;font-size:.76rem;color:#7c3aed;margin:-2px 0 6px 2px">Editando ubicacion del sitio guardado <button type="button" id="gv-site-edit-cancel" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:.76rem;text-decoration:underline;padding:0;margin-left:6px">Cancelar edicion</button></div>' +
           stopFieldsHtml +
           '<div class="gv-modal-actions">' +
             '<button type="button" class="gv-btn gv-btn-sec" id="gv-map-cancel">Cancelar</button>' +
