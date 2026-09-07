@@ -1089,11 +1089,19 @@ if(!hitos.length) return null;
 var sr = estados || (v && v.sitiosReal) || {};
 for(var i=0; i<hitos.length; i++){
 var h = hitos[i];
+/* El destino se resuelve SIN consultar su estado de GPS (sr[h.id]): computeStopStatuses ya
+no lo incluye en el barrido secuencial (ver comentario ahi), asi que esta rama corta apenas
+se llega al hito destino, una vez que todos los sitios reales previos ya se resolvieron
+(cumplidos o en curso, cubierto por los "continue"/"return" de mas arriba en el loop). Esto
+alcanza para el mensaje "Desmovilizando a": checkDestinoLlegadas ya remueve el viaje de
+Seguimiento en cuanto realmente llega al destino, asi que nunca hace falta distinguir aca
+"todavia viajando hacia el destino" de "ya adentro del destino, todavia no completado". */
+if(h.esDestino) return { kind:'desmov', texto: 'Desmovilizando a: ' + (h.label || '?') };
 var st = sr[h.id];
 var yaIngreso = (h.id === 'origen') ? true : !!(st && st.ingreso);
 if(yaIngreso && st && st.egreso) continue;
 if(yaIngreso) return { kind:'sitio', texto: 'En sitio: ' + (h.label || '?') };
-return { kind: h.esDestino ? 'desmov' : 'camino', texto: (h.esDestino ? 'Desmovilizando a: ' : 'En camino a: ') + (h.label || '?') };
+return { kind:'camino', texto: 'En camino a: ' + (h.label || '?') };
 }
 return { kind:'fin', texto: 'Llego a destino' };
 }
@@ -1153,13 +1161,16 @@ function computeStopStatuses(v, fullHist){
      nada disponible al sitio real, y la carga quedaria trabada en "Pendiente" para siempre. */
   if(v.origen && v.origen.tipo) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, tipo: v.origen.tipo, dur: v.origen.duracionMin || 0, label: 'Origen (' + (GV.siteNameFor(v.origen)||'') + ')' });
   (v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, poligono: p.poligono || null, tipo: p.tipo || null, dur: p.duracionMin || 0, label: (i+1) + '. ' + (GV.siteNameFor(p)||'') }); });
-  /* El destino SI se incluye aca aunque no sea carga/descarga (a diferencia del origen de arriba):
-     a diferencia de un origen sin tipo -- que suele coincidir geograficamente con la primera carga
-     y arruinaria el barrido secuencial -- el destino es siempre el ULTIMO punto de la lista, asi que
-     agregarlo no le puede quitar historial a ningun sitio real que venga despues (no hay nada
-     despues). Sin esto, la columna "Detalle" de Seguimiento nunca podria saber que la unidad ya
-     esta "desmovilizando" hacia un destino que es solo un punto de entrega, sin tipo. */
-  if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, tipo: v.destino.tipo || null, dur: v.destino.duracionMin || 0, label: 'Destino (' + (GV.siteNameFor(v.destino)||'') + ')' });
+  /* El destino solo se incluye aca cuando ademas es un sitio operativo (mismo criterio que el
+     origen de arriba). Antes se incluia siempre (razonando que al ser el ULTIMO punto de la lista
+     no le podia quitar historial a nada que viniera despues), pero eso rompia el barrido cuando
+     origen y destino son el MISMO sitio fisico (viajes ida y vuelta que arrancan y terminan en la
+     misma base): el destino sin tipo consumia el historial del origen antes de que el origen mismo
+     pudiera escanearse, y una excepcion rio abajo (en el merge/render de Seguimiento) terminaba
+     abortando el resto del render de ese ciclo, incluido el ajuste de zoom del mapa (mapa en blanco).
+     La columna "Detalle" de Seguimiento YA NO depende de esto: gvNavDetalleTexto resuelve
+     "Desmovilizando a" sin necesitar el estado de GPS del destino (ver comentario ahi). */
+  if(v.destino && v.destino.tipo) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, tipo: v.destino.tipo, dur: v.destino.duracionMin || 0, label: 'Destino (' + (GV.siteNameFor(v.destino)||'') + ')' });
   var result = {};
   if(!fullHist || !fullHist.length) return result;
   var histCursor = 0, seqBroken = false;
@@ -1250,11 +1261,16 @@ var __barEl = document.getElementById('gv-trk-bar-' + v.id);
 if(__barEl) __barEl.innerHTML = gvBarraAvanceHtml(v, __estados);
 var navEl = document.getElementById('gv-track-nav-' + v.id);
 if(navEl){
-  var __nav = gvNavDetalleTexto(v, __estados);
-  var __navTxt = __nav ? __nav.texto : '';
-  navEl.className = 'gv-trk-cell gv-trk-nav' + (__nav ? (' gv-trk-nav-' + __nav.kind) : '');
-  navEl.textContent = __navTxt;
-  navEl.title = __navTxt;
+  /* try/catch defensivo: esta celda es un "nice to have" dentro de un forEach de varios viajes
+     -- una excepcion aca (por datos inesperados en algun viaje puntual) no debe interrumpir el
+     resto del loop ni, mas importante, dejar el mapa sin actualizar su zoom/encuadre. */
+  try{
+    var __nav = gvNavDetalleTexto(v, __estados);
+    var __navTxt = __nav ? __nav.texto : '';
+    navEl.className = 'gv-trk-cell gv-trk-nav' + (__nav ? (' gv-trk-nav-' + __nav.kind) : '');
+    navEl.textContent = __navTxt;
+    navEl.title = __navTxt;
+  }catch(navErr){ console.error('gvNavDetalleTexto (updateTrackBadges)', navErr); }
 }
 var waitEl = document.getElementById('gv-track-wait-' + v.id);
     if(waitEl){
@@ -1386,7 +1402,12 @@ var av = gvAvanceViaje(v, v.sitiosReal);
 /* Calculado primero con lo ya guardado en el viaje (v.sitiosReal) para que la celda no
 quede vacia hasta que vuelva la consulta al historial de GPS; updateTrackBadges la
 actualiza enseguida con el dato fresco (mismo patron que la barra de Avance de arriba). */
-var __navInit = gvNavDetalleTexto(v, v.sitiosReal);
+/* try/catch defensivo (ver mismo comentario en updateTrackBadges): esto corre DENTRO del
+todos.map(...) que arma el HTML de la lista, sincronicamente, ANTES de que renderTracking
+ajuste el zoom/encuadre del mapa (GV.fitBoundsArr) -- una excepcion sin capturar aca aborta
+el resto del render de este ciclo y deja el mapa sin encuadrar (o directamente en blanco). */
+var __navInit = null;
+try{ __navInit = gvNavDetalleTexto(v, v.sitiosReal); }catch(navErr){ console.error('gvNavDetalleTexto (renderTracking)', navErr); }
 var __navInitTxt = __navInit ? __navInit.texto : '';
 var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
@@ -1551,7 +1572,7 @@ return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px da
 var overlay = document.createElement('div');
 overlay.className = 'gv-modal-overlay';
 overlay.innerHTML =
-'<div class="gv-modal" style="max-width:880px">' +
+'<div class="gv-modal" style="max-width:96vw;width:96vw;border-radius:18px">' +
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
@@ -2586,7 +2607,7 @@ if(!__partes.length) return;
 __partes.push('Los horarios de la tabla llevan la fecha del dia al que corresponden: en gris el dia de salida y en azul los dias posteriores.');
 continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81">' + __partes.join(' ') + '</div>';
 })();
-itinEl.innerHTML = continuidadHtml + salidaDemoraHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = continuidadHtml + salidaDemoraHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 /* El aviso rojo "en sitio... y sigue" solo tiene sentido una vez que ya paso la hora en la que
    la unidad deberia haber salido de ahi (r.egreso: para el origen es la hora de salida programada
@@ -2626,6 +2647,7 @@ return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : ''
 '<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
 '</div>' +
 '</td>' +
+'<td>' + (r.tipo ? GV.tipoParadaLabel(r.tipo) : '<span style="color:#9ca3af">-</span>') + '</td>' +
 '<td>' + estadoBadge(r) + '</td>' +
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + __ingresoEstCell + '</td>' +
