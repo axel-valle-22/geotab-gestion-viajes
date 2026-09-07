@@ -2501,7 +2501,13 @@ continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 1
 })();
 itinEl.innerHTML = continuidadHtml + salidaDemoraHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
-var enSitioNote = (r.realIn && !r.realOut && !r.realOutDudoso) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
+/* El aviso rojo "en sitio... y sigue" solo tiene sentido una vez que ya paso la hora en la que
+   la unidad deberia haber salido de ahi (r.egreso: para el origen es la hora de salida programada
+   del viaje, para carga/descarga es ingreso estimado + minutos de permanencia). Sin este chequeo,
+   el origen -- donde el camion normalmente ya esta estacionado antes de que arranque el viaje --
+   mostraba el aviso desde el momento en que se abre el detalle, aunque todavia faltara para la
+   hora de salida programada. */
+var enSitioNote = (r.realIn && !r.realOut && !r.realOutDudoso && r.egreso && Date.now() >= r.egreso.getTime()) ? ('<span style="color:#dc2626;font-weight:700">' + GV.fmtDurMin(Date.now() - r.realIn.getTime()) + ' y sigue</span>') : null;
 var __isParada = r.id.indexOf('parada') === 0;
 var __paradaIdx = __isParada ? r.id.replace('parada','') : '';
 var __isOrigen = r.id === 'origen';
