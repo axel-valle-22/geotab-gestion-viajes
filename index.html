@@ -456,7 +456,10 @@ function abrirJustificarDemora(viajeId){
   var horaVal = isNaN(fs.getTime()) ? '' : (fs.getHours().toString().padStart(2,'0') + ':' + fs.getMinutes().toString().padStart(2,'0'));
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay';
-  ov.style.zIndex = '10000';
+  /* Este popup se abre encima del modal de detalle del viaje (tambien gv-modal-overlay, z-index
+     100000), asi que necesita quedar por encima de ese valor y no del 10000 viejo (de antes de
+     que el z-index base subiera a 100000 para no quedar detras del menu lateral de MyGeotab). */
+  ov.style.zIndex = '100001';
   ov.innerHTML =
     '<div class="gv-modal" style="max-width:420px">' +
       '<h3 style="margin:0 0 6px">Modificar horario y justificar demora</h3>' +
@@ -1866,7 +1869,9 @@ document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
 function abrirClonarViaje(){
 var ov5 = document.createElement('div');
 ov5.className = 'gv-modal-overlay';
-ov5.style.zIndex = '10000';
+/* Ver comentario en abrirDetalleViaje/otros popups: debe quedar por encima del modal de detalle
+   (gv-modal-overlay, z-index 100000), no en 10000. */
+ov5.style.zIndex = '100001';
 var conductorOpts5 = '<option value="">Seleccionar conductor...</option>' + gState.conductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
 var vehiculoOpts5 = '<option value="">Seleccionar vehiculo...</option>' + gState.vehiculos.map(function(d){ return '<option value="' + d.id + '">' + GV.escapeHtml(d.nombre) + '</option>'; }).join('');
 var fs5 = new Date(v.fechaSalida);
@@ -1932,7 +1937,9 @@ renderStats(); renderTrips(); renderTracking();
 function abrirReasignarViaje(){
 var ov4 = document.createElement('div');
 ov4.className = 'gv-modal-overlay';
-ov4.style.zIndex = '10000';
+/* Ver comentario en abrirDetalleViaje/otros popups: debe quedar por encima del modal de detalle
+   (gv-modal-overlay, z-index 100000), no en 10000. */
+ov4.style.zIndex = '100001';
 var conductorOpts = '<option value="">Seleccionar conductor...</option>' + gState.conductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
 var vehiculoOpts = '<option value="">Seleccionar vehiculo...</option>' + gState.vehiculos.map(function(d){ return '<option value="' + d.id + '">' + GV.escapeHtml(d.nombre) + '</option>'; }).join('');
 ov4.innerHTML =
@@ -2114,7 +2121,9 @@ var p = pts.filter(function(pp){ return pp.id === siteId; })[0];
 if(!p) return;
 var ov2 = document.createElement('div');
 ov2.className = 'gv-modal-overlay';
-ov2.style.zIndex = '10000';
+/* Ver comentario en abrirDetalleViaje/otros popups: debe quedar por encima del modal de detalle
+   (gv-modal-overlay, z-index 100000), no en 10000. */
+ov2.style.zIndex = '100001';
 ov2.innerHTML =
 '<div class="gv-modal" style="max-width:380px">' +
 '<h3 style="margin:0 0 10px">' + GV.escapeHtml(p.dir || p.label) + '</h3>' +
@@ -2272,7 +2281,9 @@ var isDestino = siteId === 'destino';
 var idx = isParada ? parseInt(siteId.replace('parada',''), 10) : -1;
 var ov3 = document.createElement('div');
 ov3.className = 'gv-modal-overlay';
-ov3.style.zIndex = '10000';
+/* Ver comentario en abrirDetalleViaje/otros popups: debe quedar por encima del modal de detalle
+   (gv-modal-overlay, z-index 100000), no en 10000. */
+ov3.style.zIndex = '100001';
 var btns = '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-editar" style="width:100%;text-align:left;margin-bottom:8px">&#9998; Editar ubicacion</button>';
 if(isParada){
 btns += '<button type="button" class="gv-btn gv-btn-danger" id="gv-acc-quitar" style="width:100%;text-align:left;margin-bottom:8px">&times; Quitar parada</button>';
