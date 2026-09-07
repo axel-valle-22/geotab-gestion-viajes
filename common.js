@@ -788,6 +788,7 @@ GV.pickLocation = function(opts){
           '<div class="gv-tipo-toggle">' +
             '<button type="button" id="gv-tipo-carga">Carga</button>' +
             '<button type="button" id="gv-tipo-descarga">Descarga</button>' + '<button type="button" id="gv-tipo-ambos">Ambos</button>' +
+          '</div>' +
           '<div class="gv-form-row"><label>Tiempo programado para carga/descarga (minutos)<span class="gv-req">*</span></label>' +
           '<input type="number" id="gv-map-duracion" min="0" step="5" value="30"></div>';
       }
