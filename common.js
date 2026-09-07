@@ -32,7 +32,7 @@ GV.statusLabel = function(s){
   return {planificado:'Planificado',en_curso:'En Curso',completado:'Completado',demorado:'Demorado',cancelado:'Cancelado'}[s] || s;
 };
 
-GV.tipoParadaLabel = function(t){ return t === 'descarga' ? 'Descarga' : (t === 'ambos' ? 'Carga y Descarga' : 'Carga'); };
+GV.tipoParadaLabel = function(t){ if(t === 'espera') return 'Espera (permanece cargado)'; return t === 'descarga' ? 'Descarga' : (t === 'ambos' ? 'Carga y Descarga' : 'Carga'); };
 
 GV.fmtRuta = function(origenTxt, destinoTxt){
   if(destinoTxt) return GV.escapeHtml(origenTxt) + ' &rarr; ' + GV.escapeHtml(destinoTxt);
@@ -208,6 +208,7 @@ GV.CSS = ""
 + '.gv-stop-chip{background:#f3f4f6;border:1px solid #d1d5db;border-radius:10px;padding:3px 8px;font-size:.78rem;color:#374151}'
 + '.gv-stop-chip.gv-carga{border-color:var(--gv-accent);color:var(--gv-accent-dark);background:var(--gv-accent-light)}'
 + '.gv-stop-chip.gv-descarga{border-color:#d97706;color:#92400e;background:#fffbeb}' + '.gv-stop-chip.gv-ambos{border-color:#7c3aed;color:#5b21b6;background:#f5f3ff}'
++ '.gv-stop-chip.gv-espera{border-color:#64748b;color:#334155;background:#f1f5f9}'
 + '.gv-trip-actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap}'
 + '.gv-btn{padding:9px 18px;border:none;border-radius:var(--gv-radius);cursor:pointer;font-size:.86rem;font-weight:600;transition:all .18s;font-family:inherit}'
 + '.gv-btn:disabled{opacity:.5;cursor:not-allowed}'
@@ -231,7 +232,7 @@ GV.CSS = ""
 + '.gv-stop-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#F8F9FB;border:1px solid var(--gv-border);border-radius:var(--gv-radius);margin-bottom:6px}'
 + '.gv-stop-item span{flex:1;font-size:.85rem}.gv-stop-remove{background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;padding:0 4px}'
 + '.gv-stop-badge{font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:8px}'
-+ '.gv-stop-badge.gv-carga{background:#dbeafe;color:#1e40af}.gv-stop-badge.gv-descarga{background:#fef3c7;color:#92400e}.gv-stop-badge.gv-ambos{background:#ede9fe;color:#5b21b6}'
++ '.gv-stop-badge.gv-carga{background:#dbeafe;color:#1e40af}.gv-stop-badge.gv-descarga{background:#fef3c7;color:#92400e}.gv-stop-badge.gv-ambos{background:#ede9fe;color:#5b21b6}.gv-stop-badge.gv-espera{background:#e2e8f0;color:#334155}'
 + '.gv-modal-overlay{position:fixed;inset:0;background:rgba(17,24,39,.55);backdrop-filter:blur(2px);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px}'
 + '.gv-modal{background:#fff;border-radius:var(--gv-radius-lg);max-width:540px;width:100%;max-height:92vh;overflow:auto;padding:26px;box-shadow:0 24px 60px rgba(17,24,39,.22)}'
 + '.gv-modal h3{margin:0 0 14px;color:var(--gv-accent);font-size:1.1rem;font-weight:700}'
@@ -774,8 +775,8 @@ GV.autoSyncSitiosDiario = function(){
 };
 
 /* ---------------- Selector de ubicacion en mapa ---------------- */
-/* opts: { title, initial:{lat,lng,direccion}, withStopFields:boolean } */
-/* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin]} o null si se cancela */
+/* opts: { title, initial:{lat,lng,direccion}, withStopFields:boolean, withEsperaField:boolean } */
+/* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin | tipo:'espera',permaneceHasta]} o null si se cancela */
 GV.pickLocation = function(opts){
   opts = opts || {};
   return GV.loadGoogleMaps().then(function(google){
@@ -791,6 +792,17 @@ GV.pickLocation = function(opts){
           '</div>' +
           '<div class="gv-form-row"><label>Tiempo programado para carga/descarga (minutos)<span class="gv-req">*</span></label>' +
           '<input type="number" id="gv-map-duracion" min="0" step="5" value="30"></div>';
+      }
+      /* Campo para la parada "Espera" (permanece cargado en el sitio hasta un dia/horario
+         puntual -- por ejemplo la unidad vuelve a la base a esperar hasta el dia siguiente
+         porque el cliente no puede recibir la descarga hoy). A diferencia de una parada de
+         carga/descarga normal (minutos fijos), aca se carga un limite de fecha/hora absoluto:
+         GV.pickLocation lo resuelve como { tipo:'espera', permaneceHasta:<ISO> } en vez de
+         { tipo, duracionMin }. */
+      if(opts.withEsperaField){
+        stopFieldsHtml =
+          '<div class="gv-form-row"><label>Permanece cargado hasta<span class="gv-req">*</span></label>' +
+          '<input type="datetime-local" id="gv-map-permanece-hasta"></div>';
       }
       overlay.innerHTML =
         '<div class="gv-modal gv-modal-loc" style="max-width:min(880px, 94vw)">' +
@@ -1000,6 +1012,15 @@ GV.pickLocation = function(opts){
         bd.addEventListener('click', function(){ selectTipo('descarga'); }); ba.addEventListener('click', function(){ selectTipo('ambos'); }); if(opts.initial && opts.initial.tipo){ selectTipo(opts.initial.tipo); } else { selectTipo('carga'); } if(opts.initial && typeof opts.initial.duracionMin === 'number'){ document.getElementById('gv-map-duracion').value = opts.initial.duracionMin; }
       }
 
+      if(opts.withEsperaField && opts.initial && opts.initial.permaneceHasta){
+        var __phInit = new Date(opts.initial.permaneceHasta);
+        if(!isNaN(__phInit.getTime())){
+          var __pad2 = function(n){ return (n < 10 ? '0' : '') + n; };
+          var __phInitEl = document.getElementById('gv-map-permanece-hasta');
+          if(__phInitEl) __phInitEl.value = __phInit.getFullYear() + '-' + __pad2(__phInit.getMonth()+1) + '-' + __pad2(__phInit.getDate()) + 'T' + __pad2(__phInit.getHours()) + ':' + __pad2(__phInit.getMinutes());
+        }
+      }
+
       function cleanup(){ overlay.remove(); }
 
       document.getElementById('gv-map-cancel').addEventListener('click', function(){ cleanup(); resolve(null); });
@@ -1010,6 +1031,15 @@ GV.pickLocation = function(opts){
         if(opts.withStopFields){
           result.tipo = tipo;
           result.duracionMin = parseInt(document.getElementById('gv-map-duracion').value, 10) || 0;
+        }
+        if(opts.withEsperaField){
+          var __phEl = document.getElementById('gv-map-permanece-hasta');
+          var __phVal = __phEl ? __phEl.value : '';
+          if(!__phVal){ alert('Ingresa hasta que dia y horario permanece cargado en el sitio.'); return; }
+          var __phDate = new Date(__phVal);
+          if(isNaN(__phDate.getTime())){ alert('Fecha u horario invalido.'); return; }
+          result.tipo = 'espera';
+          result.permaneceHasta = __phDate.toISOString();
         }
         cleanup();
         resolve(result);
