@@ -232,7 +232,7 @@ GV.CSS = ""
 + '.gv-stop-item span{flex:1;font-size:.85rem}.gv-stop-remove{background:none;border:none;cursor:pointer;color:#ef4444;font-size:1rem;padding:0 4px}'
 + '.gv-stop-badge{font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:8px}'
 + '.gv-stop-badge.gv-carga{background:#dbeafe;color:#1e40af}.gv-stop-badge.gv-descarga{background:#fef3c7;color:#92400e}.gv-stop-badge.gv-ambos{background:#ede9fe;color:#5b21b6}'
-+ '.gv-modal-overlay{position:fixed;inset:0;background:rgba(17,24,39,.55);backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}'
++ '.gv-modal-overlay{position:fixed;inset:0;background:rgba(17,24,39,.55);backdrop-filter:blur(2px);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px}'
 + '.gv-modal{background:#fff;border-radius:var(--gv-radius-lg);max-width:540px;width:100%;max-height:92vh;overflow:auto;padding:26px;box-shadow:0 24px 60px rgba(17,24,39,.22)}'
 + '.gv-modal h3{margin:0 0 14px;color:var(--gv-accent);font-size:1.1rem;font-weight:700}'
 + '.gv-map-box{height:280px;border-radius:var(--gv-radius);margin-bottom:10px;border:1px solid var(--gv-border)}'
