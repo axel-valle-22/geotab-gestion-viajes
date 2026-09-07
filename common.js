@@ -708,6 +708,59 @@ GV.fetchMyMapsKml = function(mid){
   });
 };
 
+/* Crea un sitio nuevo, o si ya existe uno guardado con exactamente el mismo nombre le actualiza
+   la ubicacion, en vez de crear un duplicado. La usan tanto la sincronizacion automatica diaria
+   de mas abajo como (en su momento) la importacion manual de KML. */
+GV.upsertSitioPorNombre = function(nombre, lat, lng){
+  var existentes = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || [];
+  var nombreNorm = (nombre || '').trim().toLowerCase();
+  var existente = existentes.find(function(s){ return (s.nombre || '').trim().toLowerCase() === nombreNorm; });
+  if(existente){
+    return GV.Storage.updateSitio(existente.id, { lat: lat, lng: lng, direccion: nombre }).then(function(){ return { creado: false }; });
+  }
+  return GV.Storage.addSitio({ id: GV.genId('site'), nombre: nombre, direccion: nombre, lat: lat, lng: lng }).then(function(){ return { creado: true }; });
+};
+
+/* Mapas de My Maps de proveedores que se mantienen sincronizados solos, en segundo plano, sin que
+   nadie tenga que importar nada a mano. Cada entrada es el "mid" que Google le pone a un mapa
+   (el pedacito ?mid=... de su link para compartir). Para agregar otro proveedor con su propia
+   lista de sitios, alcanza con sumar otra entrada aca. */
+GV.SITIOS_AUTOSYNC_MIDS = [
+  '1weSqIhCycpP0XMub-RENyry0XNgAcKc' /* HP - Equipos y Lugares (equipos de perforacion) */
+];
+
+/* Se fija una vez por dia (por navegador) si hay que traer de nuevo las listas de arriba, y si
+   corresponde las trae y actualiza los sitios guardados calladamente, sin ningun cartel ni accion
+   del usuario -- para que el buscador de "sitio guardado" del selector de ubicacion siempre tenga
+   la version mas reciente sin que nadie tenga que acordarse de actualizarla. Si un dia Google no
+   responde (por ejemplo sin conexion, o el mapa dejo de ser publico) se reintenta solo al abrir
+   la app otro dia; no hace falta avisarle a nadie porque los sitios ya guardados de antes se
+   siguen viendo igual mientras tanto. */
+GV.autoSyncSitiosDiario = function(){
+  var LS_KEY_SYNC = 'gv_dp_autosync_sitios_fecha';
+  var hoy = new Date().toISOString().slice(0, 10);
+  try{ if(localStorage.getItem(LS_KEY_SYNC) === hoy) return; }catch(e){}
+  var mids = GV.SITIOS_AUTOSYNC_MIDS || [];
+  if(!mids.length) return;
+  var chain = Promise.resolve();
+  mids.forEach(function(mid){
+    chain = chain.then(function(){
+      return GV.fetchMyMapsKml(mid).then(function(xmlText){
+        var puntos = GV.parseKmlPlacemarks(xmlText);
+        var puntosChain = Promise.resolve();
+        puntos.forEach(function(p){
+          if(!p.nombre) return; /* sin nombre no se puede saber con cual sitio ya guardado corresponde, se lo salta */
+          puntosChain = puntosChain.then(function(){ return GV.upsertSitioPorNombre(p.nombre, p.lat, p.lng); });
+        });
+        return puntosChain;
+      })['catch'](function(){ /* fallo silencioso: se reintenta la proxima vez que se abra la app */ });
+    });
+  });
+  chain.then(function(){
+    try{ localStorage.setItem(LS_KEY_SYNC, hoy); }catch(e){}
+  });
+};
+
 /* ---------------- Selector de ubicacion en mapa ---------------- */
 /* opts: { title, initial:{lat,lng,direccion}, withStopFields:boolean } */
 /* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin]} o null si se cancela */
@@ -734,17 +787,6 @@ GV.pickLocation = function(opts){
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
           '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
-          '<div class="gv-search-row" style="margin-bottom:6px"><input type="text" id="gv-kml-link-input" placeholder="Link del mapa de Google My Maps (el que tiene mid=...)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-link-btn">Traer actualizado</button></div>' +
-          '<div class="gv-search-row" style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-import-btn" style="width:100%">O importar desde un archivo KML</button></div>' +
-          '<input type="file" id="gv-kml-file-input" accept=".kml" style="display:none">' +
-          '<div id="gv-kml-import-panel" style="display:none;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#f9fafb">' +
-            '<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px">Se crea un sitio nuevo (circulo automatico) por cada punto que elijas, o se actualiza la ubicacion si ya existe un sitio guardado con ese mismo nombre. Si el archivo es .kmz, volve a exportarlo desde Google My Maps tildando "Exportar como KML" en vez de KMZ.</div>' +
-            '<div id="gv-kml-list" style="max-height:180px;overflow:auto;margin-bottom:8px"></div>' +
-            '<div style="display:flex;gap:8px;justify-content:flex-end">' +
-              '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-cancel">Cancelar</button>' +
-              '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-kml-add-selected" disabled>Agregar seleccionados</button>' +
-            '</div>' +
-          '</div>' +
           (opts.vehiculoId ? '<div class="gv-search-row"><button type="button" id="gv-btn-ultima-pos" class="gv-btn gv-btn-sec gv-btn-sm" style="width:100%">Usar ultima posicion del camion</button></div>' : '') +
           '<div id="gv-map-picker" class="gv-map-box"></div>' +
           '<div id="gv-map-addr" style="font-size:.85rem;color:#374151;margin-bottom:10px">Hace clic en el mapa para marcar el punto</div>' +
@@ -909,150 +951,11 @@ GV.pickLocation = function(opts){
         if(e.key === 'Enter'){ e.preventDefault(); doSearch(); }
       });
 
-      /* Importar varios sitios de una: el usuario sube un .kml exportado de Google My Maps (por
-         ejemplo una lista de equipos/sitios de un proveedor) y elige, con checkboxes, cuales de
-         los puntos que trae ese archivo quiere agregar como sitios guardados. Cada uno que quede
-         tildado se crea como un sitio nuevo con circulo automatico (igual que si se hubiera
-         guardado a mano desde el mapa). */
-      var kmlParsed = [];
-      var kmlImportBtn = document.getElementById('gv-kml-import-btn');
-      var kmlFileInput = document.getElementById('gv-kml-file-input');
-      var kmlPanel = document.getElementById('gv-kml-import-panel');
-      var kmlListBox = document.getElementById('gv-kml-list');
-      var kmlAddBtn = document.getElementById('gv-kml-add-selected');
-      var kmlCancelBtn = document.getElementById('gv-kml-cancel');
-      var kmlLinkInput = document.getElementById('gv-kml-link-input');
-      var kmlLinkBtn = document.getElementById('gv-kml-link-btn');
-      var KML_LINK_LS_KEY = 'gv_dp_kml_link_url';
-      if(kmlLinkInput){
-        try{ var _lastKmlLink = localStorage.getItem(KML_LINK_LS_KEY); if(_lastKmlLink) kmlLinkInput.value = _lastKmlLink; }catch(e){}
-      }
-      function renderKmlList(){
-        if(!kmlListBox) return;
-        kmlListBox.innerHTML = kmlParsed.map(function(p, i){
-          return '<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:.8rem;cursor:pointer"><input type="checkbox" class="gv-kml-chk" data-idx="' + i + '" checked><span>' + GV.escapeHtml(p.nombre || ('Punto ' + (i+1))) + ' <span style="color:#9ca3af">(' + p.lat.toFixed(5) + ', ' + p.lng.toFixed(5) + ')</span></span></label>';
-        }).join('');
-        updateKmlAddBtnState();
-      }
-      function updateKmlAddBtnState(){
-        if(!kmlAddBtn) return;
-        var anyChecked = !!kmlPanel.querySelector('.gv-kml-chk:checked');
-        kmlAddBtn.disabled = !anyChecked;
-      }
-      function closeKmlPanel(){
-        kmlParsed = [];
-        if(kmlPanel) kmlPanel.style.display = 'none';
-        if(kmlFileInput) kmlFileInput.value = '';
-      }
-      if(kmlImportBtn && kmlFileInput){
-        kmlImportBtn.addEventListener('click', function(){ kmlFileInput.click(); });
-        kmlFileInput.addEventListener('change', function(){
-          var file = kmlFileInput.files && kmlFileInput.files[0];
-          if(!file) return;
-          if(/\.kmz$/i.test(file.name)){
-            alert('Ese archivo es .kmz (comprimido). Volve a exportarlo desde Google My Maps tildando la opcion "Exportar como KML" en vez de KMZ, y subi ese archivo .kml.');
-            kmlFileInput.value = '';
-            return;
-          }
-          var reader = new FileReader();
-          reader.onload = function(){
-            var puntos = GV.parseKmlPlacemarks(String(reader.result || ''));
-            if(!puntos.length){
-              alert('No se encontro ningun punto (Placemark) valido dentro de ese archivo KML.');
-              kmlFileInput.value = '';
-              return;
-            }
-            kmlParsed = puntos;
-            renderKmlList();
-            if(kmlPanel) kmlPanel.style.display = 'block';
-          };
-          reader.onerror = function(){ alert('No se pudo leer el archivo.'); };
-          reader.readAsText(file);
-        });
-      }
-      if(kmlListBox){
-        kmlListBox.addEventListener('change', function(e){ if(e.target && e.target.classList.contains('gv-kml-chk')) updateKmlAddBtnState(); });
-      }
-      if(kmlCancelBtn) kmlCancelBtn.addEventListener('click', closeKmlPanel);
-      /* Traer los puntos actualizados directo desde el link del mapa de My Maps, sin tener que
-         exportar y subir un archivo cada vez que la lista cambia del lado de HP (o de quien sea
-         el dueno del mapa). Se le pide a Google el mismo contenido que exportaria a KML, pidiendo
-         "forcekml=1" para que devuelva el XML en texto plano. Esto depende de que Google permita
-         ese pedido desde el navegador (CORS); si lo bloquea, se le avisa al usuario que use la
-         exportacion a archivo de siempre en su lugar. */
-      if(kmlLinkBtn && kmlLinkInput){
-        kmlLinkBtn.addEventListener('click', function(){
-          var link = kmlLinkInput.value.trim();
-          if(!link){ alert('Pega primero el link del mapa de Google My Maps (el que tiene "mid=" adentro).'); return; }
-          var mid = GV.extractMyMapsMid(link);
-          if(!mid){ alert('No se pudo reconocer el mapa en ese link. Tiene que ser un link de Google My Maps que tenga "mid=" adentro (el que se ve al abrir el mapa, por ejemplo terminado en /maps/d/viewer?mid=...).'); return; }
-          var textoOriginal = kmlLinkBtn.textContent;
-          kmlLinkBtn.disabled = true;
-          kmlLinkBtn.textContent = 'Buscando...';
-          GV.fetchMyMapsKml(mid).then(function(xmlText){
-            var puntos = GV.parseKmlPlacemarks(xmlText);
-            kmlLinkBtn.disabled = false;
-            kmlLinkBtn.textContent = textoOriginal;
-            if(!puntos.length){
-              alert('Se pudo conectar con Google, pero no se encontro ningun punto en ese mapa. Revisa que el link sea el correcto y que el mapa sea publico (compartido como "Cualquier usuario con el link").');
-              return;
-            }
-            try{ localStorage.setItem(KML_LINK_LS_KEY, link); }catch(e){}
-            kmlParsed = puntos;
-            renderKmlList();
-            if(kmlPanel) kmlPanel.style.display = 'block';
-          })['catch'](function(){
-            kmlLinkBtn.disabled = false;
-            kmlLinkBtn.textContent = textoOriginal;
-            alert('No se pudo traer los datos actualizados directo desde Google (puede que el mapa no sea publico, o que Google no permita este tipo de pedido desde el navegador). Como alternativa, exporta el mapa como archivo .kml desde Google My Maps y subilo con el boton de abajo.');
-          });
-        });
-      }
-      if(kmlAddBtn){
-        kmlAddBtn.addEventListener('click', function(){
-          var checks = kmlPanel.querySelectorAll('.gv-kml-chk:checked');
-          if(!checks.length) return;
-          var textoOriginal = kmlAddBtn.textContent;
-          kmlAddBtn.disabled = true;
-          kmlAddBtn.textContent = 'Agregando...';
-          var idxs = Array.prototype.map.call(checks, function(c){ return parseInt(c.getAttribute('data-idx'), 10); });
-          var existentes = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || [];
-          var countNuevos = 0, countActualizados = 0;
-          var chain = Promise.resolve();
-          idxs.forEach(function(idx){
-            var p = kmlParsed[idx];
-            if(!p) return;
-            var nombre = p.nombre || ('Sitio ' + (idx+1));
-            var nombreNorm = nombre.trim().toLowerCase();
-            /* Si ya existe un sitio guardado con exactamente el mismo nombre, se actualiza su
-               ubicacion en vez de crear un duplicado -- asi una reimportacion (por archivo o por
-               el link en vivo) no vuelve a generar el mismo problema de sitios repetidos que se
-               esta resolviendo con el boton de Borrar. */
-            var existente = existentes.find(function(s){ return (s.nombre || '').trim().toLowerCase() === nombreNorm; });
-            chain = chain.then(function(){
-              if(existente){
-                countActualizados++;
-                return GV.Storage.updateSitio(existente.id, { lat: p.lat, lng: p.lng, direccion: nombre });
-              }
-              countNuevos++;
-              var nuevoSitio = { id: GV.genId('site'), nombre: nombre, direccion: nombre, lat: p.lat, lng: p.lng };
-              existentes.push(nuevoSitio);
-              return GV.Storage.addSitio(nuevoSitio);
-            });
-          });
-          chain.then(function(){
-            kmlAddBtn.textContent = textoOriginal;
-            closeKmlPanel();
-            renderSiteList(siteSearchEl ? siteSearchEl.value : '');
-            var siteListBox2 = document.getElementById('gv-site-list');
-            if(siteListBox2) siteListBox2.style.display = 'block';
-            var partes = [];
-            if(countNuevos) partes.push(countNuevos + ' sitio' + (countNuevos === 1 ? '' : 's') + ' nuevo' + (countNuevos === 1 ? '' : 's'));
-            if(countActualizados) partes.push(countActualizados + ' sitio' + (countActualizados === 1 ? '' : 's') + ' actualizado' + (countActualizados === 1 ? '' : 's') + ' (ya existia un sitio guardado con ese nombre)');
-            if(partes.length) alert(partes.join(' y ') + '.');
-          });
-        });
-      }
+      /* La importacion desde KML (por archivo o por el link de My Maps) ya no se muestra aca --
+         se saco del selector de ubicacion para que al elegir el punto de un viaje solo se vea el
+         buscador de "sitio guardado". La lista de sitios de proveedores como HP se mantiene al
+         dia sola, en segundo plano, con GV.autoSyncSitiosDiario() (ver mas abajo en este archivo,
+         se llama una vez por dia desde index.html al iniciar el panel). */
 
       var ultimaPosBtn = document.getElementById('gv-btn-ultima-pos');
       if(ultimaPosBtn){
