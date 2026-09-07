@@ -2916,6 +2916,10 @@ function doInit(api){
     checkDelays(); checkDwellAlerts(); checkDestinoLlegadas();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
+    /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
+       vienen de las listas de proveedores (por ejemplo la de equipos de HP). No muestra nada en
+       pantalla; si un dia falla, se reintenta solo la proxima vez que se abra el panel. */
+    GV.autoSyncSitiosDiario();
   });
 
   var now = new Date();
