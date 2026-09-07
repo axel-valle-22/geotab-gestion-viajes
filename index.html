@@ -1515,7 +1515,7 @@ retrasosHtml +
 '</div>';
 document.body.appendChild(overlay);
 
-var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
+var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detRefreshInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
 var detCamLiveMode = false, detCamLiveToken = 0;
 
@@ -1863,7 +1863,7 @@ function renderCamEventMarkers(){
   });
 }
 
-function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
+function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ if(!confirm('¿Marcar este viaje como finalizado?')) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, iniciadoEn: new Date().toISOString(), sitiosReal: {}, dwellState: null, autoIniciado: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 
 function abrirClonarViaje(){
@@ -2669,6 +2669,17 @@ if(liveEl) liveEl.innerHTML = '&#9679; Posicion en vivo: ' + estadoMov + ' - ' +
 if(v.estado==='en_curso' || v.estado==='demorado'){
 updateLivePosition();
 detInterval = setInterval(updateLivePosition, 15000);
+/* Ademas de la posicion en vivo del marcador (arriba), hay que refrescar periodicamente el
+   itinerario/progreso y el historial de reproduccion de este panel. Antes se calculaban UNA
+   sola vez al abrir el detalle (con el "v" y el historial de GPS de ese instante) y quedaban
+   congelados para siempre mientras el panel siguiera abierto: si despues checkDwellAlerts
+   detectaba en segundo plano (corre cada 60s) que la unidad entro a un sitio, ese ingreso real
+   quedaba bien guardado en Storage pero el panel ya abierto seguia mostrando "-", el cartel de
+   Progreso seguia en "0 de N" y el reproductor no sumaba la marca del sitio nuevo -- aunque el
+   dato en si nunca estuvo mal. Bug real: viaje 335, al reordenar carga/descarga la unidad ya
+   habia llegado al primer sitio pero el detalle (dejado abierto) no lo reflejaba. Ver
+   refreshDetalle() mas abajo. */
+detRefreshInterval = setInterval(refreshDetalle, 60000);
 }
 var slider = document.getElementById('gv-det-slider');
 var histMarker = null;
@@ -2918,6 +2929,25 @@ renderSliderMarks([], 0);
 });
 }
 slider.addEventListener('input', function(){ stopPlayback(); var idx = parseInt(slider.value, 10); updateHistMarker(idx); updateTimeLabels(idx); });
+/* Vuelve a leer el viaje fresco de Storage (por si el chequeo de fondo -- checkDwellAlerts, cada
+   60s -- ya detecto y guardo un ingreso/egreso real, un cambio de estado, etc. mientras este panel
+   seguia abierto) y recalcula con esos datos al dia tanto el itinerario/progreso (barato, sin
+   llamadas a APIs externas) como el historial de reproduccion (vuelve a pedir el historial de GPS
+   completo: hace falta para que aparezcan las marcas O/1/2/.../D de sitios que la unidad recien
+   visito despues de que se abrio el detalle). Mientras el viaje siga en curso/demorado se repite
+   solo; al completarse o cancelarse se hace una ultima pasada (para no perderse el tramo final) y
+   se corta el polling. */
+function refreshDetalle(){
+var __vFresh = GV.Storage.getViaje(v.id);
+if(!__vFresh){ return; }
+v = __vFresh;
+renderItinerario(cachedRoute, cachedFullHist);
+loadHist();
+if(v.estado !== 'en_curso' && v.estado !== 'demorado'){
+if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; }
+if(detInterval){ clearInterval(detInterval); detInterval = null; }
+}
+}
 loadHist();
 }
 }).catch(function(err){ var itinEl2 = document.getElementById('gv-det-itin'); if(itinEl2) itinEl2.textContent = 'Error al cargar el mapa: ' + err.message; });
