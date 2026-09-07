@@ -780,7 +780,7 @@ GV.pickLocation = function(opts){
           '<input type="number" id="gv-map-duracion" min="0" step="5" value="30"></div>';
       }
       overlay.innerHTML =
-        '<div class="gv-modal" style="max-width:880px">' +
+        '<div class="gv-modal" style="max-width:min(880px, 94vw)">' +
           '<h3>' + GV.escapeHtml(opts.title || 'Seleccionar ubicacion') + '</h3>' +
           '<div class="gv-search-row">' +
             '<input type="text" id="gv-map-search" placeholder="Direccion, coordenadas (lat,lng) o link de Google Maps...">' +
