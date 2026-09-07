@@ -683,6 +683,31 @@ GV.parseKmlPlacemarks = function(xmlText){
   return out;
 };
 
+/* Saca el "mid" (el identificador del mapa) de cualquier link de Google My Maps que el usuario
+   pegue -- tanto el de "ver" (/maps/d/viewer?mid=...) como el de "editar" (/maps/d/edit?mid=...)
+   lo traen como parametro ?mid=. Devuelve el mid (string) o null si el link no tiene uno. */
+GV.extractMyMapsMid = function(text){
+  text = (text || '').trim();
+  if(!text) return null;
+  var m = text.match(/[?&]mid=([^&]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
+/* Pide directamente a Google los datos ACTUALIZADOS de un mapa de My Maps (sin que el usuario
+   tenga que exportar y volver a subir un archivo cada vez que la lista cambia). Usa el mismo
+   endpoint que exporta un KML descargable, pidiendole "forcekml=1" para que devuelva el XML del
+   KML en texto plano en vez del wrapper .kmz. OJO: esto depende de que el navegador pueda leer la
+   respuesta de ese endpoint de Google (politica CORS del lado de Google) -- si Google no lo
+   permite para pedidos hechos desde otras paginas, el fetch va a fallar y quien llama tiene que
+   avisarle al usuario que use la exportacion a archivo de siempre en su lugar. */
+GV.fetchMyMapsKml = function(mid){
+  var url = 'https://www.google.com/maps/d/kml?mid=' + encodeURIComponent(mid) + '&forcekml=1';
+  return fetch(url).then(function(r){
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  });
+};
+
 /* ---------------- Selector de ubicacion en mapa ---------------- */
 /* opts: { title, initial:{lat,lng,direccion}, withStopFields:boolean } */
 /* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin]} o null si se cancela */
@@ -709,10 +734,11 @@ GV.pickLocation = function(opts){
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
           '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
-          '<div class="gv-search-row" style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-import-btn" style="width:100%">Importar varios sitios desde un archivo KML</button></div>' +
+          '<div class="gv-search-row" style="margin-bottom:6px"><input type="text" id="gv-kml-link-input" placeholder="Link del mapa de Google My Maps (el que tiene mid=...)"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-link-btn">Traer actualizado</button></div>' +
+          '<div class="gv-search-row" style="margin-bottom:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-import-btn" style="width:100%">O importar desde un archivo KML</button></div>' +
           '<input type="file" id="gv-kml-file-input" accept=".kml" style="display:none">' +
           '<div id="gv-kml-import-panel" style="display:none;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#f9fafb">' +
-            '<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px">Se crea un sitio nuevo (circulo automatico) por cada punto que elijas. Si el archivo es .kmz, volve a exportarlo desde Google My Maps tildando "Exportar como KML" en vez de KMZ.</div>' +
+            '<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px">Se crea un sitio nuevo (circulo automatico) por cada punto que elijas, o se actualiza la ubicacion si ya existe un sitio guardado con ese mismo nombre. Si el archivo es .kmz, volve a exportarlo desde Google My Maps tildando "Exportar como KML" en vez de KMZ.</div>' +
             '<div id="gv-kml-list" style="max-height:180px;overflow:auto;margin-bottom:8px"></div>' +
             '<div style="display:flex;gap:8px;justify-content:flex-end">' +
               '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-kml-cancel">Cancelar</button>' +
@@ -895,6 +921,12 @@ GV.pickLocation = function(opts){
       var kmlListBox = document.getElementById('gv-kml-list');
       var kmlAddBtn = document.getElementById('gv-kml-add-selected');
       var kmlCancelBtn = document.getElementById('gv-kml-cancel');
+      var kmlLinkInput = document.getElementById('gv-kml-link-input');
+      var kmlLinkBtn = document.getElementById('gv-kml-link-btn');
+      var KML_LINK_LS_KEY = 'gv_dp_kml_link_url';
+      if(kmlLinkInput){
+        try{ var _lastKmlLink = localStorage.getItem(KML_LINK_LS_KEY); if(_lastKmlLink) kmlLinkInput.value = _lastKmlLink; }catch(e){}
+      }
       function renderKmlList(){
         if(!kmlListBox) return;
         kmlListBox.innerHTML = kmlParsed.map(function(p, i){
@@ -942,6 +974,40 @@ GV.pickLocation = function(opts){
         kmlListBox.addEventListener('change', function(e){ if(e.target && e.target.classList.contains('gv-kml-chk')) updateKmlAddBtnState(); });
       }
       if(kmlCancelBtn) kmlCancelBtn.addEventListener('click', closeKmlPanel);
+      /* Traer los puntos actualizados directo desde el link del mapa de My Maps, sin tener que
+         exportar y subir un archivo cada vez que la lista cambia del lado de HP (o de quien sea
+         el dueno del mapa). Se le pide a Google el mismo contenido que exportaria a KML, pidiendo
+         "forcekml=1" para que devuelva el XML en texto plano. Esto depende de que Google permita
+         ese pedido desde el navegador (CORS); si lo bloquea, se le avisa al usuario que use la
+         exportacion a archivo de siempre en su lugar. */
+      if(kmlLinkBtn && kmlLinkInput){
+        kmlLinkBtn.addEventListener('click', function(){
+          var link = kmlLinkInput.value.trim();
+          if(!link){ alert('Pega primero el link del mapa de Google My Maps (el que tiene "mid=" adentro).'); return; }
+          var mid = GV.extractMyMapsMid(link);
+          if(!mid){ alert('No se pudo reconocer el mapa en ese link. Tiene que ser un link de Google My Maps que tenga "mid=" adentro (el que se ve al abrir el mapa, por ejemplo terminado en /maps/d/viewer?mid=...).'); return; }
+          var textoOriginal = kmlLinkBtn.textContent;
+          kmlLinkBtn.disabled = true;
+          kmlLinkBtn.textContent = 'Buscando...';
+          GV.fetchMyMapsKml(mid).then(function(xmlText){
+            var puntos = GV.parseKmlPlacemarks(xmlText);
+            kmlLinkBtn.disabled = false;
+            kmlLinkBtn.textContent = textoOriginal;
+            if(!puntos.length){
+              alert('Se pudo conectar con Google, pero no se encontro ningun punto en ese mapa. Revisa que el link sea el correcto y que el mapa sea publico (compartido como "Cualquier usuario con el link").');
+              return;
+            }
+            try{ localStorage.setItem(KML_LINK_LS_KEY, link); }catch(e){}
+            kmlParsed = puntos;
+            renderKmlList();
+            if(kmlPanel) kmlPanel.style.display = 'block';
+          })['catch'](function(){
+            kmlLinkBtn.disabled = false;
+            kmlLinkBtn.textContent = textoOriginal;
+            alert('No se pudo traer los datos actualizados directo desde Google (puede que el mapa no sea publico, o que Google no permita este tipo de pedido desde el navegador). Como alternativa, exporta el mapa como archivo .kml desde Google My Maps y subilo con el boton de abajo.');
+          });
+        });
+      }
       if(kmlAddBtn){
         kmlAddBtn.addEventListener('click', function(){
           var checks = kmlPanel.querySelectorAll('.gv-kml-chk:checked');
@@ -950,12 +1016,28 @@ GV.pickLocation = function(opts){
           kmlAddBtn.disabled = true;
           kmlAddBtn.textContent = 'Agregando...';
           var idxs = Array.prototype.map.call(checks, function(c){ return parseInt(c.getAttribute('data-idx'), 10); });
+          var existentes = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || [];
+          var countNuevos = 0, countActualizados = 0;
           var chain = Promise.resolve();
           idxs.forEach(function(idx){
             var p = kmlParsed[idx];
             if(!p) return;
+            var nombre = p.nombre || ('Sitio ' + (idx+1));
+            var nombreNorm = nombre.trim().toLowerCase();
+            /* Si ya existe un sitio guardado con exactamente el mismo nombre, se actualiza su
+               ubicacion en vez de crear un duplicado -- asi una reimportacion (por archivo o por
+               el link en vivo) no vuelve a generar el mismo problema de sitios repetidos que se
+               esta resolviendo con el boton de Borrar. */
+            var existente = existentes.find(function(s){ return (s.nombre || '').trim().toLowerCase() === nombreNorm; });
             chain = chain.then(function(){
-              return GV.Storage.addSitio({ id: GV.genId('site'), nombre: p.nombre || ('Sitio ' + (idx+1)), direccion: p.nombre || '', lat: p.lat, lng: p.lng });
+              if(existente){
+                countActualizados++;
+                return GV.Storage.updateSitio(existente.id, { lat: p.lat, lng: p.lng, direccion: nombre });
+              }
+              countNuevos++;
+              var nuevoSitio = { id: GV.genId('site'), nombre: nombre, direccion: nombre, lat: p.lat, lng: p.lng };
+              existentes.push(nuevoSitio);
+              return GV.Storage.addSitio(nuevoSitio);
             });
           });
           chain.then(function(){
@@ -964,6 +1046,10 @@ GV.pickLocation = function(opts){
             renderSiteList(siteSearchEl ? siteSearchEl.value : '');
             var siteListBox2 = document.getElementById('gv-site-list');
             if(siteListBox2) siteListBox2.style.display = 'block';
+            var partes = [];
+            if(countNuevos) partes.push(countNuevos + ' sitio' + (countNuevos === 1 ? '' : 's') + ' nuevo' + (countNuevos === 1 ? '' : 's'));
+            if(countActualizados) partes.push(countActualizados + ' sitio' + (countActualizados === 1 ? '' : 's') + ' actualizado' + (countActualizados === 1 ? '' : 's') + ' (ya existia un sitio guardado con ese nombre)');
+            if(partes.length) alert(partes.join(' y ') + '.');
           });
         });
       }
