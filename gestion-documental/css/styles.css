@@ -1,0 +1,59 @@
+#gd-root { display: flex; font-family: Arial, Helvetica, sans-serif; color: #222; height: 100%; }
+
+#gd-nav {
+  width: 200px; background: #1c2b39; color: #fff; padding: 16px 0; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.gd-nav-title { font-weight: bold; padding: 0 16px 12px; border-bottom: 1px solid #33475a; margin-bottom: 8px; }
+.gd-nav-btn {
+  background: none; border: none; color: #cfd8e3; text-align: left; padding: 10px 16px;
+  cursor: pointer; font-size: 14px;
+}
+.gd-nav-btn:hover { background: #2b3f52; }
+.gd-nav-btn.active { background: #2196f3; color: #fff; }
+.gd-nav-status { margin-top: auto; padding: 12px 16px; font-size: 11px; color: #8fa2b3; }
+.gd-nav-section {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #7189a0;
+  padding: 12px 16px 2px;
+}
+.gd-hint { font-size: 12px; color: #666; max-width: 640px; }
+
+#gd-content { flex: 1; padding: 24px; overflow-y: auto; }
+
+.gd-cards { display: flex; gap: 16px; margin: 16px 0; }
+.gd-card { flex: 1; padding: 16px; border-radius: 8px; text-align: center; color: #fff; }
+.gd-card-valor { font-size: 32px; font-weight: bold; }
+.gd-card-ok { background: #2e7d32; }
+.gd-card-warn { background: #f9a825; }
+.gd-card-danger { background: #c62828; }
+.gd-card-neutral { background: #607d8b; }
+
+.gd-filtros { display: flex; gap: 8px; margin-bottom: 12px; }
+.gd-filtros input, .gd-filtros select { padding: 6px 8px; }
+
+.gd-tabla { width: 100%; border-collapse: collapse; }
+.gd-tabla th, .gd-tabla td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+
+.gd-link { background: none; border: none; color: #2196f3; cursor: pointer; padding: 0; text-decoration: underline; }
+.gd-btn { background: #2196f3; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+.gd-btn:disabled { opacity: 0.6; cursor: default; }
+
+.gd-doc-grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.gd-doc-card { width: 180px; padding: 12px; border-radius: 6px; border: 1px solid #ddd; }
+.gd-doc-nombre { font-weight: bold; margin-bottom: 4px; }
+.gd-doc-estado { font-size: 12px; font-weight: bold; }
+.gd-doc-fecha { font-size: 12px; color: #666; }
+.gd-doc-acciones { margin-top: 6px; display: flex; gap: 8px; font-size: 12px; }
+.gd-doc-acciones a { color: #2196f3; }
+.gd-estado-vigente { background: #e8f5e9; border-color: #a5d6a7; }
+.gd-estado-preaviso { background: #fff8e1; border-color: #ffe082; }
+.gd-estado-vencido { background: #ffebee; border-color: #ef9a9a; }
+.gd-estado-faltante { background: #eceff1; border-color: #cfd8dc; }
+
+.gd-func-card { width: 220px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; }
+.gd-func-nombre { font-weight: bold; }
+.gd-func-tipo { font-size: 12px; color: #666; }
+.gd-func-docs { font-size: 12px; margin-top: 6px; }
+
+.gd-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.gd-error { color: #c62828; }
