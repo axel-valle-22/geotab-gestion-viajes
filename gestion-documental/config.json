@@ -1,0 +1,16 @@
+{
+    "name": "Gestión Documental",
+    "supportEmail": "avalle@doloresparra.com.ar",
+    "version": "1.0.0",
+    "items": [
+        {
+            "url": "https://axel-valle-22.github.io/geotab-gestion-viajes/gestion-documental/index.html",
+            "path": "GeotabDrive/",
+            "menuName": {
+                "es": "Gestión Documental"
+            },
+            "icon": "https://axel-valle-22.github.io/geotab-gestion-viajes/gestion-documental/images/icon.svg"
+        }
+    ],
+    "isSigned": false
+}

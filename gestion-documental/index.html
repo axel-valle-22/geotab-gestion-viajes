@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gestión Documental</title>
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- Firebase se carga dinámicamente desde store.js (mismo CDN/versión que
+       usa Gestión de Viajes), no hace falta declararlo acá. -->
+</head>
+<body>
+  <div id="gd-root">
+    <nav id="gd-nav">
+      <div class="gd-nav-title">Gestión Documental</div>
+
+      <button data-view="indicadores" class="gd-nav-btn active">Indicadores</button>
+
+      <div class="gd-nav-section">Documentos</div>
+      <button data-view="entidades" class="gd-nav-btn">Entidades</button>
+      <button data-view="eliminados" class="gd-nav-btn">Eliminados</button>
+
+      <div class="gd-nav-section">Notificaciones</div>
+      <button data-view="alertas" class="gd-nav-btn">Alertas</button>
+      <button data-view="reportes" class="gd-nav-btn">Reportes</button>
+
+      <div class="gd-nav-section">Configuración</div>
+      <button data-view="tiposDocumento" class="gd-nav-btn">Tipos de Documento</button>
+      <button data-view="funciones" class="gd-nav-btn">Funciones</button>
+      <button data-view="usuarios" class="gd-nav-btn">Choferes</button>
+      <button data-view="auditoria" class="gd-nav-btn">Auditoría</button>
+
+      <button id="gd-btn-sync" class="gd-nav-btn" style="margin-top:8px;border-top:1px solid #33475a;padding-top:12px;">⟳ Sincronizar con Geotab</button>
+      <div class="gd-nav-status" id="gd-auth-status">Conectando…</div>
+    </nav>
+    <main id="gd-content">Cargando…</main>
+  </div>
+
+  <script src="js/firebase-config.js"></script>
+  <script src="js/data/store.js"></script>
+  <script src="js/geotab-api.js"></script>
+  <script src="js/views/indicadores.js"></script>
+  <script src="js/views/entidades.js"></script>
+  <script src="js/views/eliminados.js"></script>
+  <script src="js/views/alertas.js"></script>
+  <script src="js/views/reportes.js"></script>
+  <script src="js/views/tiposDocumento.js"></script>
+  <script src="js/views/funciones.js"></script>
+  <script src="js/views/usuarios.js"></script>
+  <script src="js/views/auditoria.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
