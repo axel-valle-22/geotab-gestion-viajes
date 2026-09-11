@@ -1222,6 +1222,18 @@ function computeStopStatuses(v, fullHist){
   var result = {};
   if(!fullHist || !fullHist.length) return result;
   var histCursor = 0, seqBroken = false;
+  /* El barrido secuencial no puede arrancar en cualquier punto del historial del dia: si arranca en
+     el indice 0 (medianoche) puede engancharse con una posicion de la unidad anterior a que este
+     viaje siquiera arrancara (por ejemplo la unidad paso por un sitio temprano a la manana por otro
+     motivo, antes de salir del origen de ESTE viaje) y sellar un ingreso/egreso que en realidad no
+     corresponde a este viaje. Se adelanta el cursor hasta el primer punto del historial que sea
+     posterior a la salida real (o programada) del viaje, para que ningun sitio pueda "completarse"
+     con una posicion anterior a esa salida. */
+  (function(){
+    var floorTs = new Date(v.iniciadoEn || v.fechaSalida).getTime();
+    if(isNaN(floorTs)) return;
+    while(histCursor < fullHist.length && new Date(fullHist[histCursor].dateTime).getTime() < floorTs){ histCursor++; }
+  })();
   pts.forEach(function(p){
     if(seqBroken) return;
     var inside=false, inTime=null, outTime=null, hi=histCursor;
@@ -2376,6 +2388,36 @@ abrirDetalleViaje(v.id);
 });
 }
 
+/* v.sitiosReal (ingreso/egreso real ya sellado por sitio) y v.dwellState (donde esta la unidad
+ahora mismo) se guardan con la clave 'parada'+INDICE dentro del arreglo v.paradas, no con un id
+propio de cada parada. Esa clave deja de servir en cuanto el arreglo cambia de orden o de largo:
+agregar/quitar/reordenar una parada corre los indices de las que quedan despues, y sin este
+remapeo el avance ya sellado de una parada terminaba leyendose bajo la clave de OTRA parada (por
+ejemplo, al borrar la primera parada de un viaje, el "Finalizado" que le correspondia a ella
+aparecia en la que pasaba a ocupar su lugar). mapOldToNew es un objeto { indiceViejo: indiceNuevo
+} -- un indice viejo ausente del mapa significa que esa parada ya no existe y su avance sellado se
+descarta junto con ella. */
+function remapSitiosRealParaParadas(vActual, mapOldToNew){
+var srOld = vActual.sitiosReal || {};
+var srNew = {};
+Object.keys(srOld).forEach(function(k){
+var m = /^parada(\d+)$/.exec(k);
+if(!m){ srNew[k] = srOld[k]; return; }
+var newIdx = mapOldToNew[parseInt(m[1], 10)];
+if(newIdx == null) return;
+srNew['parada' + newIdx] = srOld[k];
+});
+var dwellNew = vActual.dwellState || null;
+if(dwellNew && dwellNew.siteId){
+var md = /^parada(\d+)$/.exec(dwellNew.siteId);
+if(md){
+var newIdx2 = mapOldToNew[parseInt(md[1], 10)];
+dwellNew = (newIdx2 == null) ? null : Object.assign({}, dwellNew, { siteId: 'parada' + newIdx2 });
+}
+}
+return { sitiosReal: srNew, dwellState: dwellNew };
+}
+
 function agregarParada(){
 GV.pickLocation({ title: 'Agregar parada', withStopFields: true, otros: siteListFor(v) }).then(function(res){
 if(!res) return;
@@ -2400,14 +2442,21 @@ var insertIdx = pendientes.length ? pendientes[0].idx : (v.paradas||[]).length;
 GV.pickLocation({ title: 'Agregar espera (permanece cargado)', withEsperaField: true, otros: siteListFor(v), initial: { lat: v.destino.lat, lng: v.destino.lng, direccion: GV.siteNameFor(v.destino) || '' } }).then(function(res){
 if(!res) return;
 var nuevaEspera = { lat: res.lat, lng: res.lng, direccion: res.direccion, tipo: 'espera', permaneceHasta: res.permaneceHasta, poligono: res.poligono || null };
+var oldLen = (v.paradas||[]).length;
 var paradas = (v.paradas||[]).slice();
 paradas.splice(insertIdx, 0, nuevaEspera);
-var srE = Object.assign({}, v.sitiosReal || {});
+/* Insertar corre un lugar hacia adelante a todas las paradas que quedaban en insertIdx en
+adelante: sin este remapeo su avance real ya sellado quedaria leyendose con el indice viejo,
+que ahora es el de la parada de espera recien insertada (o de otra parada distinta). */
+var __mapOldToNew = {};
+for(var __i = 0; __i < oldLen; __i++){ __mapOldToNew[__i] = (__i < insertIdx) ? __i : __i + 1; }
+var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
+var srE = __remap.sitiosReal;
 /* La unidad ya esta fisicamente ahi desde que se detecto la llegada al destino: se precarga el
 ingreso con ese mismo horario en vez de esperar a que el proximo chequeo en vivo lo descubra
 de nuevo (mas tarde y con menos precision). */
 srE['parada' + insertIdx] = Object.assign({}, srE['parada' + insertIdx] || {}, { ingreso: v.llegadaDestinoPendienteEn || new Date().toISOString() });
-GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: srE, llegadaDestinoPendienteEn: null }).then(function(){
+GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: srE, dwellState: __remap.dwellState, llegadaDestinoPendienteEn: null }).then(function(){
 return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente');
 }).then(function(){
 renderStats(); renderTrips(); renderTracking(); renderAlertas();
@@ -2419,8 +2468,17 @@ abrirDetalleViaje(v.id);
 
 function quitarParada(idx){
 if(!confirm('¿Quitar esta parada del viaje? Los horarios estimados se recalcularan.')) return;
+var oldLen = (v.paradas||[]).length;
 var paradas = (v.paradas||[]).filter(function(pp, i){ return i !== idx; });
-GV.Storage.updateViaje(v.id, { paradas: paradas }).then(function(){
+/* Quitar una parada corre un lugar hacia atras a todas las que quedaban despues de ella: sin
+este remapeo, el ingreso/egreso real ya sellado que le correspondia a la parada eliminada
+quedaba "heredado" por la que pasaba a ocupar su indice (el bug reportado: al borrar la ultima
+parada agregada, el Finalizado se corria a la siguiente, y asi en cadena). El avance real de la
+parada eliminada se descarta junto con ella. */
+var __mapOldToNew = {};
+for(var __i = 0; __i < oldLen; __i++){ if(__i === idx) continue; __mapOldToNew[__i] = (__i < idx) ? __i : __i - 1; }
+var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
+GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: __remap.sitiosReal, dwellState: __remap.dwellState }).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
 });
@@ -2440,10 +2498,20 @@ if(fromIdx < 0 || fromIdx >= paradas.length) return;
 if(insertBeforeIdx < 0) insertBeforeIdx = 0;
 if(insertBeforeIdx > paradas.length) insertBeforeIdx = paradas.length;
 if(insertBeforeIdx === fromIdx || insertBeforeIdx === fromIdx + 1) return;
+/* Se aplica exactamente el mismo splice sobre "order" (que arranca como [0,1,2,...]) para saber,
+al terminar, en que indice nuevo quedo cada indice viejo -- y remapear con eso el avance real ya
+sellado de cada parada, que si no quedaria pegado al indice (a la posicion) y no a la parada
+fisica que representa. */
+var order = paradas.map(function(_, i){ return i; });
 var item = paradas.splice(fromIdx, 1)[0];
+var orderItem = order.splice(fromIdx, 1)[0];
 var toIdx = insertBeforeIdx > fromIdx ? insertBeforeIdx - 1 : insertBeforeIdx;
 paradas.splice(toIdx, 0, item);
-GV.Storage.updateViaje(v.id, { paradas: paradas }).then(function(){
+order.splice(toIdx, 0, orderItem);
+var __mapOldToNew = {};
+order.forEach(function(oldIdx, newIdx){ __mapOldToNew[oldIdx] = newIdx; });
+var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
+GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: __remap.sitiosReal, dwellState: __remap.dwellState }).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
 });
@@ -2488,6 +2556,16 @@ var t = new Date(v.fechaSalida);
 var accDist = 0;
 var __histCursor = 0;
 var __seqBroken = false;
+/* Mismo motivo que en computeStopStatuses (Seguimiento): sin este piso, el barrido puede
+   engancharse con una posicion de la unidad anterior a la salida real de ESTE viaje (por ejemplo
+   un paso por un sitio temprano a la manana, antes de que el viaje arrancara) y marcar "Finalizado"
+   un sitio que en realidad la unidad todavia no visito para este viaje. */
+(function(){
+if(!fullHist || !fullHist.length) return;
+var __floorTs = new Date(v.iniciadoEn || v.fechaSalida).getTime();
+if(isNaN(__floorTs)) return;
+while(__histCursor < fullHist.length && new Date(fullHist[__histCursor].dateTime).getTime() < __floorTs){ __histCursor++; }
+})();
 pts.forEach(function(p, i){
 if(i > 0 && route && route.legs && route.legs[i-1]){
 t = new Date(t.getTime() + route.legs[i-1].duration * 1000);
