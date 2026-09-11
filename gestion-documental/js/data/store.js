@@ -39,9 +39,20 @@ const ESTADOS = { VIGENTE: "vigente", PREAVISO: "preaviso", VENCIDO: "vencido", 
  * Firestore (plan gratuito) tiene un límite de ~1 MiB por documento, y
  * base64 pesa ~33% más que el archivo original, así que se apunta a que
  * cada archivo quede bien por debajo de eso: las imágenes se comprimen
- * solas (canvas) hasta entrar en el objetivo; los archivos que no son
- * imagen (PDF, Word, etc.) no se pueden comprimir del lado del cliente,
- * así que si superan el límite se avisa para que lo comprima afuera.
+ * solas (canvas) hasta entrar en el objetivo; los PDF se recomprimen
+ * página por página (pdf.js + jsPDF, ver comprimirPdf) con la misma idea;
+ * el resto de los tipos (Word, Excel, etc.) no se pueden comprimir del
+ * lado del cliente, así que si superan el límite se avisa para que se
+ * compriman afuera.
+ *
+ * OJO tamaño total: este límite es por archivo. Firestore Spark (gratis)
+ * tiene además un tope de 1 GiB de datos guardadas EN TOTAL para todo el
+ * proyecto (no solo Gestión Documental). Con archivos de ~650KB-900KB
+ * cada uno, eso da lugar a unos 1200-1500 adjuntos antes de pegar contra
+ * ese techo. Si la idea es subir muchísimos archivos a lo largo del
+ * tiempo, la solución de fondo no es este límite por archivo sino migrar
+ * los adjuntos a Firebase Storage (requiere plan Blaze) — ahí no hay un
+ * tope de ~1MB por archivo y el almacenamiento sale centavos por GB.
  */
 const ARCHIVO_MAX_BYTES = 650 * 1024; // objetivo tras comprimir (~650KB → ~890KB en base64)
 
@@ -97,6 +108,75 @@ async function comprimirImagen(file) {
     if (dataUrlABytes(dataUrl) <= ARCHIVO_MAX_BYTES) return dataUrl;
   }
   return mejor; // no entró del todo: se devuelve el más chico logrado, se valida afuera
+}
+
+/**
+ * Recomprime un PDF con la misma idea que comprimirImagen: como acá casi
+ * todos los PDF son escaneos (CamScanner, cámara del celu, etc.), no hace
+ * falta preservar texto seleccionable — alcanza con volver a dibujar cada
+ * página como imagen. Usa pdf.js para renderizar cada página a un canvas,
+ * la recodifica como JPEG en pasos de calidad/resolución decrecientes
+ * (igual que las fotos) y arma un PDF nuevo con jsPDF, mucho más liviano.
+ *
+ * Si el PDF no se puede abrir (viene roto, con contraseña, o las librerías
+ * pdf.js/jsPDF no llegaron a cargar) devuelve null: subirArchivo sigue con
+ * el archivo original y, si no entra en el límite, avisa como siempre.
+ */
+async function comprimirPdf(file) {
+  if (typeof pdfjsLib === "undefined" || !window.jspdf) return null;
+
+  let pdf;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  } catch (e) {
+    console.warn("No se pudo abrir el PDF para comprimirlo, se sigue con el original:", e);
+    return null;
+  }
+
+  const intentos = [
+    { dpi: 150, calidad: 0.55 },
+    { dpi: 120, calidad: 0.45 },
+    { dpi: 100, calidad: 0.4 },
+    { dpi: 85, calidad: 0.32 },
+    { dpi: 70, calidad: 0.28 },
+  ];
+
+  let mejor = null;
+  for (const intento of intentos) {
+    const escala = intento.dpi / 72; // pdf.js mide en puntos (72 por pulgada)
+    const paginas = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pagina = await pdf.getPage(i);
+      const viewport = pagina.getViewport({ scale: escala });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await pagina.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      paginas.push({
+        dataUrl: canvas.toDataURL("image/jpeg", intento.calidad),
+        anchoPt: pagina.view[2] - pagina.view[0],
+        altoPt: pagina.view[3] - pagina.view[1],
+      });
+    }
+
+    const { jsPDF } = window.jspdf;
+    const primera = paginas[0];
+    const nuevoPdf = new jsPDF({
+      orientation: primera.anchoPt > primera.altoPt ? "landscape" : "portrait",
+      unit: "pt",
+      format: [primera.anchoPt, primera.altoPt],
+    });
+    paginas.forEach((p, idx) => {
+      if (idx > 0) nuevoPdf.addPage([p.anchoPt, p.altoPt], p.anchoPt > p.altoPt ? "landscape" : "portrait");
+      nuevoPdf.addImage(p.dataUrl, "JPEG", 0, 0, p.anchoPt, p.altoPt);
+    });
+
+    const dataUrl = nuevoPdf.output("datauristring");
+    mejor = dataUrl;
+    if (dataUrlABytes(dataUrl) <= ARCHIVO_MAX_BYTES) return dataUrl;
+  }
+  return mejor; // no entró del todo con la compresión más agresiva: se valida afuera, igual que las fotos
 }
 
 function vacio() {
@@ -400,7 +480,8 @@ const GD = (function () {
   /**
    * Sube (o reemplaza) un archivo elegido con el explorador del sistema
    * operativo (input type="file") para un documento puntual. Las imágenes
-   * se comprimen solas; el resto de los tipos se validan contra
+   * y los PDF se comprimen solos (ver comprimirImagen/comprimirPdf); el
+   * resto de los tipos (Word, Excel, etc.) se validan contra
    * ARCHIVO_MAX_BYTES porque no se pueden comprimir del lado del cliente.
    */
   async function subirArchivo(entidadId, documentoId, file) {
@@ -408,9 +489,14 @@ const GD = (function () {
     if (!documentoId) throw new Error("Primero hay que guardar el documento antes de adjuntar archivos.");
 
     const esImagen = (file.type || "").startsWith("image/");
+    const esPdf = (file.type || "") === "application/pdf";
     let dataUrl;
     if (esImagen) {
       dataUrl = await comprimirImagen(file);
+    } else if (esPdf) {
+      // Si pdf.js/jsPDF fallan por lo que sea, comprimirPdf devuelve null y
+      // seguimos con el PDF tal cual vino (después se valida el tamaño igual).
+      dataUrl = (await comprimirPdf(file)) || (await leerArchivoComoDataUrl(file));
     } else {
       dataUrl = await leerArchivoComoDataUrl(file);
     }
@@ -419,9 +505,9 @@ const GD = (function () {
     if (tamanoBytes > ARCHIVO_MAX_BYTES * 1.4) {
       const limiteMb = ((ARCHIVO_MAX_BYTES * 1.4) / (1024 * 1024)).toFixed(1);
       throw new Error(
-        esImagen
-          ? `La imagen sigue pesando demasiado incluso comprimida (límite ~${limiteMb} MB). Probá con otra foto.`
-          : `El archivo pesa demasiado (límite ~${limiteMb} MB para PDF/Word/etc., porque no se puede comprimir automáticamente). Comprimilo antes de subirlo.`
+        esImagen || esPdf
+          ? `El archivo sigue pesando demasiado incluso comprimido (límite ~${limiteMb} MB). Probá con otro archivo, o si es un PDF de muchas páginas dividilo en partes.`
+          : `El archivo pesa demasiado (límite ~${limiteMb} MB para Word/Excel/etc., porque no se puede comprimir automáticamente). Comprimilo antes de subirlo.`
       );
     }
 
