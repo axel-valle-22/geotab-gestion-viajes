@@ -26,6 +26,79 @@ const ADDIN_ID_GD = "gestionDocumental"; // debe coincidir con el id que Geotab 
 
 const ESTADOS = { VIGENTE: "vigente", PREAVISO: "preaviso", VENCIDO: "vencido", FALTANTE: "faltante" };
 
+/**
+ * Adjuntos reales (subida desde el explorador de archivos), agregados sin
+ * Firebase Storage (pide plan Blaze, igual que Cloud Functions — ver nota
+ * arriba). Cada archivo se guarda como un documento aparte en la colección
+ * `gd_archivos` (no adentro de `gd_data/main`) para no inflar el único
+ * documento que se sincroniza en tiempo real con TODA la app cada vez que
+ * alguien adjunta algo. En `gd_data/main` solo queda un metadato liviano
+ * por archivo (id/nombre/tipo/tamaño) para poder mostrar el clip + cantidad
+ * en la tarjeta sin tener que traer el archivo entero.
+ *
+ * Firestore (plan gratuito) tiene un límite de ~1 MiB por documento, y
+ * base64 pesa ~33% más que el archivo original, así que se apunta a que
+ * cada archivo quede bien por debajo de eso: las imágenes se comprimen
+ * solas (canvas) hasta entrar en el objetivo; los archivos que no son
+ * imagen (PDF, Word, etc.) no se pueden comprimir del lado del cliente,
+ * así que si superan el límite se avisa para que lo comprima afuera.
+ */
+const ARCHIVO_MAX_BYTES = 650 * 1024; // objetivo tras comprimir (~650KB → ~890KB en base64)
+
+function leerArchivoComoDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function cargarImagen(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("No se pudo procesar la imagen"));
+    img.src = dataUrl;
+  });
+}
+
+function dataUrlABytes(dataUrl) {
+  const base64 = (dataUrl.split(",")[1] || "");
+  return Math.ceil((base64.length * 3) / 4);
+}
+
+/**
+ * Reduce una imagen (redimensionando y bajando calidad JPEG en pasos)
+ * hasta que entre en ARCHIVO_MAX_BYTES, o hasta agotar los intentos.
+ */
+async function comprimirImagen(file) {
+  const dataUrlOriginal = await leerArchivoComoDataUrl(file);
+  const img = await cargarImagen(dataUrlOriginal);
+  const intentos = [
+    { maxLado: 1600, calidad: 0.82 },
+    { maxLado: 1400, calidad: 0.72 },
+    { maxLado: 1100, calidad: 0.6 },
+    { maxLado: 900, calidad: 0.5 },
+    { maxLado: 700, calidad: 0.4 },
+  ];
+  let mejor = null;
+  for (const intento of intentos) {
+    const escala = Math.min(1, intento.maxLado / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * escala));
+    const h = Math.max(1, Math.round(img.height * escala));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", intento.calidad);
+    mejor = dataUrl;
+    if (dataUrlABytes(dataUrl) <= ARCHIVO_MAX_BYTES) return dataUrl;
+  }
+  return mejor; // no entró del todo: se devuelve el más chico logrado, se valida afuera
+}
+
 function vacio() {
   return {
     entidades: [], // { id, tipo, descripcion, geotabId, funciones:[], activo }
@@ -65,6 +138,7 @@ const GD = (function () {
   let _addInDataId = null;
   let _fbDb = null;
   let _fbDocRef = null;
+  let _fbArchivosCol = null;
   let _fbReady = false;
   let _listeners = [];
 
@@ -125,6 +199,7 @@ const GD = (function () {
       if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
       _fbDb = firebase.firestore();
       _fbDocRef = _fbDb.collection("gd_data").doc("main");
+      _fbArchivosCol = _fbDb.collection("gd_archivos");
       _fbDocRef.onSnapshot(
         (snap) => {
           _fbReady = true;
@@ -297,6 +372,98 @@ const GD = (function () {
     registrarAuditoria(entidadId, documentoId, "eliminado_definitivo");
     _data.documentos = _data.documentos.filter((d) => d.id !== documentoId);
     await persistir();
+  }
+
+  // ── Archivos adjuntos (subida real desde el explorador, sin Storage) ────
+  /**
+   * Trae los archivos de un documento desde `gd_archivos` (consulta puntual,
+   * no en tiempo real: se llama cuando se abre el panel de edición, no en
+   * cada render, para no golpear Firestore de más).
+   */
+  async function listarArchivos(documentoId) {
+    if (!_fbArchivosCol) return [];
+    try {
+      const snap = await _fbArchivosCol.where("documentoId", "==", documentoId).get();
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.creadoEn || 0) - (b.creadoEn || 0));
+    } catch (err) {
+      console.error("No se pudieron cargar los archivos adjuntos", err);
+      return [];
+    }
+  }
+
+  function metaDeArchivo(archivo) {
+    return { id: archivo.id, nombre: archivo.nombre, tipo: archivo.tipo, tamanoBytes: archivo.tamanoBytes };
+  }
+
+  /**
+   * Sube (o reemplaza) un archivo elegido con el explorador del sistema
+   * operativo (input type="file") para un documento puntual. Las imágenes
+   * se comprimen solas; el resto de los tipos se validan contra
+   * ARCHIVO_MAX_BYTES porque no se pueden comprimir del lado del cliente.
+   */
+  async function subirArchivo(entidadId, documentoId, file) {
+    if (!_fbArchivosCol) throw new Error("Todavía no hay conexión con el almacenamiento de archivos.");
+    if (!documentoId) throw new Error("Primero hay que guardar el documento antes de adjuntar archivos.");
+
+    const esImagen = (file.type || "").startsWith("image/");
+    let dataUrl;
+    if (esImagen) {
+      dataUrl = await comprimirImagen(file);
+    } else {
+      dataUrl = await leerArchivoComoDataUrl(file);
+    }
+
+    const tamanoBytes = dataUrlABytes(dataUrl);
+    if (tamanoBytes > ARCHIVO_MAX_BYTES * 1.4) {
+      const limiteMb = ((ARCHIVO_MAX_BYTES * 1.4) / (1024 * 1024)).toFixed(1);
+      throw new Error(
+        esImagen
+          ? `La imagen sigue pesando demasiado incluso comprimida (límite ~${limiteMb} MB). Probá con otra foto.`
+          : `El archivo pesa demasiado (límite ~${limiteMb} MB para PDF/Word/etc., porque no se puede comprimir automáticamente). Comprimilo antes de subirlo.`
+      );
+    }
+
+    const archivoId = uid("arc");
+    const registro = {
+      documentoId,
+      entidadId,
+      nombre: file.name,
+      tipo: file.type || "application/octet-stream",
+      tamanoBytes,
+      dataUrl,
+      creadoPor: usuarioActual(),
+      creadoEn: Date.now(),
+    };
+    await _fbArchivosCol.doc(archivoId).set(registro);
+
+    const doc = _data.documentos.find((d) => d.id === documentoId);
+    if (doc) {
+      doc.archivos = doc.archivos || [];
+      doc.archivos.push(metaDeArchivo({ id: archivoId, ...registro }));
+    }
+    registrarAuditoria(entidadId, documentoId, "archivo_subido", { archivoNombre: file.name });
+    await persistir();
+    notify();
+    return { id: archivoId, ...registro };
+  }
+
+  async function eliminarArchivo(entidadId, documentoId, archivoId) {
+    if (_fbArchivosCol) {
+      try {
+        await _fbArchivosCol.doc(archivoId).delete();
+      } catch (err) {
+        console.error("No se pudo borrar el archivo en Firestore", err);
+      }
+    }
+    const doc = _data.documentos.find((d) => d.id === documentoId);
+    if (doc && Array.isArray(doc.archivos)) {
+      doc.archivos = doc.archivos.filter((a) => a.id !== archivoId);
+    }
+    registrarAuditoria(entidadId, documentoId, "archivo_eliminado");
+    await persistir();
+    notify();
   }
 
   async function listarEliminados() {
@@ -483,6 +650,10 @@ const GD = (function () {
     eliminarDocumento,
     restaurarDocumento,
     eliminarDocumentoDefinitivo,
+    listarArchivos,
+    subirArchivo,
+    eliminarArchivo,
+    ARCHIVO_MAX_BYTES,
     listarEliminados,
     listarTiposDocumento,
     crearTipoDocumento,
