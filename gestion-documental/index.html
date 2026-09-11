@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Gestión Documental</title>
-  <link rel="stylesheet" href="css/styles.css?v=3" />
+  <link rel="stylesheet" href="css/styles.css?v=4" />
 
   <!-- Firebase se carga dinámicamente desde store.js (mismo CDN/versión que
        usa Gestión de Viajes), no hace falta declararlo acá. -->
@@ -43,18 +43,25 @@
     <main id="gd-content">Cargando…</main>
   </div>
 
-  <script src="js/firebase-config.js?v=3"></script>
-  <script src="js/data/store.js?v=3"></script>
-  <script src="js/geotab-api.js?v=3"></script>
-  <script src="js/views/indicadores.js?v=3"></script>
-  <script src="js/views/entidades.js?v=3"></script>
-  <script src="js/views/eliminados.js?v=3"></script>
-  <script src="js/views/alertas.js?v=3"></script>
-  <script src="js/views/reportes.js?v=3"></script>
-  <script src="js/views/tiposDocumento.js?v=3"></script>
-  <script src="js/views/funciones.js?v=3"></script>
-  <script src="js/views/usuarios.js?v=3"></script>
-  <script src="js/views/auditoria.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
+  <!-- pdf.js + jsPDF: usados por comprimirPdf() en store.js para achicar
+       PDF pesados (escaneos) automáticamente antes de guardarlos, igual
+       que ya se hace con las fotos. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script src="js/firebase-config.js?v=4"></script>
+  <script src="js/data/store.js?v=4"></script>
+  <script src="js/geotab-api.js?v=4"></script>
+  <script src="js/views/indicadores.js?v=4"></script>
+  <script src="js/views/entidades.js?v=4"></script>
+  <script src="js/views/eliminados.js?v=4"></script>
+  <script src="js/views/alertas.js?v=4"></script>
+  <script src="js/views/reportes.js?v=4"></script>
+  <script src="js/views/tiposDocumento.js?v=4"></script>
+  <script src="js/views/funciones.js?v=4"></script>
+  <script src="js/views/usuarios.js?v=4"></script>
+  <script src="js/views/auditoria.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>
