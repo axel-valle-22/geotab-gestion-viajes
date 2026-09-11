@@ -157,7 +157,7 @@ async function renderDetalle(container, entidadId) {
       "<p class='gd-hint'>Esta entidad no tiene funciones con documentos requeridos asignados.</p>"
     }</div>
 
-    <h3>No requeridos</h3>
+    <h3>No requeridos <button class="gd-link" id="gd-btn-agregar-doc" style="font-size:.78rem;margin-left:10px;font-weight:600">+ Agregar documento</button></h3>
     <div class="gd-doc-grid" id="gd-grid-norequeridos">${
       tarjetasNoRequeridas.map(tarjetaDocumento).join("") || "<p class='gd-hint'>-</p>"
     }</div>
@@ -193,6 +193,20 @@ async function renderDetalle(container, entidadId) {
       }
     });
   });
+
+  // Alta de un documento de cualquier tipo (no solo los requeridos por una
+  // función) — cubre el caso de una entidad sin funciones asignadas, o de
+  // un tipo de documento puntual que no forma parte de ninguna función.
+  document.getElementById("gd-btn-agregar-doc").addEventListener("click", () => {
+    abrirModalDocumento({
+      entidad,
+      entidadId,
+      doc: { id: null, entidadId, tipoDocumentoId: null, estado: "faltante", archivos: [] },
+      tipo: null,
+      tiposDocumentoOpciones: tiposDocumento,
+      onGuardado: () => renderDetalle(container, entidadId),
+    });
+  });
 }
 
 // ── Modal de documento (ver / editar / adjuntar) ──────────────────────────
@@ -207,8 +221,11 @@ function gdModalEscHandler(ev) {
   if (ev.key === "Escape") gdCerrarModalDocumento();
 }
 
-function abrirModalDocumento({ entidad, entidadId, doc, tipo, onGuardado }) {
+function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpciones, onGuardado }) {
   gdCerrarModalDocumento();
+  // Si se abrió sin un tipo fijo (alta libre desde "+ Agregar documento"),
+  // `tipo` se va a ir completando cuando la persona elija una opción del
+  // desplegable — por eso es un `let`, no una constante.
 
   // Copia local editable — no se toca `doc` hasta guardar con éxito.
   let form = {
@@ -275,11 +292,23 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, onGuardado }) {
 
   function htmlInfo() {
     const dis = st.editing ? "" : "disabled";
-    return `
+    const tipoEditable = !doc.id && !tipo && tiposDocumentoOpciones && tiposDocumentoOpciones.length;
+    const filaTipo = tipoEditable
+      ? `
+      <div class="gd-modal-row">
+        <label>Tipo de Documento</label>
+        <select id="gd-f-tipo">
+          <option value="">Elegí un tipo…</option>
+          ${tiposDocumentoOpciones.map((t) => `<option value="${t.id}">${t.nombre}</option>`).join("")}
+        </select>
+      </div>`
+      : `
       <div class="gd-modal-row">
         <label>Tipo de Documento</label>
         <input type="text" value="${(tipo && tipo.nombre) || doc.tipoDocumentoId || ""}" disabled />
-      </div>
+      </div>`;
+    return `
+      ${filaTipo}
       <div class="gd-modal-2col">
         <div class="gd-modal-row">
           <label>Fecha Desde</label>
@@ -417,6 +446,13 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, onGuardado }) {
       })
     );
 
+    const fTipo = overlay.querySelector("#gd-f-tipo");
+    if (fTipo) fTipo.addEventListener("change", (e) => {
+      tipo = tiposDocumentoOpciones.find((t) => t.id === e.target.value) || null;
+      form.diasPreaviso = (tipo && tipo.diasPreaviso) ?? 30;
+      pintar(); // cambia el título del modal y el valor por defecto de preaviso
+    });
+
     // Campos: se actualiza el estado en memoria sin re-pintar todo (para no
     // perder el foco mientras se escribe); el badge se actualiza a mano.
     const fDesde = overlay.querySelector("#gd-f-desde");
@@ -467,6 +503,11 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, onGuardado }) {
 
     const btnGuardar = overlay.querySelector("#gd-btn-guardar");
     if (btnGuardar) btnGuardar.addEventListener("click", async () => {
+      if (!tipo && !doc.tipoDocumentoId) {
+        st.msgGuardar = "Error: elegí un tipo de documento.";
+        pintar();
+        return;
+      }
       if (!form.sinVencimiento && !form.fechaDesde) {
         st.msgGuardar = "Error: elegí la Fecha Desde.";
         pintar();
