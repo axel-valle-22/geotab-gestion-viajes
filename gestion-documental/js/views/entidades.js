@@ -371,7 +371,7 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
           <input type="file" id="gd-input-archivo" style="display:none" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" ${st.subiendo ? "disabled" : ""} />
         </label>
       </div>
-      <p class="gd-hint">Las fotos se comprimen automáticamente. Tamaño máximo aproximado por archivo: 900 KB.</p>
+      <p class="gd-hint">Las fotos y los PDF se comprimen automáticamente. Tamaño máximo aproximado por archivo: 900 KB.</p>
       ${lista}
       ${st.msgArchivos ? `<p class="gd-archivos-msg ${st.msgArchivos.startsWith("Error") ? "gd-error" : "gd-ok"}">${st.msgArchivos}</p>` : ""}
     `;
