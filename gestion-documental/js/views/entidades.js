@@ -43,6 +43,11 @@ function gdToInputDate(ts) {
 window.GD_VIEWS.entidades = async function render(container, params = {}) {
   if (params.entidadId) return renderDetalle(container, params.entidadId);
 
+  // `estadoFiltro` llega cuando se navega acá haciendo click en una de las
+  // tarjetas de Indicadores (Vigentes/Preaviso/Vencidos/Faltantes): precarga
+  // el filtro de Estado con ese valor para que la tabla ya aparezca filtrada.
+  const estadoInicial = params.estadoFiltro || "";
+
   container.innerHTML = `
     <h2>Entidades</h2>
     <div class="gd-filtros">
@@ -55,10 +60,10 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
       </select>
       <select id="gd-f-estado">
         <option value="">Estado</option>
-        <option value="vigente">Vigente</option>
-        <option value="preaviso">Preaviso</option>
-        <option value="vencido">Vencido</option>
-        <option value="faltante">Faltante</option>
+        <option value="vigente" ${estadoInicial === "vigente" ? "selected" : ""}>Vigente</option>
+        <option value="preaviso" ${estadoInicial === "preaviso" ? "selected" : ""}>Preaviso</option>
+        <option value="vencido" ${estadoInicial === "vencido" ? "selected" : ""}>Vencido</option>
+        <option value="faltante" ${estadoInicial === "faltante" ? "selected" : ""}>Faltante</option>
       </select>
     </div>
     <table class="gd-tabla">
