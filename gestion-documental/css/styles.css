@@ -24,10 +24,12 @@
   --gd-radius: 14px;
   --gd-radius-lg: 18px;
   --gd-radius-pill: 999px;
-  --gd-nav-bg: #3a3d42;
-  --gd-nav-bg-hover: #4b4f56;
-  --gd-nav-text: #b7bac0;
-  --gd-nav-text-muted: #9296a0;
+  --gd-nav-bg: #F8F9FB;
+  --gd-nav-bg-hover: #FFFFFF;
+  --gd-nav-border: #E7E9EE;
+  --gd-nav-text: #4B5563;
+  --gd-nav-text-strong: #20232B;
+  --gd-nav-text-muted: #9AA0AC;
 }
 
 * { box-sizing: border-box; }
@@ -52,16 +54,18 @@ body {
 #gd-nav {
   width: 220px;
   background: var(--gd-nav-bg);
-  color: #fff;
+  color: var(--gd-nav-text);
   padding: 18px 0;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  border-right: 1px solid var(--gd-nav-border);
+  box-shadow: 2px 0 10px rgba(17, 24, 39, .04);
 }
 .gd-nav-brand {
   padding: 4px 18px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, .1);
+  border-bottom: 1px solid var(--gd-nav-border);
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
@@ -75,29 +79,41 @@ body {
   background: #fff;
   padding: 8px 10px;
   border-radius: 10px;
+  border: 1px solid var(--gd-nav-border);
   box-shadow: var(--gd-shadow);
 }
 .gd-nav-title {
   font-weight: 700;
   font-size: 1.02rem;
+  color: var(--gd-nav-text-strong);
 }
+/* Los botones arrancan "planos" (sin tarjeta) y al pasar el mouse se
+   levantan como una tarjeta blanca con sombra: esa sombra es justamente
+   la señal visual de que la opción está disponible y es clickeable. */
 .gd-nav-btn {
-  background: none;
-  border: none;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--gd-nav-text);
   text-align: left;
-  padding: 10px 18px;
+  padding: 10px 14px;
   cursor: pointer;
   font-size: .86rem;
   font-weight: 500;
   font-family: inherit;
-  border-radius: 0 var(--gd-radius-pill) var(--gd-radius-pill) 0;
-  margin-right: 12px;
-  transition: background .15s, color .15s;
+  border-radius: var(--gd-radius);
+  margin: 2px 12px;
+  box-shadow: none;
+  transition: background .15s, color .15s, box-shadow .15s, transform .15s;
 }
-.gd-nav-btn:hover { background: var(--gd-nav-bg-hover); color: #fff; }
+.gd-nav-btn:hover {
+  background: #fff;
+  color: var(--gd-nav-text-strong);
+  box-shadow: 0 3px 10px rgba(17, 24, 39, .09), 0 1px 2px rgba(17, 24, 39, .06);
+  transform: translateY(-1px);
+}
 .gd-nav-btn.active {
   background: var(--gd-accent);
+  border-color: transparent;
   color: #fff;
   font-weight: 600;
   box-shadow: 0 4px 12px rgba(var(--gd-accent-rgb), .35);
@@ -124,7 +140,7 @@ body {
   padding: 14px 18px 8px;
   transition: color .15s;
 }
-.gd-nav-section-toggle:hover { color: #fff; }
+.gd-nav-section-toggle:hover { color: var(--gd-nav-text-strong); }
 .gd-nav-chevron { display: flex; flex-shrink: 0; color: inherit; transition: transform .15s; }
 .gd-nav-chevron svg { width: 11px; height: 11px; }
 .gd-nav-group.gd-nav-group-open .gd-nav-chevron { transform: rotate(180deg); }

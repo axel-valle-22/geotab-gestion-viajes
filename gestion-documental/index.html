@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Gestión Documental</title>
-  <link rel="stylesheet" href="css/styles.css?v=5" />
+  <link rel="stylesheet" href="css/styles.css?v=6" />
 
   <!-- Firebase se carga dinámicamente desde store.js (mismo CDN/versión que
        usa Gestión de Viajes), no hace falta declararlo acá. -->
@@ -61,7 +61,7 @@
         </div>
       </div>
 
-      <button id="gd-btn-sync" class="gd-nav-btn" style="margin-top:8px;margin-right:0;border-radius:0;border-top:1px solid rgba(255,255,255,.1);padding-top:14px;">⟳ Sincronizar con Geotab</button>
+      <button id="gd-btn-sync" class="gd-nav-btn" style="margin-top:10px;border-top:1px solid var(--gd-nav-border);padding-top:14px;border-radius:var(--gd-radius);">⟳ Sincronizar con Geotab</button>
       <div class="gd-nav-status" id="gd-auth-status">Conectando…</div>
     </nav>
     <main id="gd-content">Cargando…</main>
@@ -74,18 +74,18 @@
   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script src="js/firebase-config.js?v=5"></script>
-  <script src="js/data/store.js?v=5"></script>
-  <script src="js/geotab-api.js?v=5"></script>
-  <script src="js/views/indicadores.js?v=5"></script>
-  <script src="js/views/entidades.js?v=5"></script>
-  <script src="js/views/eliminados.js?v=5"></script>
-  <script src="js/views/alertas.js?v=5"></script>
-  <script src="js/views/reportes.js?v=5"></script>
-  <script src="js/views/tiposDocumento.js?v=5"></script>
-  <script src="js/views/funciones.js?v=5"></script>
-  <script src="js/views/usuarios.js?v=5"></script>
-  <script src="js/views/auditoria.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/firebase-config.js?v=6"></script>
+  <script src="js/data/store.js?v=6"></script>
+  <script src="js/geotab-api.js?v=6"></script>
+  <script src="js/views/indicadores.js?v=6"></script>
+  <script src="js/views/entidades.js?v=6"></script>
+  <script src="js/views/eliminados.js?v=6"></script>
+  <script src="js/views/alertas.js?v=6"></script>
+  <script src="js/views/reportes.js?v=6"></script>
+  <script src="js/views/tiposDocumento.js?v=6"></script>
+  <script src="js/views/funciones.js?v=6"></script>
+  <script src="js/views/usuarios.js?v=6"></script>
+  <script src="js/views/auditoria.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>
