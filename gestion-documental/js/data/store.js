@@ -359,6 +359,22 @@ const GD = (function () {
     return _sessionUserName || "desconocido";
   }
 
+  // Nombre del tipo de documento (Título, VTV Nacional, Foto, etc.) y de la
+  // entidad (patente/nombre del chofer) al momento del movimiento: se guardan
+  // como "foto" en la auditoría para que quede clarísimo qué se cargó o
+  // modificó, y para que el historial no cambie si después se renombra o
+  // borra el tipo de documento o la entidad.
+  function _nombreTipoDocumento(tipoDocumentoId) {
+    if (!tipoDocumentoId) return null;
+    const t = _data.tiposDocumento.find((x) => x.id === tipoDocumentoId);
+    return (t && t.nombre) || null;
+  }
+
+  function _nombreEntidad(entidadId) {
+    const e = _data.entidades.find((x) => x.id === entidadId);
+    return (e && e.descripcion) || null;
+  }
+
   function registrarAuditoria(entidadId, documentoId, accion, extra = {}) {
     _data.auditoria.unshift({
       id: uid("aud"),
@@ -367,6 +383,7 @@ const GD = (function () {
       accion,
       usuario: usuarioActual(),
       fecha: Date.now(),
+      entidadNombre: _nombreEntidad(entidadId),
       ...extra,
     });
     if (_data.auditoria.length > 500) _data.auditoria.length = 500; // no crecer sin límite
@@ -423,6 +440,7 @@ const GD = (function () {
     });
     registrarAuditoria(entidadId, doc.id, esNuevo ? "creado" : "editado", {
       estadoNuevo: calcularEstado(doc),
+      documentoNombre: doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId),
     });
     await persistir();
     return doc.id;
@@ -434,7 +452,9 @@ const GD = (function () {
     doc.activo = false;
     doc.eliminadoPor = usuarioActual();
     doc.eliminadoEn = Date.now();
-    registrarAuditoria(entidadId, documentoId, "eliminado");
+    registrarAuditoria(entidadId, documentoId, "eliminado", {
+      documentoNombre: doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId),
+    });
     await persistir();
   }
 
@@ -444,12 +464,17 @@ const GD = (function () {
     doc.activo = true;
     delete doc.eliminadoPor;
     delete doc.eliminadoEn;
-    registrarAuditoria(entidadId, documentoId, "restaurado");
+    registrarAuditoria(entidadId, documentoId, "restaurado", {
+      documentoNombre: doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId),
+    });
     await persistir();
   }
 
   async function eliminarDocumentoDefinitivo(entidadId, documentoId) {
-    registrarAuditoria(entidadId, documentoId, "eliminado_definitivo");
+    const doc = _data.documentos.find((d) => d.id === documentoId);
+    registrarAuditoria(entidadId, documentoId, "eliminado_definitivo", {
+      documentoNombre: doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId)),
+    });
     _data.documentos = _data.documentos.filter((d) => d.id !== documentoId);
     await persistir();
   }
@@ -529,7 +554,10 @@ const GD = (function () {
       doc.archivos = doc.archivos || [];
       doc.archivos.push(metaDeArchivo({ id: archivoId, ...registro }));
     }
-    registrarAuditoria(entidadId, documentoId, "archivo_subido", { archivoNombre: file.name });
+    registrarAuditoria(entidadId, documentoId, "archivo_subido", {
+      archivoNombre: file.name,
+      documentoNombre: doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId)),
+    });
     await persistir();
     notify();
     return { id: archivoId, ...registro };
@@ -544,10 +572,14 @@ const GD = (function () {
       }
     }
     const doc = _data.documentos.find((d) => d.id === documentoId);
+    const archivoBorrado = doc && Array.isArray(doc.archivos) ? doc.archivos.find((a) => a.id === archivoId) : null;
     if (doc && Array.isArray(doc.archivos)) {
       doc.archivos = doc.archivos.filter((a) => a.id !== archivoId);
     }
-    registrarAuditoria(entidadId, documentoId, "archivo_eliminado");
+    registrarAuditoria(entidadId, documentoId, "archivo_eliminado", {
+      archivoNombre: archivoBorrado && archivoBorrado.nombre,
+      documentoNombre: doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId)),
+    });
     await persistir();
     notify();
   }
@@ -644,7 +676,18 @@ const GD = (function () {
   async function listarAuditoria({ entidadId = null, limite = 100 } = {}) {
     let items = _data.auditoria;
     if (entidadId) items = items.filter((a) => a.entidadId === entidadId);
-    return items.slice(0, limite);
+    // Los movimientos guardados antes de este cambio no tienen documentoNombre
+    // ni entidadNombre: se completan acá "al vuelo" buscando el documento/
+    // entidad todavía vivos (si ya no existen, se sigue mostrando el id).
+    return items.slice(0, limite).map((a) => {
+      if (a.documentoNombre && a.entidadNombre) return a;
+      const doc = _data.documentos.find((d) => d.id === a.documentoId);
+      return {
+        ...a,
+        documentoNombre: a.documentoNombre || (doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId))) || null,
+        entidadNombre: a.entidadNombre || _nombreEntidad(a.entidadId),
+      };
+    });
   }
 
   // ── Indicadores ──────────────────────────────────────────────────────────
