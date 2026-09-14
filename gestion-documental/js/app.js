@@ -11,7 +11,25 @@ window.gdApp = (function () {
     vistaActual = vista;
     paramsActuales = params;
     document.querySelectorAll(".gd-nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === vista));
+    abrirGrupoDeVista(vista);
     render();
+  }
+
+  // Documentos / Notificaciones / Configuración son menús desplegables: al
+  // navegar a una vista que vive adentro de uno de esos grupos (sea por
+  // click directo en el menú, por una tarjeta de Indicadores, o por un link
+  // interno como "Ver historial de esta entidad"), ese grupo se abre solo
+  // para que el botón activo quede visible.
+  function abrirGrupoDeVista(vista) {
+    const boton = document.querySelector(`.gd-nav-btn[data-view="${vista}"]`);
+    const grupo = boton && boton.closest(".gd-nav-group");
+    if (grupo) setGrupoAbierto(grupo, true);
+  }
+
+  function setGrupoAbierto(grupo, abierto) {
+    grupo.classList.toggle("gd-nav-group-open", abierto);
+    const toggle = grupo.querySelector("[data-nav-toggle]");
+    if (toggle) toggle.setAttribute("aria-expanded", abierto ? "true" : "false");
   }
 
   function render() {
@@ -28,6 +46,15 @@ window.gdApp = (function () {
     document.querySelectorAll(".gd-nav-btn").forEach((btn) => {
       btn.addEventListener("click", () => navegar(btn.dataset.view));
     });
+
+    document.querySelectorAll("[data-nav-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const grupo = btn.closest(".gd-nav-group");
+        if (grupo) setGrupoAbierto(grupo, !grupo.classList.contains("gd-nav-group-open"));
+      });
+    });
+
+    abrirGrupoDeVista(vistaActual);
 
     const status = document.getElementById("gd-auth-status");
     if (status) status.textContent = `Conectado como ${GD.usuarioActual()}`;

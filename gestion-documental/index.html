@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Gestión Documental</title>
-  <link rel="stylesheet" href="css/styles.css?v=4" />
+  <link rel="stylesheet" href="css/styles.css?v=5" />
 
   <!-- Firebase se carga dinámicamente desde store.js (mismo CDN/versión que
        usa Gestión de Viajes), no hace falta declararlo acá. -->
@@ -19,23 +19,47 @@
 <body>
   <div id="gd-root">
     <nav id="gd-nav">
-      <div class="gd-nav-title">Gestión Documental</div>
+      <div class="gd-nav-brand">
+        <img class="gd-nav-logo" src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transportes Dolores Parra" />
+        <div class="gd-nav-title">Gestión Documental</div>
+      </div>
 
       <button data-view="indicadores" class="gd-nav-btn active">Indicadores</button>
 
-      <div class="gd-nav-section">Documentos</div>
-      <button data-view="entidades" class="gd-nav-btn">Entidades</button>
-      <button data-view="eliminados" class="gd-nav-btn">Eliminados</button>
+      <div class="gd-nav-group" data-group="documentos">
+        <button type="button" class="gd-nav-section-toggle" data-nav-toggle aria-expanded="false">
+          <span>Documentos</span>
+          <span class="gd-nav-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div class="gd-nav-group-body">
+          <button data-view="entidades" class="gd-nav-btn">Entidades</button>
+          <button data-view="eliminados" class="gd-nav-btn">Eliminados</button>
+        </div>
+      </div>
 
-      <div class="gd-nav-section">Notificaciones</div>
-      <button data-view="alertas" class="gd-nav-btn">Alertas</button>
-      <button data-view="reportes" class="gd-nav-btn">Reportes</button>
+      <div class="gd-nav-group" data-group="notificaciones">
+        <button type="button" class="gd-nav-section-toggle" data-nav-toggle aria-expanded="false">
+          <span>Notificaciones</span>
+          <span class="gd-nav-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div class="gd-nav-group-body">
+          <button data-view="alertas" class="gd-nav-btn">Alertas</button>
+          <button data-view="reportes" class="gd-nav-btn">Reportes</button>
+        </div>
+      </div>
 
-      <div class="gd-nav-section">Configuración</div>
-      <button data-view="tiposDocumento" class="gd-nav-btn">Tipos de Documento</button>
-      <button data-view="funciones" class="gd-nav-btn">Funciones</button>
-      <button data-view="usuarios" class="gd-nav-btn">Choferes</button>
-      <button data-view="auditoria" class="gd-nav-btn">Auditoría</button>
+      <div class="gd-nav-group" data-group="configuracion">
+        <button type="button" class="gd-nav-section-toggle" data-nav-toggle aria-expanded="false">
+          <span>Configuración</span>
+          <span class="gd-nav-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div class="gd-nav-group-body">
+          <button data-view="tiposDocumento" class="gd-nav-btn">Tipos de Documento</button>
+          <button data-view="funciones" class="gd-nav-btn">Funciones</button>
+          <button data-view="usuarios" class="gd-nav-btn">Choferes</button>
+          <button data-view="auditoria" class="gd-nav-btn">Auditoría</button>
+        </div>
+      </div>
 
       <button id="gd-btn-sync" class="gd-nav-btn" style="margin-top:8px;margin-right:0;border-radius:0;border-top:1px solid rgba(255,255,255,.1);padding-top:14px;">⟳ Sincronizar con Geotab</button>
       <div class="gd-nav-status" id="gd-auth-status">Conectando…</div>
@@ -50,18 +74,18 @@
   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script src="js/firebase-config.js?v=4"></script>
-  <script src="js/data/store.js?v=4"></script>
-  <script src="js/geotab-api.js?v=4"></script>
-  <script src="js/views/indicadores.js?v=4"></script>
-  <script src="js/views/entidades.js?v=4"></script>
-  <script src="js/views/eliminados.js?v=4"></script>
-  <script src="js/views/alertas.js?v=4"></script>
-  <script src="js/views/reportes.js?v=4"></script>
-  <script src="js/views/tiposDocumento.js?v=4"></script>
-  <script src="js/views/funciones.js?v=4"></script>
-  <script src="js/views/usuarios.js?v=4"></script>
-  <script src="js/views/auditoria.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/firebase-config.js?v=5"></script>
+  <script src="js/data/store.js?v=5"></script>
+  <script src="js/geotab-api.js?v=5"></script>
+  <script src="js/views/indicadores.js?v=5"></script>
+  <script src="js/views/entidades.js?v=5"></script>
+  <script src="js/views/eliminados.js?v=5"></script>
+  <script src="js/views/alertas.js?v=5"></script>
+  <script src="js/views/reportes.js?v=5"></script>
+  <script src="js/views/tiposDocumento.js?v=5"></script>
+  <script src="js/views/funciones.js?v=5"></script>
+  <script src="js/views/usuarios.js?v=5"></script>
+  <script src="js/views/auditoria.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>
