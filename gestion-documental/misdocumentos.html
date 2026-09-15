@@ -536,6 +536,7 @@
         var bytes = new Uint8Array(binario.length);
         for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
         var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        console.log('DBG_PDF_START', pdf.numPages);
         body.innerHTML = '<div id="md-visor-zoom-wrap"></div>';
         var wrap = document.getElementById('md-visor-zoom-wrap');
         // El ancho de render se calcula segun el ancho real disponible en
@@ -558,9 +559,13 @@
           canvas.height = viewport.height;
           wrap.appendChild(canvas);
           await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+          console.log('DBG_PDF_PAGE_DONE', p);
         }
+        console.log('DBG_PDF_BEFORE_ACTIVARZOOM');
         activarZoom(wrap);
+        console.log('DBG_PDF_AFTER_ACTIVARZOOM');
       }catch(err){
+        console.error('DBG_PDF_ERROR', err && err.message, err && err.stack);
         body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
       }
       return;
