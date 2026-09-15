@@ -136,10 +136,22 @@
 
   /* Visor de archivos: en vez de "descargar" (falla adentro del WebView de
      Geotab Drive, ver comentario en abrirArchivo()), el archivo se muestra
-     adentro mismo de la pantalla. */
+     adentro mismo de la pantalla.
+
+     OJO: esto NO es un overlay con position:fixed. Se probo asi primero y
+     el WebView de Geotab Drive no lo respeta -- todo indica que directamente
+     IGNORA "position:fixed" (lo trata como si fuera "static"), asi que
+     "inset:0" no tiene ningun efecto y el visor terminaba con el tamano de
+     su contenido, colgado despues de toda la lista (bloquear el scroll de
+     fondo tampoco soluciona nada si el problema es este). La solucion que
+     no depende de que el WebView soporte "fixed" es no pedirselo: el visor
+     se inserta como un panel mas DENTRO del flujo normal de la pagina,
+     justo despues de la tarjeta del documento que se toco (ver
+     abrirArchivo), con un alto maximo fijo y su propio scroll interno. */
   #md-visor{
-    display:none;position:fixed;inset:0;background:#14161c;z-index:1000;
-    flex-direction:column;
+    display:none;background:#14161c;border-radius:var(--md-radius-lg);
+    margin:-2px 0 14px;overflow:hidden;flex-direction:column;
+    box-shadow:var(--md-shadow);
   }
   #md-visor.md-visor-on{display:flex}
   #md-visor-header{
@@ -155,7 +167,11 @@
   .md-visor-btn:active{background:rgba(255,255,255,.22)}
   .md-visor-btn[hidden]{display:none}
   #md-visor-acciones{display:flex;gap:8px;flex-shrink:0}
-  #md-visor-body{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
+  /* max-height (en vez de flex:1 en un contenedor de alto automatico) es lo
+     que le da al visor un tamano predecible y su propio scroll interno,
+     sin necesitar que el padre tenga una altura fija -- eso es justamente
+     lo que fallaba con el overlay de pantalla completa. */
+  #md-visor-body{max-height:70vh;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
   #md-visor-body img{max-width:100%;border-radius:8px;touch-action:none}
   #md-visor-body canvas{max-width:100%;height:auto;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff}
   #md-visor-body .md-hint{color:#cbd0da}
@@ -264,40 +280,6 @@
   // aparte para cuando si funciona (navegador normal, MyGeotab web, etc.).
 
   var gArchivoActual = null; // { nombre, tipo, dataUrl }
-  var gScrollLockY = 0;
-
-  // El WebView de Geotab Drive (Android) tiene un bug conocido de estos
-  // componentes embebidos: un "position:fixed" hijo no queda realmente
-  // pegado a la pantalla mientras la pagina de atras esta scrolleada --
-  // se dibuja en el lugar donde cayo en el layout normal, como si fuera
-  // "absolute". Por eso el visor aparecia "mas abajo" y habia que scrollear
-  // toda la pantalla de atras para verlo. La solucion estandar (la misma
-  // que usan la mayoria de apps hibridas para este problema) es sacar el
-  // <body> del flujo normal mientras el visor esta abierto, para que no
-  // quede scroll "de fondo" que pueda desincronizar el overlay.
-  function bloquearScrollFondo(){
-    gScrollLockY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    // El bug de arriba se dispara "mientras la pagina de atras esta
-    // scrolleada", asi que ademas de esconder visualmente el scroll con el
-    // truco de abajo, primero llevamos el scroll REAL a 0 -- si el scroll
-    // real nunca llega a cero (aunque visualmente no se note salto alguno)
-    // el bug se puede seguir disparando igual.
-    window.scrollTo(0, 0);
-    document.body.style.position = 'fixed';
-    document.body.style.top = '0';
-    document.body.style.left = '0';
-    document.body.style.right = '0';
-    document.body.style.width = '100%';
-  }
-
-  function desbloquearScrollFondo(){
-    document.body.style.position = '';
-    document.body.style.top = '';
-    document.body.style.left = '';
-    document.body.style.right = '';
-    document.body.style.width = '';
-    window.scrollTo(0, gScrollLockY);
-  }
 
   function dataUrlABlob(dataUrl){
     var partes = dataUrl.split(',');
@@ -312,11 +294,18 @@
   }
 
   function cerrarVisor(){
-    document.getElementById('md-visor').classList.remove('md-visor-on');
+    var visor = document.getElementById('md-visor');
+    visor.classList.remove('md-visor-on');
     document.getElementById('md-visor-body').innerHTML = '';
     gArchivoActual = null;
     resetZoom();
-    desbloquearScrollFondo();
+    // El visor se movio (insertAdjacentElement) adentro de la lista de
+    // documentos al abrirse -- si se queda ahi y despues se entra a OTRA
+    // unidad, "cont.innerHTML = ..." en abrirDetalle() lo borraria del DOM
+    // para siempre (getElementById('md-visor') pasaria a devolver null). Se
+    // lo devuelve a upa, como ultimo hijo de <body>, que nunca se reescribe
+    // entero.
+    document.body.appendChild(visor);
   }
 
   // ---------------- Zoom de imagen (pellizcar, doble toque o botones) ----------------
@@ -465,24 +454,32 @@
     }
   }
 
-  async function abrirArchivo(a){
+  async function abrirArchivo(a, origenBtn){
     gArchivoActual = a;
     var visor = document.getElementById('md-visor');
     var body = document.getElementById('md-visor-body');
-    // Primero se fija el scroll de fondo en 0 (bloquearScrollFondo) y RECIEN
-    // DESPUES se muestra el visor. Si se muestra el visor antes de asegurar
-    // que la pagina de atras este sin scroll, el WebView de Geotab Drive
-    // llega a "fotografiarlo" en la posicion incorrecta (ver el bug
-    // explicado en bloquearScrollFondo) y no se corrige solo despues aunque
-    // el scroll se bloquee un instante mas tarde -- por eso el visor seguia
-    // apareciendo abajo del todo cuando se abria un documento con la lista
-    // scrolleada.
-    bloquearScrollFondo();
     resetZoom();
     document.getElementById('md-visor-titulo').textContent = a.nombre || 'Documento';
     body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
     body.scrollTop = 0;
+
+    // El visor se inserta en el flujo normal de la pagina, justo despues de
+    // la tarjeta del documento que se toco, en vez de mostrarse como un
+    // overlay a pantalla completa (position:fixed) -- ver el comentario
+    // grande arriba de "#md-visor" en el <style>: ese overlay no funcionaba
+    // en el WebView de Geotab Drive pase lo que pase con el scroll, porque
+    // todo indica que ahi "position:fixed" se ignora directamente. Insertado
+    // en el flujo, el navegador lo dibuja siempre donde corresponde (es
+    // contenido normal de la pagina, no un overlay), y ademas es justo
+    // donde el chofer ya esta mirando.
+    var tarjeta = origenBtn && origenBtn.closest('.md-doc-card');
+    if(tarjeta) tarjeta.insertAdjacentElement('afterend', visor);
     visor.classList.add('md-visor-on');
+    // scrollIntoView (en vez de dejar que el chofer lo encuentre solo) por
+    // si el documento tocado no estaba del todo a la vista -- funciona
+    // aunque el visor ya no dependa de "fixed": es scroll normal de la
+    // pagina hacia un elemento, que si funciona bien en este WebView.
+    visor.scrollIntoView({ block:'start', behavior:'smooth' });
 
     var esImagen = (a.tipo || '').indexOf('image/') === 0;
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
@@ -591,6 +588,7 @@
   // ---------------- Vista detalle ----------------
 
   async function abrirDetalle(entidadId){
+    cerrarVisor(); // asegura que el visor no quede adentro de #md-detalle-docs antes de reescribirlo
     document.getElementById('md-lista-vista').style.display = 'none';
     var detalle = document.getElementById('md-detalle');
     detalle.style.display = 'block';
@@ -662,7 +660,7 @@
         }).join('');
         box.querySelectorAll('.md-archivo-link').forEach(function(btn){
           btn.addEventListener('click', function(){
-            abrirArchivo(archivos[Number(btn.getAttribute('data-archivo-idx'))]);
+            abrirArchivo(archivos[Number(btn.getAttribute('data-archivo-idx'))], btn);
           });
         });
       }).catch(function(err){
@@ -673,6 +671,7 @@
   }
 
   function cerrarDetalle(){
+    cerrarVisor(); // por si quedo abierto: lo devuelve a upa antes de irse (ver comentario en cerrarVisor)
     document.getElementById('md-detalle').style.display = 'none';
     document.getElementById('md-lista-vista').style.display = 'block';
   }
