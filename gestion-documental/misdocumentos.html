@@ -150,8 +150,8 @@
 
      OJO 2: el visor YA NO SE MUEVE de lugar con JS. Antes (con position:
      fixed descartado) se reinsertaba con insertAdjacentElement al lado de
-     la tarjeta del documento tocado, y se devolvia a upa del <body> al
-     cerrarse. Eso resulto ser la causa real de que el encabezado se viera
+     la tarjeta del documento tocado, y se devolvia a upa del body (la
+     etiqueta raiz del documento) al cerrarse. Eso resulto ser la causa real de que el encabezado se viera
      roto en el WebView real (cada elemento en su propio renglon): tanto
      "display:flex" como "float"+"display:inline-block" se probaron ahi y
      los DOS fallaron identico en el telefono, aunque los dos andan
@@ -166,9 +166,9 @@
   }
   #md-visor.md-visor-on{display:block}
   /* OJO 3: el encabezado (titulo + botones) y el grupo de zoom se arman con
-     HTML <table>, NO con "display:flex" ni "float"+"display:inline-block".
+     una tabla HTML, NO con "display:flex" ni "float"+"display:inline-block".
      Las dos se probaron antes de dejar de mover el visor de lugar (ver OJO
-     2) y las dos se veian mal en el WebView real. Una fila de <table> es la
+     2) y las dos se veian mal en el WebView real. Una fila de tabla es la
      forma mas vieja y basica que hay en HTML para poner cosas en una sola
      fila, la mas dificil de que un motor la dibuje mal, y sirve ademas como
      doble resguardo junto con dejar de reparentar el visor.
@@ -239,7 +239,7 @@
      adentro esta al 100% de este contenedor, todos crecen juntos y en la
      misma proporcion. Antes el zoom solo funcionaba con fotos (imagenes) y
      no con los documentos en PDF (VTV, Titulo, etc.), porque cada pagina de
-     PDF se dibujaba en su propio <canvas> con un ancho fijo en pixeles --
+     PDF se dibujaba en su propio canvas con un ancho fijo en pixeles --
      ahora esos canvas tambien usan ancho en % de este contenedor, asi que
      el zoom les llega igual que a una foto. */
   #md-visor-zoom-wrap{width:100%;touch-action:none;transition:width .08s linear}
@@ -280,11 +280,12 @@
 
     <!-- Visor de archivos (imagen o PDF), en vez de intentar "descargar".
          Vive siempre ACA, fijo -- ya NO se mueve de lugar con JS (ver el
-         comentario grande arriba de "#md-visor" en el <style>, seccion
-         "OJO 2": moverlo con insertAdjacentElement era lo que rompia el
-         layout del encabezado en el WebView real de Geotab Drive). El
-         encabezado (titulo + botones) usa <table> en vez de flex/float por
-         la razon explicada en "OJO 3" del mismo bloque de estilos. -->
+         comentario grande arriba de "#md-visor" en el bloque de estilos,
+         seccion "OJO 2": moverlo con insertAdjacentElement era lo que
+         rompia el layout del encabezado en el WebView real de Geotab
+         Drive). El encabezado (titulo + botones) usa una tabla HTML en vez
+         de flex/float por la razon explicada en "OJO 3" del mismo bloque
+         de estilos. -->
     <div id="md-visor">
       <div id="md-visor-header">
         <table id="md-visor-header-tabla" role="presentation" cellspacing="0" cellpadding="0" border="0"><tbody><tr>
@@ -347,8 +348,8 @@
 
   // ---------------- Visor de archivos ----------------
   //
-  // Adentro de la app Geotab Drive (Android), un <a href="data:...(base64
-  // largo)" download> tira "Download failed": el WebView embebido de Drive
+  // Adentro de la app Geotab Drive (Android), un link "a" con href="data:..."
+  // (base64 largo) y atributo download tira "Download failed": el WebView embebido de Drive
   // no tiene enganchado un manejador de descargas nativo (DownloadManager)
   // para data URIs, a diferencia de un navegador normal. La solucion no es
   // "arreglar la descarga" -- es no depender de ella: el archivo se muestra
@@ -377,8 +378,8 @@
     document.getElementById('md-visor-body').innerHTML = '';
     gArchivoActual = null;
     resetZoom();
-    // El visor ya NO se mueve de lugar con JS (ver "OJO 2" en el <style>):
-    // vive siempre fijo dentro de "#md-detalle", antes de "#md-detalle-docs",
+    // El visor ya NO se mueve de lugar con JS (ver "OJO 2" en el bloque de
+    // estilos): vive siempre fijo dentro de "#md-detalle", antes de "#md-detalle-docs",
     // asi que "cont.innerHTML = ..." en abrirDetalle() nunca lo toca.
   }
 
@@ -426,9 +427,9 @@
 
   // "wrap" es "#md-visor-zoom-wrap": el contenedor que envuelve la imagen (o
   // todas las paginas del PDF) de este archivo. Antes esta funcion se
-  // enganchaba directo sobre el <img>, por eso al abrir un PDF (como la VTV)
+  // enganchaba directo sobre el img, por eso al abrir un PDF (como la VTV)
   // los botones de zoom no aparecian: las paginas de un PDF se dibujan en
-  // <canvas>, no en <img>, y nunca pasaban por aca. Ahora se engancha sobre
+  // canvas, no en img, y nunca pasaban por aca. Ahora se engancha sobre
   // el contenedor comun, asi sirve igual para una foto que para un PDF.
   function activarZoom(wrap){
     gZoomWrap = wrap;
@@ -498,7 +499,7 @@
       return;
     }
 
-    // El boton "Descargar" con <a download> (aunque sea con un Blob en vez
+    // El boton "Descargar" con un link "a" con atributo download (aunque sea con un Blob en vez
     // de la data URI cruda) tampoco funciona adentro del WebView de Geotab
     // Drive: ese WebView no tiene enganchado un DownloadManager para poder
     // guardar el archivo. Lo que SI suelen resolver estos WebViews (porque
@@ -548,7 +549,7 @@
     // de la lista de documentos) en vez de mostrarse como un overlay a
     // pantalla completa (position:fixed) o de reinsertarse con JS al lado
     // de la tarjeta tocada -- ver el comentario grande arriba de "#md-visor"
-    // en el <style> ("OJO" y "OJO 2"): ni "position:fixed" ni mover el nodo
+    // en el bloque de estilos ("OJO" y "OJO 2"): ni "position:fixed" ni mover el nodo
     // de lugar con JS se dibujan bien en el WebView de Geotab Drive. Aca
     // solo se lo muestra y se hace scroll hacia el.
     visor.classList.add('md-visor-on');
