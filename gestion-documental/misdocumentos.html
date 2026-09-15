@@ -150,23 +150,34 @@
      abrirArchivo), con un alto maximo fijo y su propio scroll interno. */
   #md-visor{
     display:none;background:#14161c;border-radius:var(--md-radius-lg);
-    margin:-2px 0 14px;overflow:hidden;flex-direction:column;
+    margin:-2px 0 14px;overflow:hidden;
     box-shadow:var(--md-shadow);
   }
-  #md-visor.md-visor-on{display:flex}
+  #md-visor.md-visor-on{display:block}
+  /* OJO: la fila del encabezado (titulo + botones) y el grupo de zoom se
+     arman con "float" + "inline-block", NO con "display:flex". Se probo
+     con flex primero (funciona perfecto en Chrome) pero en el WebView real
+     de la app Geotab Drive esa fila se ve MAL: cada elemento (titulo, cada
+     boton, el -, el 100%, el +) aparece en su propio renglon, uno debajo
+     del otro, en vez de en una sola fila -- ese WebView no dibuja bien ese
+     "display:flex" en particular. float + inline-block es una forma mucho
+     mas vieja/basica de poner cosas en fila, y con eso si se ve igual que
+     en Chrome. */
   #md-visor-header{
-    display:flex;align-items:center;justify-content:space-between;gap:10px;
-    padding:12px 14px;background:#20232B;flex-shrink:0;
+    padding:10px 14px;background:#20232B;overflow:hidden;
   }
-  #md-visor-titulo{color:#fff;font-size:.86rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+  #md-visor-acciones{float:right;white-space:nowrap;margin-left:8px}
+  #md-visor-titulo{
+    display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:#fff;font-size:.86rem;font-weight:600;line-height:34px;
+  }
   .md-visor-btn{
+    display:inline-block;vertical-align:middle;margin-left:8px;
     background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;
     padding:8px 12px;font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer;
-    display:flex;align-items:center;gap:6px;flex-shrink:0;
   }
   .md-visor-btn:active{background:rgba(255,255,255,.22)}
   .md-visor-btn[hidden]{display:none}
-  #md-visor-acciones{display:flex;gap:8px;flex-shrink:0;align-items:center}
   /* Los botones de zoom se agrandan aparte (34x34 minimo, +grande que el
      resto) porque son los que el chofer tiene que poder tocar bien: el
      pellizcar con dos dedos y el doble toque no anduvieron en la app
@@ -174,20 +185,28 @@
      que le llegue, algo esperable en una app pensada para no distraer al
      chofer mientras maneja), asi que estos botones son la unica forma
      confiable de hacer zoom ahi. */
-  #md-visor-zoom-grupo{display:flex;align-items:center;gap:2px;background:rgba(255,255,255,.08);border-radius:10px;padding:2px;flex-shrink:0}
+  #md-visor-zoom-grupo{
+    display:inline-block;vertical-align:middle;
+    background:rgba(255,255,255,.08);border-radius:10px;padding:2px;
+    white-space:nowrap;line-height:1;
+  }
   #md-visor-zoom-grupo[hidden]{display:none}
   .md-visor-zoom-btn{
+    display:inline-block;vertical-align:middle;
     background:rgba(255,255,255,.14);border:none;color:#fff;border-radius:8px;
     width:34px;height:34px;font-family:inherit;font-size:1.15rem;font-weight:700;line-height:1;
     cursor:pointer;
   }
   .md-visor-zoom-btn:active{background:rgba(255,255,255,.28)}
-  #md-visor-zoom-pct{color:#fff;font-size:.72rem;font-weight:600;min-width:34px;text-align:center;flex-shrink:0}
+  #md-visor-zoom-pct{
+    display:inline-block;vertical-align:middle;
+    color:#fff;font-size:.72rem;font-weight:600;min-width:34px;text-align:center;
+  }
   /* max-height (en vez de flex:1 en un contenedor de alto automatico) es lo
      que le da al visor un tamano predecible y su propio scroll interno,
      sin necesitar que el padre tenga una altura fija -- eso es justamente
      lo que fallaba con el overlay de pantalla completa. */
-  #md-visor-body{max-height:70vh;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center}
+  #md-visor-body{max-height:70vh;overflow:auto;padding:14px;text-align:center}
   #md-visor-body .md-hint{color:#cbd0da}
 
   /* Todo el contenido que se puede agrandar (una imagen, o las paginas de un
@@ -199,16 +218,10 @@
      PDF se dibujaba en su propio <canvas> con un ancho fijo en pixeles --
      ahora esos canvas tambien usan ancho en % de este contenedor, asi que
      el zoom les llega igual que a una foto. */
-  #md-visor-zoom-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;touch-action:none;transition:width .08s linear}
+  #md-visor-zoom-wrap{width:100%;touch-action:none;transition:width .08s linear}
   #md-visor-zoom-wrap img{width:100%;height:auto;display:block;border-radius:8px}
-  #md-visor-zoom-wrap canvas{width:100%;height:auto;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff}
-
-  /* Zoom: mientras esta con zoom (>100%) se cambia el layout del visor de
-     "flex centrado" a "bloque", porque un elemento mas ancho que su
-     contenedor dentro de un flex con align-items:center no deja hacer
-     scroll hacia el lado que "se esconde" detras del centrado -- en modo
-     bloque si se puede scrollear libremente en cualquier direccion. */
-  #md-visor-body.md-zoom-activo{display:block}
+  #md-visor-zoom-wrap canvas{width:100%;height:auto;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff;margin-bottom:10px}
+  #md-visor-zoom-wrap canvas:last-child{margin-bottom:0}
 </style>
 </head>
 <body>
@@ -248,7 +261,11 @@
 <!-- Visor de archivos (imagen o PDF), en vez de intentar "descargar" -->
 <div id="md-visor">
   <div id="md-visor-header">
-    <div id="md-visor-titulo"></div>
+    <!-- "acciones" va ANTES que "titulo" en el HTML a proposito: esta
+         flotada a la derecha (float:right) y el titulo, que viene despues,
+         se achica solo para no quedar tapado por lo flotado (ver el CSS de
+         "#md-visor-header" mas arriba, con la explicacion de por que no se
+         usa flexbox aca). -->
     <div id="md-visor-acciones">
       <div id="md-visor-zoom-grupo" hidden>
         <button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar">&minus;</button>
@@ -258,6 +275,7 @@
       <button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button>
       <button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button>
     </div>
+    <div id="md-visor-titulo"></div>
   </div>
   <div id="md-visor-body"></div>
 </div>
