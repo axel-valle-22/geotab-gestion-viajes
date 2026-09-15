@@ -145,36 +145,49 @@
      su contenido, colgado despues de toda la lista (bloquear el scroll de
      fondo tampoco soluciona nada si el problema es este). La solucion que
      no depende de que el WebView soporte "fixed" es no pedirselo: el visor
-     se inserta como un panel mas DENTRO del flujo normal de la pagina,
-     justo despues de la tarjeta del documento que se toco (ver
-     abrirArchivo), con un alto maximo fijo y su propio scroll interno. */
+     es un panel FIJO dentro de "#md-detalle" (entre el subtitulo y la lista
+     de documentos), con un alto maximo fijo y su propio scroll interno.
+
+     OJO 2: el visor YA NO SE MUEVE de lugar con JS. Antes (con position:
+     fixed descartado) se reinsertaba con insertAdjacentElement al lado de
+     la tarjeta del documento tocado, y se devolvia a upa del <body> al
+     cerrarse. Eso resulto ser la causa real de que el encabezado se viera
+     roto en el WebView real (cada elemento en su propio renglon): tanto
+     "display:flex" como "float"+"display:inline-block" se probaron ahi y
+     los DOS fallaron identico en el telefono, aunque los dos andan
+     perfecto en Chrome -- todo indica que ese WebView tiene un bug al
+     recalcular el layout de un nodo que fue movido de lugar (reparented)
+     con JS despues de creado. Al dejar el visor siempre en el mismo lugar
+     del DOM (nunca se reinserta) el problema desaparece. */
   #md-visor{
     display:none;background:#14161c;border-radius:var(--md-radius-lg);
-    margin:-2px 0 14px;overflow:hidden;
+    margin:0 0 14px;overflow:hidden;
     box-shadow:var(--md-shadow);
   }
   #md-visor.md-visor-on{display:block}
-  /* OJO: la fila del encabezado (titulo + botones) y el grupo de zoom se
-     arman con "float" + "inline-block", NO con "display:flex". Se probo
-     con flex primero (funciona perfecto en Chrome) pero en el WebView real
-     de la app Geotab Drive esa fila se ve MAL: cada elemento (titulo, cada
-     boton, el -, el 100%, el +) aparece en su propio renglon, uno debajo
-     del otro, en vez de en una sola fila -- ese WebView no dibuja bien ese
-     "display:flex" en particular. float + inline-block es una forma mucho
-     mas vieja/basica de poner cosas en fila, y con eso si se ve igual que
-     en Chrome. */
+  /* OJO 3: el encabezado (titulo + botones) y el grupo de zoom se arman con
+     HTML <table>, NO con "display:flex" ni "float"+"display:inline-block".
+     Las dos se probaron antes de dejar de mover el visor de lugar (ver OJO
+     2) y las dos se veian mal en el WebView real. Una fila de <table> es la
+     forma mas vieja y basica que hay en HTML para poner cosas en una sola
+     fila, la mas dificil de que un motor la dibuje mal, y sirve ademas como
+     doble resguardo junto con dejar de reparentar el visor. */
   #md-visor-header{
     padding:10px 14px;background:#20232B;overflow:hidden;
   }
-  #md-visor-acciones{float:right;white-space:nowrap;margin-left:8px}
+  #md-visor-header-tabla{width:100%;border-collapse:collapse}
+  #md-visor-header-tabla td{padding:0;vertical-align:middle}
   #md-visor-titulo{
-    display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-    color:#fff;font-size:.86rem;font-weight:600;line-height:34px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:#fff;font-size:.86rem;font-weight:600;width:100%;
   }
+  #md-visor-acciones-celda{white-space:nowrap;padding-left:8px}
+  #md-visor-acciones{border-collapse:collapse}
+  #md-visor-acciones td{padding:0;vertical-align:middle}
   .md-visor-btn{
-    display:inline-block;vertical-align:middle;margin-left:8px;
     background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;
     padding:8px 12px;font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer;
+    margin-left:8px;
   }
   .md-visor-btn:active{background:rgba(255,255,255,.22)}
   .md-visor-btn[hidden]{display:none}
@@ -186,21 +199,19 @@
      chofer mientras maneja), asi que estos botones son la unica forma
      confiable de hacer zoom ahi. */
   #md-visor-zoom-grupo{
-    display:inline-block;vertical-align:middle;
-    background:rgba(255,255,255,.08);border-radius:10px;padding:2px;
-    white-space:nowrap;line-height:1;
+    background:rgba(255,255,255,.08);border-radius:10px;
+    border-collapse:separate;border-spacing:2px;margin-right:8px;
   }
   #md-visor-zoom-grupo[hidden]{display:none}
+  #md-visor-zoom-grupo td{padding:0;vertical-align:middle}
   .md-visor-zoom-btn{
-    display:inline-block;vertical-align:middle;
     background:rgba(255,255,255,.14);border:none;color:#fff;border-radius:8px;
     width:34px;height:34px;font-family:inherit;font-size:1.15rem;font-weight:700;line-height:1;
     cursor:pointer;
   }
   .md-visor-zoom-btn:active{background:rgba(255,255,255,.28)}
   #md-visor-zoom-pct{
-    display:inline-block;vertical-align:middle;
-    color:#fff;font-size:.72rem;font-weight:600;min-width:34px;text-align:center;
+    display:block;color:#fff;font-size:.72rem;font-weight:600;min-width:34px;text-align:center;
   }
   /* max-height (en vez de flex:1 en un contenedor de alto automatico) es lo
      que le da al visor un tamano predecible y su propio scroll interno,
@@ -253,31 +264,39 @@
     <button type="button" id="md-volver">&larr; Volver a la lista</button>
     <h2 id="md-detalle-titulo"></h2>
     <p id="md-detalle-sub"></p>
+
+    <!-- Visor de archivos (imagen o PDF), en vez de intentar "descargar".
+         Vive siempre ACA, fijo -- ya NO se mueve de lugar con JS (ver el
+         comentario grande arriba de "#md-visor" en el <style>, seccion
+         "OJO 2": moverlo con insertAdjacentElement era lo que rompia el
+         layout del encabezado en el WebView real de Geotab Drive). El
+         encabezado (titulo + botones) usa <table> en vez de flex/float por
+         la razon explicada en "OJO 3" del mismo bloque de estilos. -->
+    <div id="md-visor">
+      <div id="md-visor-header">
+        <table id="md-visor-header-tabla" role="presentation" cellspacing="0" cellpadding="0" border="0"><tbody><tr>
+          <td id="md-visor-titulo"></td>
+          <td id="md-visor-acciones-celda">
+            <table id="md-visor-acciones" role="presentation" cellspacing="0" cellpadding="0" border="0"><tbody><tr>
+              <td>
+                <table id="md-visor-zoom-grupo" role="presentation" cellspacing="0" cellpadding="0" border="0" hidden><tbody><tr>
+                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar">&minus;</button></td>
+                  <td><span id="md-visor-zoom-pct">100%</span></td>
+                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar">&plus;</button></td>
+                </tr></tbody></table>
+              </td>
+              <td><button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button></td>
+              <td><button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button></td>
+            </tr></tbody></table>
+          </td>
+        </tr></tbody></table>
+      </div>
+      <div id="md-visor-body"></div>
+    </div>
+
     <div id="md-detalle-docs"></div>
   </div>
 
-</div>
-
-<!-- Visor de archivos (imagen o PDF), en vez de intentar "descargar" -->
-<div id="md-visor">
-  <div id="md-visor-header">
-    <!-- "acciones" va ANTES que "titulo" en el HTML a proposito: esta
-         flotada a la derecha (float:right) y el titulo, que viene despues,
-         se achica solo para no quedar tapado por lo flotado (ver el CSS de
-         "#md-visor-header" mas arriba, con la explicacion de por que no se
-         usa flexbox aca). -->
-    <div id="md-visor-acciones">
-      <div id="md-visor-zoom-grupo" hidden>
-        <button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar">&minus;</button>
-        <span id="md-visor-zoom-pct">100%</span>
-        <button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar">&plus;</button>
-      </div>
-      <button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button>
-      <button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button>
-    </div>
-    <div id="md-visor-titulo"></div>
-  </div>
-  <div id="md-visor-body"></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -345,13 +364,9 @@
     document.getElementById('md-visor-body').innerHTML = '';
     gArchivoActual = null;
     resetZoom();
-    // El visor se movio (insertAdjacentElement) adentro de la lista de
-    // documentos al abrirse -- si se queda ahi y despues se entra a OTRA
-    // unidad, "cont.innerHTML = ..." en abrirDetalle() lo borraria del DOM
-    // para siempre (getElementById('md-visor') pasaria a devolver null). Se
-    // lo devuelve a upa, como ultimo hijo de <body>, que nunca se reescribe
-    // entero.
-    document.body.appendChild(visor);
+    // El visor ya NO se mueve de lugar con JS (ver "OJO 2" en el <style>):
+    // vive siempre fijo dentro de "#md-detalle", antes de "#md-detalle-docs",
+    // asi que "cont.innerHTML = ..." en abrirDetalle() nunca lo toca.
   }
 
   // ---------------- Zoom de imagen (pellizcar, doble toque o botones) ----------------
@@ -516,17 +531,13 @@
     body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
     body.scrollTop = 0;
 
-    // El visor se inserta en el flujo normal de la pagina, justo despues de
-    // la tarjeta del documento que se toco, en vez de mostrarse como un
-    // overlay a pantalla completa (position:fixed) -- ver el comentario
-    // grande arriba de "#md-visor" en el <style>: ese overlay no funcionaba
-    // en el WebView de Geotab Drive pase lo que pase con el scroll, porque
-    // todo indica que ahi "position:fixed" se ignora directamente. Insertado
-    // en el flujo, el navegador lo dibuja siempre donde corresponde (es
-    // contenido normal de la pagina, no un overlay), y ademas es justo
-    // donde el chofer ya esta mirando.
-    var tarjeta = origenBtn && origenBtn.closest('.md-doc-card');
-    if(tarjeta) tarjeta.insertAdjacentElement('afterend', visor);
+    // El visor vive en un lugar FIJO del DOM (dentro de "#md-detalle", antes
+    // de la lista de documentos) en vez de mostrarse como un overlay a
+    // pantalla completa (position:fixed) o de reinsertarse con JS al lado
+    // de la tarjeta tocada -- ver el comentario grande arriba de "#md-visor"
+    // en el <style> ("OJO" y "OJO 2"): ni "position:fixed" ni mover el nodo
+    // de lugar con JS se dibujan bien en el WebView de Geotab Drive. Aca
+    // solo se lo muestra y se hace scroll hacia el.
     visor.classList.add('md-visor-on');
     // scrollIntoView (en vez de dejar que el chofer lo encuentre solo) por
     // si el documento tocado no estaba del todo a la vista -- funciona
