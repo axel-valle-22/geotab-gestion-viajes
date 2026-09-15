@@ -345,6 +345,39 @@
     });
   }
 
+  // OJO 7: el titulo del visor (el nombre del archivo) NO se recorta con
+  // "text-overflow:ellipsis" de CSS -- se probo (celda de tabla con
+  // "overflow:hidden;text-overflow:ellipsis;white-space:nowrap") y en el
+  // WebView de Geotab Drive el recorte no se pinta: el nombre largo se
+  // sigue mostrando completo, superpuesto arriba de los botones de zoom /
+  // Descargar / Cerrar, en vez de cortarse con "...". Es la misma familia
+  // de bug que el canvas del PDF (ver mas arriba): el WebView calcula bien
+  // la CAJA del elemento, pero no respeta ese limite al PINTAR contenido
+  // que se pasa de ancho. La solucion es la misma idea: no depender de que
+  // el WebView recorte nada, y en cambio entregarle ya armado un texto
+  // corto que entra seguro, midiendolo antes con un canvas (que si devuelve
+  // medidas correctas, aunque no pinte bien texto largo en una celda).
+  function acortarTexto(texto, anchoMaximoPx){
+    texto = String(texto || '');
+    if(anchoMaximoPx <= 0) return '';
+    var canvas = acortarTexto._canvas || (acortarTexto._canvas = document.createElement('canvas'));
+    var ctx = canvas.getContext('2d');
+    ctx.font = "600 13.76px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    if(ctx.measureText(texto).width <= anchoMaximoPx) return texto;
+    var lo = 0, hi = texto.length, mejor = '';
+    while(lo <= hi){
+      var mid = (lo + hi) >> 1;
+      var candidato = texto.slice(0, mid) + '…';
+      if(ctx.measureText(candidato).width <= anchoMaximoPx){
+        mejor = candidato;
+        lo = mid + 1;
+      }else{
+        hi = mid - 1;
+      }
+    }
+    return mejor || '…';
+  }
+
   function fmtFecha(ts){
     return ts ? new Date(ts).toLocaleDateString('es-AR') : '-';
   }
@@ -598,7 +631,13 @@
     var visor = document.getElementById('md-visor');
     var body = document.getElementById('md-visor-body');
     resetZoom();
-    document.getElementById('md-visor-titulo').textContent = a.nombre || 'Documento';
+    var elTitulo = document.getElementById('md-visor-titulo');
+    // El ancho de la celda del titulo ya esta resuelto por "table-layout:fixed"
+    // (ver "OJO 4") ANTES de poner texto adentro -- esa columna se achica al
+    // espacio que sobra sin importar el contenido. Por eso podemos medirla
+    // ahora mismo y usarla para acortar el nombre "a mano" (ver "OJO 7").
+    var anchoTitulo = Math.max(0, elTitulo.getBoundingClientRect().width - 6);
+    elTitulo.textContent = acortarTexto(a.nombre || 'Documento', anchoTitulo);
     body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
     body.scrollTop = 0;
 
@@ -629,7 +668,8 @@
       'esImagen=' + esImagen + ' esPdf=' + esPdf,
       'pdfjsLib=' + (typeof pdfjsLib) + ' Worker=' + (typeof Worker),
       'devicePixelRatio=' + (window.devicePixelRatio || 1),
-      'innerWidth=' + window.innerWidth + ' body.clientWidth=' + body.clientWidth + ' visor.clientWidth=' + visor.clientWidth
+      'innerWidth=' + window.innerWidth + ' body.clientWidth=' + body.clientWidth + ' visor.clientWidth=' + visor.clientWidth,
+      'titulo: anchoCelda=' + Math.round(anchoTitulo) + ' texto="' + elTitulo.textContent + '"'
     ];
     function pintarDebug(extra){
       if(extra) debugLineas.push(extra);
