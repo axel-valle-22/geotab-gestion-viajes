@@ -400,10 +400,39 @@
   // entera de que hay mas para scrollear y el zoom queda "pegado" sin poder
   // recorrer la imagen agrandada. Por eso se hace cambiando el ancho real
   // de la imagen (width en %) -- el navegador arma solo el scroll para
-  // recorrerla con el dedo, sin JS extra para el paneo.
+  // recorrerla con el dedo, sin JS extra para el paneo. Esto funciona bien
+  // para una FOTO (una etiqueta de imagen comun), pero NO alcanza para un
+  // PDF (ver "OJO 6" mas abajo, en gPdfMaster).
   var gZoomWrap = null; // el "#md-visor-zoom-wrap" activo (null = nada zoomeable ahora)
   var gZoomPct = 100;
   var ZOOM_MIN = 100, ZOOM_MAX = 400, ZOOM_PASO = 60;
+
+  // OJO 6: el panel de diagnostico que se agrego en la version anterior
+  // (quedo temporalmente en la pantalla) mostro el problema real con los
+  // PDF en el celular del chofer: el canvas de cada pagina quedaba con el
+  // tamaño CORRECTO (por ejemplo 380 de ancho, igual que el resto de la
+  // pantalla), pero el CONTENIDO dibujado adentro se veia enorme, como si
+  // el tamaño del canvas no se hubiera respetado -- solo se veia la
+  // esquina superior izquierda de la pagina, gigante. Osea: el WebView de
+  // Geotab Drive arma bien el tamaño del canvas para el LAYOUT (por eso
+  // "mostrado" media lo que tenia que medir), pero al pintar el dibujo
+  // adentro de ese canvas, ese WebView parece IGNORAR ese tamaño y pintar
+  // el contenido a su resolucion interna real (mucho mas grande, pensada
+  // para verse nitida al hacer zoom), sin achicarlo -- la misma familia de
+  // bugs que ya encontramos antes (cosas que deberian ajustarse solas al
+  // tamaño de su caja, y en este WebView en particular no lo hacen).
+  //
+  // Por eso cambiar el ancho del canvas con CSS/porcentaje (que es como
+  // funciona el zoom de una foto) no sirve para un PDF aca: cambiar el
+  // tamaño de la CAJA no cambia lo que ya esta pintado adentro. La
+  // solucion: cada pagina de PDF se renderiza UNA sola vez, grande (al
+  // tamaño del zoom maximo, 400%), en un canvas que NUNCA se muestra
+  // ("master", solo vive en memoria); y lo que el chofer ve es otro canvas
+  // mas chico, donde se copia ese master ACHICADO con drawImage -- una
+  // operacion del propio canvas (pintar una imagen redimensionada adentro
+  // de otro canvas) que no depende de que el WebView respete tamaños por
+  // CSS, porque es el mismo canvas quien hace el achique al pintar.
+  var gPdfMaster = []; // [{ master, visible, anchoDisponible }] de la pagina actual (vacio si no hay PDF abierto)
 
   function actualizarBotonesZoom(){
     var grupo = document.getElementById('md-visor-zoom-grupo');
@@ -413,11 +442,28 @@
     if(pct) pct.textContent = Math.round(gZoomPct) + '%';
   }
 
+  // Redibuja cada pagina de PDF (a partir de su "master" en memoria) al
+  // tamaño que corresponde a "pct" de zoom -- ver "OJO 6" arriba.
+  function dibujarPaginasPdf(pct){
+    gPdfMaster.forEach(function(item){
+      var w = Math.max(1, Math.round(item.anchoDisponible * pct / 100));
+      var h = Math.max(1, Math.round(w * item.master.height / item.master.width));
+      if(item.visible.width !== w) item.visible.width = w;
+      if(item.visible.height !== h) item.visible.height = h;
+      item.visible.style.width = w + 'px';
+      item.visible.style.height = h + 'px';
+      var ctx = item.visible.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(item.master, 0, 0, item.master.width, item.master.height, 0, 0, w, h);
+    });
+  }
+
   function aplicarZoom(pct){
     if(!gZoomWrap) return;
     pct = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pct));
     gZoomPct = pct;
-    gZoomWrap.style.width = pct + '%';
+    gZoomWrap.style.width = pct + '%'; // sigue sirviendo para el zoom de fotos
+    if(gPdfMaster.length) dibujarPaginasPdf(pct);
     document.getElementById('md-visor-body').classList.toggle('md-zoom-activo', pct > 100);
     actualizarBotonesZoom(); // refresca el "100%"/etc, ademas de mostrar/ocultar el grupo
   }
@@ -425,6 +471,7 @@
   function resetZoom(){
     gZoomWrap = null;
     gZoomPct = 100;
+    gPdfMaster = [];
     document.getElementById('md-visor-body').classList.remove('md-zoom-activo');
     actualizarBotonesZoom();
   }
@@ -641,24 +688,37 @@
         for(var p = 1; p <= pdf.numPages; p++){
           var pagina = await pdf.getPage(p);
           var viewportBase = pagina.getViewport({ scale: 1 });
-          var factor = anchoDisponible / viewportBase.width;
-          var viewport = pagina.getViewport({ scale: factor * dpr });
-          var canvas = document.createElement('canvas');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          // Ademas de la regla CSS "#md-visor-zoom-wrap canvas{width:100%}",
-          // se fija el mismo ancho tambien por JS (estilo inline, en pixeles
-          // reales) como resguardo: ya vimos en este WebView que no todas
-          // las reglas CSS externas se aplican siempre a elementos creados
-          // por JS, y un estilo puesto directo en el elemento es mas dificil
-          // de que se pierda.
-          canvas.style.width = anchoDisponible + 'px';
-          canvas.style.height = (anchoDisponible * viewport.height / viewport.width) + 'px';
-          wrap.appendChild(canvas);
-          await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
-          var rectCanvas = canvas.getBoundingClientRect();
-          debugLineas.push('pagina ' + p + ': interno=' + canvas.width + 'x' + canvas.height + ' mostrado=' + Math.round(rectCanvas.width) + 'x' + Math.round(rectCanvas.height));
+          var factorBase = anchoDisponible / viewportBase.width;
+          // "master": se renderiza UNA sola vez, al tamano mas grande que se
+          // va a necesitar (zoom maximo, ZOOM_MAX%), y nunca se agrega a la
+          // pantalla -- ver "OJO 6" mas arriba. De ahi en mas, cualquier
+          // cambio de zoom se resuelve con drawImage() (dentro de
+          // dibujarPaginasPdf), sin volver a llamar a pdf.js.
+          var viewportMaster = pagina.getViewport({ scale: factorBase * (ZOOM_MAX / 100) });
+          var master = document.createElement('canvas');
+          master.width = viewportMaster.width;
+          master.height = viewportMaster.height;
+          await pagina.render({ canvasContext: master.getContext('2d'), viewport: viewportMaster }).promise;
+
+          // "visible": el canvas que si se agrega al DOM y que ve el chofer.
+          // Su tamano (ancho/alto, tanto en atributos como en estilo inline)
+          // lo fija dibujarPaginasPdf() de acuerdo al zoom actual -- aca
+          // arranca vacio, se dibuja mas abajo con dibujarPaginasPdf(100).
+          var visible = document.createElement('canvas');
+          visible.style.display = 'block';
+          visible.style.borderRadius = '4px';
+          visible.style.boxShadow = '0 2px 10px rgba(0,0,0,.4)';
+          visible.style.background = '#fff';
+          visible.style.marginBottom = '10px';
+          wrap.appendChild(visible);
+          gPdfMaster.push({ master: master, visible: visible, anchoDisponible: anchoDisponible });
+          debugLineas.push('pagina ' + p + ': master=' + master.width + 'x' + master.height);
         }
+        dibujarPaginasPdf(100);
+        gPdfMaster.forEach(function(item, idx){
+          var rectVisible = item.visible.getBoundingClientRect();
+          debugLineas.push('pagina ' + (idx + 1) + ': visible=' + item.visible.width + 'x' + item.visible.height + ' mostrado=' + Math.round(rectVisible.width) + 'x' + Math.round(rectVisible.height));
+        });
         activarZoom(wrap);
         pintarDebug();
       }catch(err){
