@@ -166,7 +166,23 @@
   }
   .md-visor-btn:active{background:rgba(255,255,255,.22)}
   .md-visor-btn[hidden]{display:none}
-  #md-visor-acciones{display:flex;gap:8px;flex-shrink:0}
+  #md-visor-acciones{display:flex;gap:8px;flex-shrink:0;align-items:center}
+  /* Los botones de zoom se agrandan aparte (34x34 minimo, +grande que el
+     resto) porque son los que el chofer tiene que poder tocar bien: el
+     pellizcar con dos dedos y el doble toque no anduvieron en la app
+     Geotab Drive (parece que esa app le gana el gesto a la pagina antes de
+     que le llegue, algo esperable en una app pensada para no distraer al
+     chofer mientras maneja), asi que estos botones son la unica forma
+     confiable de hacer zoom ahi. */
+  #md-visor-zoom-grupo{display:flex;align-items:center;gap:2px;background:rgba(255,255,255,.08);border-radius:10px;padding:2px;flex-shrink:0}
+  #md-visor-zoom-grupo[hidden]{display:none}
+  .md-visor-zoom-btn{
+    background:rgba(255,255,255,.14);border:none;color:#fff;border-radius:8px;
+    width:34px;height:34px;font-family:inherit;font-size:1.15rem;font-weight:700;line-height:1;
+    cursor:pointer;
+  }
+  .md-visor-zoom-btn:active{background:rgba(255,255,255,.28)}
+  #md-visor-zoom-pct{color:#fff;font-size:.72rem;font-weight:600;min-width:34px;text-align:center;flex-shrink:0}
   /* max-height (en vez de flex:1 en un contenedor de alto automatico) es lo
      que le da al visor un tamano predecible y su propio scroll interno,
      sin necesitar que el padre tenga una altura fija -- eso es justamente
@@ -225,8 +241,11 @@
   <div id="md-visor-header">
     <div id="md-visor-titulo"></div>
     <div id="md-visor-acciones">
-      <button type="button" class="md-visor-btn" id="md-visor-zoom-menos" hidden aria-label="Alejar">&minus;</button>
-      <button type="button" class="md-visor-btn" id="md-visor-zoom-mas" hidden aria-label="Acercar">&plus;</button>
+      <div id="md-visor-zoom-grupo" hidden>
+        <button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar">&minus;</button>
+        <span id="md-visor-zoom-pct">100%</span>
+        <button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar">&plus;</button>
+      </div>
       <button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button>
       <button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button>
     </div>
@@ -321,11 +340,11 @@
   var ZOOM_MIN = 100, ZOOM_MAX = 400, ZOOM_PASO = 60;
 
   function actualizarBotonesZoom(){
-    var menos = document.getElementById('md-visor-zoom-menos');
-    var mas = document.getElementById('md-visor-zoom-mas');
-    if(!menos || !mas) return;
-    menos.hidden = !gZoomImg;
-    mas.hidden = !gZoomImg;
+    var grupo = document.getElementById('md-visor-zoom-grupo');
+    if(!grupo) return;
+    grupo.hidden = !gZoomImg;
+    var pct = document.getElementById('md-visor-zoom-pct');
+    if(pct) pct.textContent = Math.round(gZoomPct) + '%';
   }
 
   function aplicarZoom(pct){
@@ -334,6 +353,7 @@
     gZoomPct = pct;
     gZoomImg.style.width = pct + '%';
     document.getElementById('md-visor-body').classList.toggle('md-zoom-activo', pct > 100);
+    actualizarBotonesZoom(); // refresca el "100%"/etc, ademas de mostrar/ocultar el grupo
   }
 
   function resetZoom(){
