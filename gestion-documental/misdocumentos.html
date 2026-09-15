@@ -631,13 +631,6 @@
     var visor = document.getElementById('md-visor');
     var body = document.getElementById('md-visor-body');
     resetZoom();
-    var elTitulo = document.getElementById('md-visor-titulo');
-    // El ancho de la celda del titulo ya esta resuelto por "table-layout:fixed"
-    // (ver "OJO 4") ANTES de poner texto adentro -- esa columna se achica al
-    // espacio que sobra sin importar el contenido. Por eso podemos medirla
-    // ahora mismo y usarla para acortar el nombre "a mano" (ver "OJO 7").
-    var anchoTitulo = Math.max(0, elTitulo.getBoundingClientRect().width - 6);
-    elTitulo.textContent = acortarTexto(a.nombre || 'Documento', anchoTitulo);
     body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
     body.scrollTop = 0;
 
@@ -654,6 +647,22 @@
     // aunque el visor ya no dependa de "fixed": es scroll normal de la
     // pagina hacia un elemento, que si funciona bien en este WebView.
     visor.scrollIntoView({ block:'start', behavior:'smooth' });
+
+    // El titulo se pone DESPUES de mostrar el visor ("md-visor-on"), no
+    // antes: mientras el visor tiene "display:none" (por CSS, cuando todavia
+    // esta oculto) TODOS sus elementos de adentro miden 0 con
+    // getBoundingClientRect(), sin importar el "table-layout:fixed" -- un
+    // elemento sin caja de layout (display:none) no tiene ancho que medir
+    // todavia. Se descubrio este bug en la primera prueba real: el titulo
+    // se mostraba vacio porque "anchoCelda" media 0 y "acortarTexto" devolvia
+    // "" para un ancho maximo de 0 o negativo.
+    var elTitulo = document.getElementById('md-visor-titulo');
+    // El ancho de la celda del titulo ya esta resuelto por "table-layout:fixed"
+    // (ver "OJO 4") -- esa columna se achica al espacio que sobra sin
+    // importar el contenido. Por eso podemos medirla ahora (con el visor ya
+    // visible) y usarla para acortar el nombre "a mano" (ver "OJO 7").
+    var anchoTitulo = Math.max(0, elTitulo.getBoundingClientRect().width - 6);
+    elTitulo.textContent = acortarTexto(a.nombre || 'Documento', anchoTitulo);
 
     var esImagen = (a.tipo || '').indexOf('image/') === 0;
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
