@@ -146,7 +146,7 @@
     display:flex;align-items:center;justify-content:space-between;gap:10px;
     padding:12px 14px;background:#20232B;flex-shrink:0;
   }
-  #md-visor-titulo{color:#fff;font-size:.86rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #md-visor-titulo{color:#fff;font-size:.86rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
   .md-visor-btn{
     background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;
     padding:8px 12px;font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer;
@@ -252,6 +252,34 @@
   // aparte para cuando si funciona (navegador normal, MyGeotab web, etc.).
 
   var gArchivoActual = null; // { nombre, tipo, dataUrl }
+  var gScrollLockY = 0;
+
+  // El WebView de Geotab Drive (Android) tiene un bug conocido de estos
+  // componentes embebidos: un "position:fixed" hijo no queda realmente
+  // pegado a la pantalla mientras la pagina de atras esta scrolleada --
+  // se dibuja en el lugar donde cayo en el layout normal, como si fuera
+  // "absolute". Por eso el visor aparecia "mas abajo" y habia que scrollear
+  // toda la pantalla de atras para verlo. La solucion estandar (la misma
+  // que usan la mayoria de apps hibridas para este problema) es sacar el
+  // <body> del flujo normal mientras el visor esta abierto, para que no
+  // quede scroll "de fondo" que pueda desincronizar el overlay.
+  function bloquearScrollFondo(){
+    gScrollLockY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    document.body.style.position = 'fixed';
+    document.body.style.top = (-gScrollLockY) + 'px';
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+  }
+
+  function desbloquearScrollFondo(){
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    document.body.style.width = '';
+    window.scrollTo(0, gScrollLockY);
+  }
 
   function dataUrlABlob(dataUrl){
     var partes = dataUrl.split(',');
@@ -269,22 +297,54 @@
     document.getElementById('md-visor').classList.remove('md-visor-on');
     document.getElementById('md-visor-body').innerHTML = '';
     gArchivoActual = null;
+    desbloquearScrollFondo();
   }
 
-  function descargarArchivoActual(){
+  async function descargarArchivoActual(){
     if(!gArchivoActual) return;
+    var nombre = gArchivoActual.nombre || 'documento';
+    var blob;
     try{
-      var blob = dataUrlABlob(gArchivoActual.dataUrl);
+      blob = dataUrlABlob(gArchivoActual.dataUrl);
+    }catch(err){
+      alert('No se pudo preparar el archivo para descargar.');
+      return;
+    }
+
+    // El boton "Descargar" con <a download> (aunque sea con un Blob en vez
+    // de la data URI cruda) tampoco funciona adentro del WebView de Geotab
+    // Drive: ese WebView no tiene enganchado un DownloadManager para poder
+    // guardar el archivo. Lo que SI suelen resolver estos WebViews (porque
+    // lo maneja el motor del navegador, no la app anfitriona) es la bandeja
+    // nativa "Compartir" de Android (Web Share API con archivos): desde ahi
+    // el chofer puede elegir "Guardar en Archivos", mandarlo por WhatsApp,
+    // por mail, etc. Por eso se intenta primero esto, y solo si no esta
+    // disponible (por ejemplo en una computadora) se cae a la descarga
+    // clasica.
+    var archivo = null;
+    try{ archivo = new File([blob], nombre, { type: blob.type || gArchivoActual.tipo || 'application/octet-stream' }); }catch(e){ archivo = null; }
+
+    if(archivo && navigator.canShare && navigator.canShare({ files: [archivo] })){
+      try{
+        await navigator.share({ files: [archivo], title: nombre });
+        return;
+      }catch(err){
+        if(err && err.name === 'AbortError') return; // el chofer cerro el cartel de compartir, no es un error
+        // si compartir falla por otro motivo, probamos con la descarga clasica de abajo
+      }
+    }
+
+    try{
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
-      a.download = gArchivoActual.nombre || 'documento';
+      a.download = nombre;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
     }catch(err){
-      alert('No se pudo descargar el archivo en este dispositivo. Probá viendolo aca mismo o abrilo desde una computadora.');
+      alert('No se pudo descargar ni compartir el archivo en este dispositivo. Podés verlo directamente desde esta pantalla, o abrir esta pagina desde una computadora para descargarlo.');
     }
   }
 
@@ -294,13 +354,17 @@
     var body = document.getElementById('md-visor-body');
     document.getElementById('md-visor-titulo').textContent = a.nombre || 'Documento';
     body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
+    body.scrollTop = 0;
     visor.classList.add('md-visor-on');
+    bloquearScrollFondo();
 
     var esImagen = (a.tipo || '').indexOf('image/') === 0;
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
 
     if(esImagen){
-      body.innerHTML = '<img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '">';
+      // width:100% (en vez de solo max-width:100%) para que ocupe todo el
+      // ancho de la pantalla del celular en vez de quedar mas chica.
+      body.innerHTML = '<img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '" style="width:100%;height:auto;">';
       return;
     }
 
@@ -316,12 +380,23 @@
         for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
         var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
         body.innerHTML = '';
+        // El ancho de render se calcula segun el ancho real disponible en
+        // la pantalla (el celular del chofer), no un "scale" fijo pensado
+        // para monitor de escritorio -- asi la pagina entra justo en el
+        // ancho de la pantalla apenas se abre, sin tener que hacer zoom.
+        // Se usa devicePixelRatio para que igual se vea nitido.
+        var anchoDisponible = Math.max(body.clientWidth - 4, 240);
+        var dpr = window.devicePixelRatio || 1;
         for(var p = 1; p <= pdf.numPages; p++){
           var pagina = await pdf.getPage(p);
-          var viewport = pagina.getViewport({ scale: 1.4 });
+          var viewportBase = pagina.getViewport({ scale: 1 });
+          var factor = anchoDisponible / viewportBase.width;
+          var viewport = pagina.getViewport({ scale: factor * dpr });
           var canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
+          canvas.style.width = Math.round(viewportBase.width * factor) + 'px';
+          canvas.style.height = Math.round(viewportBase.height * factor) + 'px';
           body.appendChild(canvas);
           await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
         }
