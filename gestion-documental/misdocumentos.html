@@ -153,11 +153,21 @@
     display:flex;align-items:center;gap:6px;flex-shrink:0;
   }
   .md-visor-btn:active{background:rgba(255,255,255,.22)}
+  .md-visor-btn[hidden]{display:none}
   #md-visor-acciones{display:flex;gap:8px;flex-shrink:0}
   #md-visor-body{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
-  #md-visor-body img{max-width:100%;border-radius:8px}
+  #md-visor-body img{max-width:100%;border-radius:8px;touch-action:none}
   #md-visor-body canvas{max-width:100%;height:auto;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff}
   #md-visor-body .md-hint{color:#cbd0da}
+
+  /* Zoom de imagen: mientras esta con zoom (>100%) se cambia el layout del
+     visor de "flex centrado" a "bloque con scroll", porque un elemento mas
+     ancho que su contenedor dentro de un flex con align-items:center no
+     deja hacer scroll hacia el lado que "se esconde" detras del centrado
+     -- con text-align:center sobre un bloque normal si se puede scrollear
+     libremente en cualquier direccion. */
+  #md-visor-body.md-zoom-activo{display:block;text-align:center}
+  #md-visor-body.md-zoom-activo img{display:inline-block;max-width:none;transition:width .08s linear}
 </style>
 </head>
 <body>
@@ -199,6 +209,8 @@
   <div id="md-visor-header">
     <div id="md-visor-titulo"></div>
     <div id="md-visor-acciones">
+      <button type="button" class="md-visor-btn" id="md-visor-zoom-menos" hidden aria-label="Alejar">&minus;</button>
+      <button type="button" class="md-visor-btn" id="md-visor-zoom-mas" hidden aria-label="Acercar">&plus;</button>
       <button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button>
       <button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button>
     </div>
@@ -265,8 +277,14 @@
   // quede scroll "de fondo" que pueda desincronizar el overlay.
   function bloquearScrollFondo(){
     gScrollLockY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    // El bug de arriba se dispara "mientras la pagina de atras esta
+    // scrolleada", asi que ademas de esconder visualmente el scroll con el
+    // truco de abajo, primero llevamos el scroll REAL a 0 -- si el scroll
+    // real nunca llega a cero (aunque visualmente no se note salto alguno)
+    // el bug se puede seguir disparando igual.
+    window.scrollTo(0, 0);
     document.body.style.position = 'fixed';
-    document.body.style.top = (-gScrollLockY) + 'px';
+    document.body.style.top = '0';
     document.body.style.left = '0';
     document.body.style.right = '0';
     document.body.style.width = '100%';
@@ -297,7 +315,106 @@
     document.getElementById('md-visor').classList.remove('md-visor-on');
     document.getElementById('md-visor-body').innerHTML = '';
     gArchivoActual = null;
+    resetZoom();
     desbloquearScrollFondo();
+  }
+
+  // ---------------- Zoom de imagen (pellizcar, doble toque o botones) ----------------
+  //
+  // Un zoom con "transform:scale()" no sirve aca: al ser puramente visual
+  // (no cambia el tamaño de layout), el contenedor con overflow:auto no se
+  // entera de que hay mas para scrollear y el zoom queda "pegado" sin poder
+  // recorrer la imagen agrandada. Por eso se hace cambiando el ancho real
+  // de la imagen (width en %) -- el navegador arma solo el scroll para
+  // recorrerla con el dedo, sin JS extra para el paneo.
+  var gZoomImg = null;
+  var gZoomPct = 100;
+  var ZOOM_MIN = 100, ZOOM_MAX = 400, ZOOM_PASO = 60;
+
+  function actualizarBotonesZoom(){
+    var menos = document.getElementById('md-visor-zoom-menos');
+    var mas = document.getElementById('md-visor-zoom-mas');
+    if(!menos || !mas) return;
+    menos.hidden = !gZoomImg;
+    mas.hidden = !gZoomImg;
+  }
+
+  function aplicarZoom(pct){
+    if(!gZoomImg) return;
+    pct = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pct));
+    gZoomPct = pct;
+    gZoomImg.style.width = pct + '%';
+    document.getElementById('md-visor-body').classList.toggle('md-zoom-activo', pct > 100);
+  }
+
+  function resetZoom(){
+    gZoomImg = null;
+    gZoomPct = 100;
+    document.getElementById('md-visor-body').classList.remove('md-zoom-activo');
+    actualizarBotonesZoom();
+  }
+
+  function distanciaEntreToques(touches){
+    var dx = touches[0].clientX - touches[1].clientX;
+    var dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function activarZoomImagen(img){
+    gZoomImg = img;
+    gZoomPct = 100;
+    actualizarBotonesZoom();
+
+    // El paneo (recorrer la imagen agrandada con el dedo) se hace a mano
+    // moviendo scrollLeft/scrollTop del contenedor, en vez de dejarselo al
+    // scroll nativo del navegador: como el gesto de pellizcar (2 dedos)
+    // necesita "e.preventDefault()" en touchmove para no disparar el zoom
+    // nativo de la pagina a la vez, el arrastre de 1 dedo tambien queda
+    // interceptado -- si no se reimplementa el paneo a mano, la imagen
+    // agrandada queda sin forma de recorrerla.
+    var cont = document.getElementById('md-visor-body');
+    var pinch = null; // { dist, pct } al empezar a pellizcar con 2 dedos
+    var pan = null;   // { x, y, movido } al arrastrar con 1 dedo
+    var ultimoToqueTs = 0;
+
+    img.addEventListener('touchstart', function(e){
+      if(e.touches.length === 2){
+        pinch = { dist: distanciaEntreToques(e.touches), pct: gZoomPct };
+        pan = null;
+      }else if(e.touches.length === 1){
+        pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, movido: false };
+      }
+      e.preventDefault();
+    }, { passive:false });
+
+    img.addEventListener('touchmove', function(e){
+      if(pinch && e.touches.length === 2){
+        aplicarZoom(pinch.pct * (distanciaEntreToques(e.touches) / pinch.dist));
+      }else if(pan && e.touches.length === 1){
+        var t = e.touches[0];
+        var dx = t.clientX - pan.x, dy = t.clientY - pan.y;
+        if(Math.abs(dx) > 4 || Math.abs(dy) > 4) pan.movido = true;
+        cont.scrollLeft -= dx;
+        cont.scrollTop -= dy;
+        pan.x = t.clientX; pan.y = t.clientY;
+      }
+      e.preventDefault();
+    }, { passive:false });
+
+    img.addEventListener('touchend', function(e){
+      if(e.touches.length < 2) pinch = null;
+      if(e.touches.length === 0){
+        if(pan && !pan.movido){
+          var ahora = Date.now();
+          if(ahora - ultimoToqueTs < 300){ aplicarZoom(gZoomPct > 100 ? 100 : 220); }
+          ultimoToqueTs = ahora;
+        }
+        pan = null;
+      }
+    });
+
+    // Doble click para cuando se abre esta pantalla desde una computadora.
+    img.addEventListener('dblclick', function(){ aplicarZoom(gZoomPct > 100 ? 100 : 220); });
   }
 
   async function descargarArchivoActual(){
@@ -352,11 +469,20 @@
     gArchivoActual = a;
     var visor = document.getElementById('md-visor');
     var body = document.getElementById('md-visor-body');
+    // Primero se fija el scroll de fondo en 0 (bloquearScrollFondo) y RECIEN
+    // DESPUES se muestra el visor. Si se muestra el visor antes de asegurar
+    // que la pagina de atras este sin scroll, el WebView de Geotab Drive
+    // llega a "fotografiarlo" en la posicion incorrecta (ver el bug
+    // explicado en bloquearScrollFondo) y no se corrige solo despues aunque
+    // el scroll se bloquee un instante mas tarde -- por eso el visor seguia
+    // apareciendo abajo del todo cuando se abria un documento con la lista
+    // scrolleada.
+    bloquearScrollFondo();
+    resetZoom();
     document.getElementById('md-visor-titulo').textContent = a.nombre || 'Documento';
     body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
     body.scrollTop = 0;
     visor.classList.add('md-visor-on');
-    bloquearScrollFondo();
 
     var esImagen = (a.tipo || '').indexOf('image/') === 0;
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
@@ -365,6 +491,7 @@
       // width:100% (en vez de solo max-width:100%) para que ocupe todo el
       // ancho de la pantalla del celular en vez de quedar mas chica.
       body.innerHTML = '<img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '" style="width:100%;height:auto;">';
+      activarZoomImagen(body.querySelector('img'));
       return;
     }
 
@@ -556,6 +683,8 @@
     document.getElementById('md-volver').addEventListener('click', cerrarDetalle);
     document.getElementById('md-visor-cerrar').addEventListener('click', cerrarVisor);
     document.getElementById('md-visor-descargar').addEventListener('click', descargarArchivoActual);
+    document.getElementById('md-visor-zoom-mas').addEventListener('click', function(){ aplicarZoom(gZoomPct + ZOOM_PASO); });
+    document.getElementById('md-visor-zoom-menos').addEventListener('click', function(){ aplicarZoom(gZoomPct - ZOOM_PASO); });
 
     document.getElementById('md-input-buscar').addEventListener('input', function(e){
       var val = e.target.value;
