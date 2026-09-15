@@ -122,6 +122,7 @@
     display:inline-flex;align-items:center;gap:6px;background:var(--md-accent-light);
     color:var(--md-accent-dark);border:1px solid #BFEBFA;border-radius:var(--md-radius);
     padding:7px 12px;font-size:.78rem;font-weight:600;text-decoration:none;
+    font-family:inherit;cursor:pointer;
   }
   .md-archivo-link svg{width:14px;height:14px;flex-shrink:0}
   .md-archivos-cargando{font-size:.76rem;color:var(--md-muted);margin-top:8px}
@@ -132,6 +133,31 @@
     border-top-color:var(--md-accent);margin:0 auto 10px;animation:md-spin 1s linear infinite;
   }
   @keyframes md-spin{to{transform:rotate(360deg)}}
+
+  /* Visor de archivos: en vez de "descargar" (falla adentro del WebView de
+     Geotab Drive, ver comentario en abrirArchivo()), el archivo se muestra
+     adentro mismo de la pantalla. */
+  #md-visor{
+    display:none;position:fixed;inset:0;background:#14161c;z-index:1000;
+    flex-direction:column;
+  }
+  #md-visor.md-visor-on{display:flex}
+  #md-visor-header{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:12px 14px;background:#20232B;flex-shrink:0;
+  }
+  #md-visor-titulo{color:#fff;font-size:.86rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .md-visor-btn{
+    background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;
+    padding:8px 12px;font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer;
+    display:flex;align-items:center;gap:6px;flex-shrink:0;
+  }
+  .md-visor-btn:active{background:rgba(255,255,255,.22)}
+  #md-visor-acciones{display:flex;gap:8px;flex-shrink:0}
+  #md-visor-body{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
+  #md-visor-body img{max-width:100%;border-radius:8px}
+  #md-visor-body canvas{max-width:100%;height:auto;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff}
+  #md-visor-body .md-hint{color:#cbd0da}
 </style>
 </head>
 <body>
@@ -168,6 +194,20 @@
 
 </div>
 
+<!-- Visor de archivos (imagen o PDF), en vez de intentar "descargar" -->
+<div id="md-visor">
+  <div id="md-visor-header">
+    <div id="md-visor-titulo"></div>
+    <div id="md-visor-acciones">
+      <button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button>
+      <button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button>
+    </div>
+  </div>
+  <div id="md-visor-body"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(typeof pdfjsLib !== 'undefined'){ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }</script>
 <script src="js/firebase-config.js"></script>
 <script src="js/data/store.js"></script>
 <script>
@@ -197,6 +237,103 @@
     if(n < 1024) return n + ' B';
     if(n < 1024*1024) return Math.round(n/1024) + ' KB';
     return (n/1024/1024).toFixed(1) + ' MB';
+  }
+
+  // ---------------- Visor de archivos ----------------
+  //
+  // Adentro de la app Geotab Drive (Android), un <a href="data:...(base64
+  // largo)" download> tira "Download failed": el WebView embebido de Drive
+  // no tiene enganchado un manejador de descargas nativo (DownloadManager)
+  // para data URIs, a diferencia de un navegador normal. La solucion no es
+  // "arreglar la descarga" -- es no depender de ella: el archivo se muestra
+  // directamente adentro de esta misma pantalla (imagen o PDF renderizado
+  // con pdf.js), que es ademas lo que un chofer necesita en la practica
+  // (mostrarselo a un control caminero), y se deja "Descargar" como boton
+  // aparte para cuando si funciona (navegador normal, MyGeotab web, etc.).
+
+  var gArchivoActual = null; // { nombre, tipo, dataUrl }
+
+  function dataUrlABlob(dataUrl){
+    var partes = dataUrl.split(',');
+    var meta = partes[0] || '';
+    var b64 = partes[1] || '';
+    var mimeMatch = meta.match(/data:([^;]+)/);
+    var mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    var binario = atob(b64);
+    var bytes = new Uint8Array(binario.length);
+    for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
+    return new Blob([bytes], { type: mime });
+  }
+
+  function cerrarVisor(){
+    document.getElementById('md-visor').classList.remove('md-visor-on');
+    document.getElementById('md-visor-body').innerHTML = '';
+    gArchivoActual = null;
+  }
+
+  function descargarArchivoActual(){
+    if(!gArchivoActual) return;
+    try{
+      var blob = dataUrlABlob(gArchivoActual.dataUrl);
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = gArchivoActual.nombre || 'documento';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+    }catch(err){
+      alert('No se pudo descargar el archivo en este dispositivo. Probá viendolo aca mismo o abrilo desde una computadora.');
+    }
+  }
+
+  async function abrirArchivo(a){
+    gArchivoActual = a;
+    var visor = document.getElementById('md-visor');
+    var body = document.getElementById('md-visor-body');
+    document.getElementById('md-visor-titulo').textContent = a.nombre || 'Documento';
+    body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
+    visor.classList.add('md-visor-on');
+
+    var esImagen = (a.tipo || '').indexOf('image/') === 0;
+    var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
+
+    if(esImagen){
+      body.innerHTML = '<img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '">';
+      return;
+    }
+
+    if(esPdf){
+      if(typeof pdfjsLib === 'undefined'){
+        body.innerHTML = '<p class="md-hint">No se pudo cargar el visor de PDF. Probá con el boton Descargar, o abrí esta pantalla desde una computadora.</p>';
+        return;
+      }
+      try{
+        var b64 = (a.dataUrl.split(',')[1] || '');
+        var binario = atob(b64);
+        var bytes = new Uint8Array(binario.length);
+        for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
+        var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        body.innerHTML = '';
+        for(var p = 1; p <= pdf.numPages; p++){
+          var pagina = await pdf.getPage(p);
+          var viewport = pagina.getViewport({ scale: 1.4 });
+          var canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          body.appendChild(canvas);
+          await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+        }
+      }catch(err){
+        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
+      }
+      return;
+    }
+
+    // Tipo desconocido: no hay forma confiable de "mostrarlo" adentro de la
+    // pantalla, asi que la unica opcion es ofrecer la descarga.
+    body.innerHTML = '<p class="md-hint">Este tipo de archivo no se puede previsualizar aca. Usá el boton Descargar.</p>';
   }
 
   // ---------------- Vista lista de unidades ----------------
@@ -317,10 +454,15 @@
         var box = cont.querySelector('[data-archivos-de="' + d.id + '"]');
         if(!box) return;
         if(!archivos.length){ box.innerHTML = '<div class="md-sin-archivos">Sin archivos adjuntos.</div>'; return; }
-        box.innerHTML = archivos.map(function(a){
-          return '<a class="md-archivo-link" href="' + a.dataUrl + '" target="_blank" rel="noopener" download="' + escapeHtml(a.nombre) + '">' +
-            ICON_FILE + '<span>' + escapeHtml(a.nombre) + (a.tamanoBytes ? ' (' + fmtBytes(a.tamanoBytes) + ')' : '') + '</span></a>';
+        box.innerHTML = archivos.map(function(a, idx){
+          return '<button type="button" class="md-archivo-link" data-archivo-idx="' + idx + '">' +
+            ICON_FILE + '<span>' + escapeHtml(a.nombre) + (a.tamanoBytes ? ' (' + fmtBytes(a.tamanoBytes) + ')' : '') + '</span></button>';
         }).join('');
+        box.querySelectorAll('.md-archivo-link').forEach(function(btn){
+          btn.addEventListener('click', function(){
+            abrirArchivo(archivos[Number(btn.getAttribute('data-archivo-idx'))]);
+          });
+        });
       }).catch(function(err){
         var box = cont.querySelector('[data-archivos-de="' + d.id + '"]');
         if(box) box.innerHTML = '<div class="md-sin-archivos md-error">No se pudieron cargar los archivos.</div>';
@@ -337,6 +479,8 @@
 
   function setupEvents(){
     document.getElementById('md-volver').addEventListener('click', cerrarDetalle);
+    document.getElementById('md-visor-cerrar').addEventListener('click', cerrarVisor);
+    document.getElementById('md-visor-descargar').addEventListener('click', descargarArchivoActual);
 
     document.getElementById('md-input-buscar').addEventListener('input', function(e){
       var val = e.target.value;
