@@ -536,19 +536,20 @@
         var bytes = new Uint8Array(binario.length);
         for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
         var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-        console.log('DBG_PDF_START', pdf.numPages);
         body.innerHTML = '<div id="md-visor-zoom-wrap"></div>';
         var wrap = document.getElementById('md-visor-zoom-wrap');
         // El ancho de render se calcula segun el ancho real disponible en
         // la pantalla (el celular del chofer), no un "scale" fijo pensado
         // para monitor de escritorio -- asi la pagina entra justo en el
-        // ancho de la pantalla apenas se abre, sin tener que hacer zoom. El
-        // "* 2" de mas es margen de resolucion para que al hacer zoom con
-        // los botones +/- no se vea pixelado -- el tamano MOSTRADO en
-        // pantalla lo pone el CSS (100% de "wrap"), esto solo cambia
-        // cuantos pixeles reales quedan dibujados adentro del canvas.
+        // ancho de la pantalla apenas se abre, sin tener que hacer zoom. Se
+        // usa devicePixelRatio para que se vea nitido SIN pasarse: se probo
+        // duplicar la resolucion de mas (pensando en el zoom con los
+        // botones +/-) y en un PDF de varias paginas el renderizado paso de
+        // ser instantaneo a tardar casi un minuto -- no vale la pena ese
+        // costo, mejor priorizar que el documento aparezca rapido aunque el
+        // zoom a 400% se vea un poco menos nitido.
         var anchoDisponible = Math.max(body.clientWidth - 4, 240);
-        var dpr = (window.devicePixelRatio || 1) * 2;
+        var dpr = window.devicePixelRatio || 1;
         for(var p = 1; p <= pdf.numPages; p++){
           var pagina = await pdf.getPage(p);
           var viewportBase = pagina.getViewport({ scale: 1 });
@@ -559,13 +560,9 @@
           canvas.height = viewport.height;
           wrap.appendChild(canvas);
           await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
-          console.log('DBG_PDF_PAGE_DONE', p);
         }
-        console.log('DBG_PDF_BEFORE_ACTIVARZOOM');
         activarZoom(wrap);
-        console.log('DBG_PDF_AFTER_ACTIVARZOOM');
       }catch(err){
-        console.error('DBG_PDF_ERROR', err && err.message, err && err.stack);
         body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
       }
       return;
