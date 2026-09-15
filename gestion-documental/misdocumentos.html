@@ -187,19 +187,28 @@
      que le da al visor un tamano predecible y su propio scroll interno,
      sin necesitar que el padre tenga una altura fija -- eso es justamente
      lo que fallaba con el overlay de pantalla completa. */
-  #md-visor-body{max-height:70vh;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
-  #md-visor-body img{max-width:100%;border-radius:8px;touch-action:none}
-  #md-visor-body canvas{max-width:100%;height:auto;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff}
+  #md-visor-body{max-height:70vh;overflow:auto;padding:14px;display:flex;flex-direction:column;align-items:center}
   #md-visor-body .md-hint{color:#cbd0da}
 
-  /* Zoom de imagen: mientras esta con zoom (>100%) se cambia el layout del
-     visor de "flex centrado" a "bloque con scroll", porque un elemento mas
-     ancho que su contenedor dentro de un flex con align-items:center no
-     deja hacer scroll hacia el lado que "se esconde" detras del centrado
-     -- con text-align:center sobre un bloque normal si se puede scrollear
-     libremente en cualquier direccion. */
-  #md-visor-body.md-zoom-activo{display:block;text-align:center}
-  #md-visor-body.md-zoom-activo img{display:inline-block;max-width:none;transition:width .08s linear}
+  /* Todo el contenido que se puede agrandar (una imagen, o las paginas de un
+     PDF) va adentro de este contenedor -- el zoom cambia el ANCHO de ESTE
+     div (no el de la imagen/canvas suelto), y como cada imagen/canvas de
+     adentro esta al 100% de este contenedor, todos crecen juntos y en la
+     misma proporcion. Antes el zoom solo funcionaba con fotos (imagenes) y
+     no con los documentos en PDF (VTV, Titulo, etc.), porque cada pagina de
+     PDF se dibujaba en su propio <canvas> con un ancho fijo en pixeles --
+     ahora esos canvas tambien usan ancho en % de este contenedor, asi que
+     el zoom les llega igual que a una foto. */
+  #md-visor-zoom-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;touch-action:none;transition:width .08s linear}
+  #md-visor-zoom-wrap img{width:100%;height:auto;display:block;border-radius:8px}
+  #md-visor-zoom-wrap canvas{width:100%;height:auto;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff}
+
+  /* Zoom: mientras esta con zoom (>100%) se cambia el layout del visor de
+     "flex centrado" a "bloque", porque un elemento mas ancho que su
+     contenedor dentro de un flex con align-items:center no deja hacer
+     scroll hacia el lado que "se esconde" detras del centrado -- en modo
+     bloque si se puede scrollear libremente en cualquier direccion. */
+  #md-visor-body.md-zoom-activo{display:block}
 </style>
 </head>
 <body>
@@ -335,29 +344,29 @@
   // recorrer la imagen agrandada. Por eso se hace cambiando el ancho real
   // de la imagen (width en %) -- el navegador arma solo el scroll para
   // recorrerla con el dedo, sin JS extra para el paneo.
-  var gZoomImg = null;
+  var gZoomWrap = null; // el "#md-visor-zoom-wrap" activo (null = nada zoomeable ahora)
   var gZoomPct = 100;
   var ZOOM_MIN = 100, ZOOM_MAX = 400, ZOOM_PASO = 60;
 
   function actualizarBotonesZoom(){
     var grupo = document.getElementById('md-visor-zoom-grupo');
     if(!grupo) return;
-    grupo.hidden = !gZoomImg;
+    grupo.hidden = !gZoomWrap;
     var pct = document.getElementById('md-visor-zoom-pct');
     if(pct) pct.textContent = Math.round(gZoomPct) + '%';
   }
 
   function aplicarZoom(pct){
-    if(!gZoomImg) return;
+    if(!gZoomWrap) return;
     pct = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pct));
     gZoomPct = pct;
-    gZoomImg.style.width = pct + '%';
+    gZoomWrap.style.width = pct + '%';
     document.getElementById('md-visor-body').classList.toggle('md-zoom-activo', pct > 100);
     actualizarBotonesZoom(); // refresca el "100%"/etc, ademas de mostrar/ocultar el grupo
   }
 
   function resetZoom(){
-    gZoomImg = null;
+    gZoomWrap = null;
     gZoomPct = 100;
     document.getElementById('md-visor-body').classList.remove('md-zoom-activo');
     actualizarBotonesZoom();
@@ -369,24 +378,30 @@
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  function activarZoomImagen(img){
-    gZoomImg = img;
+  // "wrap" es "#md-visor-zoom-wrap": el contenedor que envuelve la imagen (o
+  // todas las paginas del PDF) de este archivo. Antes esta funcion se
+  // enganchaba directo sobre el <img>, por eso al abrir un PDF (como la VTV)
+  // los botones de zoom no aparecian: las paginas de un PDF se dibujan en
+  // <canvas>, no en <img>, y nunca pasaban por aca. Ahora se engancha sobre
+  // el contenedor comun, asi sirve igual para una foto que para un PDF.
+  function activarZoom(wrap){
+    gZoomWrap = wrap;
     gZoomPct = 100;
     actualizarBotonesZoom();
 
-    // El paneo (recorrer la imagen agrandada con el dedo) se hace a mano
+    // El paneo (recorrer el contenido agrandado con el dedo) se hace a mano
     // moviendo scrollLeft/scrollTop del contenedor, en vez de dejarselo al
     // scroll nativo del navegador: como el gesto de pellizcar (2 dedos)
     // necesita "e.preventDefault()" en touchmove para no disparar el zoom
     // nativo de la pagina a la vez, el arrastre de 1 dedo tambien queda
-    // interceptado -- si no se reimplementa el paneo a mano, la imagen
-    // agrandada queda sin forma de recorrerla.
+    // interceptado -- si no se reimplementa el paneo a mano, el contenido
+    // agrandado queda sin forma de recorrerlo.
     var cont = document.getElementById('md-visor-body');
     var pinch = null; // { dist, pct } al empezar a pellizcar con 2 dedos
     var pan = null;   // { x, y, movido } al arrastrar con 1 dedo
     var ultimoToqueTs = 0;
 
-    img.addEventListener('touchstart', function(e){
+    wrap.addEventListener('touchstart', function(e){
       if(e.touches.length === 2){
         pinch = { dist: distanciaEntreToques(e.touches), pct: gZoomPct };
         pan = null;
@@ -396,7 +411,7 @@
       e.preventDefault();
     }, { passive:false });
 
-    img.addEventListener('touchmove', function(e){
+    wrap.addEventListener('touchmove', function(e){
       if(pinch && e.touches.length === 2){
         aplicarZoom(pinch.pct * (distanciaEntreToques(e.touches) / pinch.dist));
       }else if(pan && e.touches.length === 1){
@@ -410,7 +425,7 @@
       e.preventDefault();
     }, { passive:false });
 
-    img.addEventListener('touchend', function(e){
+    wrap.addEventListener('touchend', function(e){
       if(e.touches.length < 2) pinch = null;
       if(e.touches.length === 0){
         if(pan && !pan.movido){
@@ -423,7 +438,7 @@
     });
 
     // Doble click para cuando se abre esta pantalla desde una computadora.
-    img.addEventListener('dblclick', function(){ aplicarZoom(gZoomPct > 100 ? 100 : 220); });
+    wrap.addEventListener('dblclick', function(){ aplicarZoom(gZoomPct > 100 ? 100 : 220); });
   }
 
   async function descargarArchivoActual(){
@@ -505,10 +520,8 @@
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
 
     if(esImagen){
-      // width:100% (en vez de solo max-width:100%) para que ocupe todo el
-      // ancho de la pantalla del celular en vez de quedar mas chica.
-      body.innerHTML = '<img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '" style="width:100%;height:auto;">';
-      activarZoomImagen(body.querySelector('img'));
+      body.innerHTML = '<div id="md-visor-zoom-wrap"><img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '"></div>';
+      activarZoom(document.getElementById('md-visor-zoom-wrap'));
       return;
     }
 
@@ -523,14 +536,18 @@
         var bytes = new Uint8Array(binario.length);
         for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
         var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-        body.innerHTML = '';
+        body.innerHTML = '<div id="md-visor-zoom-wrap"></div>';
+        var wrap = document.getElementById('md-visor-zoom-wrap');
         // El ancho de render se calcula segun el ancho real disponible en
         // la pantalla (el celular del chofer), no un "scale" fijo pensado
         // para monitor de escritorio -- asi la pagina entra justo en el
-        // ancho de la pantalla apenas se abre, sin tener que hacer zoom.
-        // Se usa devicePixelRatio para que igual se vea nitido.
+        // ancho de la pantalla apenas se abre, sin tener que hacer zoom. El
+        // "* 2" de mas es margen de resolucion para que al hacer zoom con
+        // los botones +/- no se vea pixelado -- el tamano MOSTRADO en
+        // pantalla lo pone el CSS (100% de "wrap"), esto solo cambia
+        // cuantos pixeles reales quedan dibujados adentro del canvas.
         var anchoDisponible = Math.max(body.clientWidth - 4, 240);
-        var dpr = window.devicePixelRatio || 1;
+        var dpr = (window.devicePixelRatio || 1) * 2;
         for(var p = 1; p <= pdf.numPages; p++){
           var pagina = await pdf.getPage(p);
           var viewportBase = pagina.getViewport({ scale: 1 });
@@ -539,11 +556,10 @@
           var canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          canvas.style.width = Math.round(viewportBase.width * factor) + 'px';
-          canvas.style.height = Math.round(viewportBase.height * factor) + 'px';
-          body.appendChild(canvas);
+          wrap.appendChild(canvas);
           await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
         }
+        activarZoom(wrap);
       }catch(err){
         body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
       }
