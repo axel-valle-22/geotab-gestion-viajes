@@ -171,18 +171,31 @@
      2) y las dos se veian mal en el WebView real. Una fila de <table> es la
      forma mas vieja y basica que hay en HTML para poner cosas en una sola
      fila, la mas dificil de que un motor la dibuje mal, y sirve ademas como
-     doble resguardo junto con dejar de reparentar el visor. */
+     doble resguardo junto con dejar de reparentar el visor.
+
+     OJO 4: la tabla del encabezado usa "table-layout:fixed" a proposito,
+     con un ancho FIJO (en px) para la celda de los botones. Sin esto, una
+     tabla normal agranda cada columna segun el contenido que tenga adentro
+     -- y como el titulo puede ser un nombre de archivo largo (viene de
+     "white-space:nowrap", necesario para el "..." final), la tabla entera
+     terminaba mas ancha que la pantalla y los botones de la derecha
+     (Cerrar, sobre todo) quedaban cortados por el "overflow:hidden" del
+     encabezado. Con table-layout:fixed la columna del titulo se achica
+     SIEMPRE al espacio que sobra (ahi si funciona el "..."), y la columna
+     de los botones nunca se mueve ni se corta. El ancho fijo (300px) sale
+     de medir en el navegador cuanto ocupan los botones + el grupo de zoom
+     ya armados (~292px) mas un margen chico. */
   #md-visor-header{
     padding:10px 14px;background:#20232B;overflow:hidden;
   }
-  #md-visor-header-tabla{width:100%;border-collapse:collapse}
-  #md-visor-header-tabla td{padding:0;vertical-align:middle}
+  #md-visor-header-tabla{width:100%;table-layout:fixed;border-collapse:collapse}
+  #md-visor-header-tabla>tbody>tr>td{padding:0;vertical-align:middle}
   #md-visor-titulo{
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:#fff;font-size:.86rem;font-weight:600;width:100%;
   }
-  #md-visor-acciones-celda{white-space:nowrap;padding-left:8px}
-  #md-visor-acciones{border-collapse:collapse}
+  #md-visor-acciones-celda{width:300px;white-space:nowrap;text-align:right}
+  #md-visor-acciones{display:inline-table;margin-left:8px;border-collapse:collapse;vertical-align:middle}
   #md-visor-acciones td{padding:0;vertical-align:middle}
   .md-visor-btn{
     background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;
