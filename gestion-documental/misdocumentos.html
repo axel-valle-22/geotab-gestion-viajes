@@ -286,26 +286,36 @@
          Drive). El encabezado (titulo + botones) usa una tabla HTML en vez
          de flex/float por la razon explicada en "OJO 3" del mismo bloque
          de estilos. -->
-    <div id="md-visor">
-      <div id="md-visor-header">
-        <table id="md-visor-header-tabla" role="presentation" cellspacing="0" cellpadding="0" border="0"><tbody><tr>
-          <td id="md-visor-titulo"></td>
-          <td id="md-visor-acciones-celda">
-            <table id="md-visor-acciones" role="presentation" cellspacing="0" cellpadding="0" border="0"><tbody><tr>
+    <!-- OJO 5: de aca para abajo, ademas de las reglas del bloque de estilos
+         (arriba, en la cabecera del documento), los colores/fondos claves del visor TAMBIEN
+         se ponen como estilo en linea (style="...") en cada etiqueta. Es
+         redundante a proposito: ya vimos varias veces en este WebView que
+         una regla CSS "de afuera" (en el bloque de estilos, por selector) a veces no
+         se aplica a algunos elementos, mientras que un estilo puesto
+         directo en la etiqueta (mas dificil de que el WebView lo ignore)
+         si funciona. Si en algun momento se confirma que el bloque de
+         estilos anda bien en todos los casos, estos estilos en linea se
+         pueden sacar. -->
+    <div id="md-visor" style="background:#14161c;border-radius:18px;overflow:hidden">
+      <div id="md-visor-header" style="padding:10px 14px;background:#20232B">
+        <table id="md-visor-header-tabla" role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:fixed;border-collapse:collapse"><tbody><tr>
+          <td id="md-visor-titulo" style="color:#fff;font-size:.86rem;font-weight:600"></td>
+          <td id="md-visor-acciones-celda" style="width:300px;white-space:nowrap;text-align:right">
+            <table id="md-visor-acciones" role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-table;margin-left:8px"><tbody><tr>
               <td>
-                <table id="md-visor-zoom-grupo" role="presentation" cellspacing="0" cellpadding="0" border="0" hidden><tbody><tr>
-                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar">&minus;</button></td>
-                  <td><span id="md-visor-zoom-pct">100%</span></td>
-                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar">&plus;</button></td>
+                <table id="md-visor-zoom-grupo" role="presentation" cellspacing="0" cellpadding="0" border="0" hidden style="background:rgba(255,255,255,.08);border-radius:10px"><tbody><tr>
+                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar" style="background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:8px;width:34px;height:34px;font-size:1.15rem;font-weight:700">&minus;</button></td>
+                  <td><span id="md-visor-zoom-pct" style="color:#fff;font-size:.72rem;font-weight:600">100%</span></td>
+                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar" style="background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:8px;width:34px;height:34px;font-size:1.15rem;font-weight:700">&plus;</button></td>
                 </tr></tbody></table>
               </td>
-              <td><button type="button" class="md-visor-btn" id="md-visor-descargar">Descargar</button></td>
-              <td><button type="button" class="md-visor-btn" id="md-visor-cerrar">Cerrar</button></td>
+              <td><button type="button" class="md-visor-btn" id="md-visor-descargar" style="background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:.8rem;font-weight:600;margin-left:8px">Descargar</button></td>
+              <td><button type="button" class="md-visor-btn" id="md-visor-cerrar" style="background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:.8rem;font-weight:600;margin-left:8px">Cerrar</button></td>
             </tr></tbody></table>
           </td>
         </tr></tbody></table>
       </div>
-      <div id="md-visor-body"></div>
+      <div id="md-visor-body" style="max-height:70vh;overflow:auto;padding:14px;text-align:center"></div>
     </div>
 
     <div id="md-detalle-docs"></div>
@@ -562,8 +572,40 @@
     var esImagen = (a.tipo || '').indexOf('image/') === 0;
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
 
+    // PANEL DE DIAGNOSTICO TEMPORAL -- esto es solo para averiguar, con una
+    // captura de pantalla del celular real, por que el documento no se ve
+    // bien ahi (aunque en Chrome se ve perfecto). Se saca en cuanto se
+    // identifique la causa real. Se muestra como texto en la pantalla (no
+    // en la consola) porque desde el celular no se puede abrir devtools.
+    var debugLineas = [
+      'tipo="' + (a.tipo || '') + '" nombre="' + (a.nombre || '') + '"',
+      'esImagen=' + esImagen + ' esPdf=' + esPdf,
+      'pdfjsLib=' + (typeof pdfjsLib) + ' Worker=' + (typeof Worker),
+      'devicePixelRatio=' + (window.devicePixelRatio || 1),
+      'innerWidth=' + window.innerWidth + ' body.clientWidth=' + body.clientWidth + ' visor.clientWidth=' + visor.clientWidth
+    ];
+    function pintarDebug(extra){
+      if(extra) debugLineas.push(extra);
+      var pre = document.getElementById('md-visor-debug');
+      if(!pre){
+        pre = document.createElement('pre');
+        pre.id = 'md-visor-debug';
+        pre.style.cssText = 'background:#fff3c4;color:#5a4600;font-size:.68rem;line-height:1.4;text-align:left;white-space:pre-wrap;padding:8px;margin:0 0 10px;border-radius:6px;border:1px solid #e0c34a';
+        body.insertBefore(pre, body.firstChild);
+      }
+      pre.textContent = 'DEBUG TEMPORAL:\n' + debugLineas.join('\n');
+    }
+
     if(esImagen){
       body.innerHTML = '<div id="md-visor-zoom-wrap"><img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '"></div>';
+      pintarDebug();
+      var imgEl = document.querySelector('#md-visor-zoom-wrap img');
+      imgEl.addEventListener('load', function(){
+        pintarDebug('img cargada: natural=' + imgEl.naturalWidth + 'x' + imgEl.naturalHeight + ' mostrada=' + Math.round(imgEl.getBoundingClientRect().width) + 'x' + Math.round(imgEl.getBoundingClientRect().height));
+      });
+      imgEl.addEventListener('error', function(){
+        pintarDebug('ERROR: la imagen no cargo (src invalido o formato no soportado)');
+      });
       activarZoom(document.getElementById('md-visor-zoom-wrap'));
       return;
     }
@@ -571,6 +613,7 @@
     if(esPdf){
       if(typeof pdfjsLib === 'undefined'){
         body.innerHTML = '<p class="md-hint">No se pudo cargar el visor de PDF. Probá con el boton Descargar, o abrí esta pantalla desde una computadora.</p>';
+        pintarDebug();
         return;
       }
       try{
@@ -579,6 +622,7 @@
         var bytes = new Uint8Array(binario.length);
         for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
         var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        debugLineas.push('pdf cargado, paginas=' + pdf.numPages);
         body.innerHTML = '<div id="md-visor-zoom-wrap"></div>';
         var wrap = document.getElementById('md-visor-zoom-wrap');
         // El ancho de render se calcula segun el ancho real disponible en
@@ -593,6 +637,7 @@
         // zoom a 400% se vea un poco menos nitido.
         var anchoDisponible = Math.max(body.clientWidth - 4, 240);
         var dpr = window.devicePixelRatio || 1;
+        debugLineas.push('anchoDisponible=' + anchoDisponible + ' dpr=' + dpr);
         for(var p = 1; p <= pdf.numPages; p++){
           var pagina = await pdf.getPage(p);
           var viewportBase = pagina.getViewport({ scale: 1 });
@@ -601,12 +646,24 @@
           var canvas = document.createElement('canvas');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
+          // Ademas de la regla CSS "#md-visor-zoom-wrap canvas{width:100%}",
+          // se fija el mismo ancho tambien por JS (estilo inline, en pixeles
+          // reales) como resguardo: ya vimos en este WebView que no todas
+          // las reglas CSS externas se aplican siempre a elementos creados
+          // por JS, y un estilo puesto directo en el elemento es mas dificil
+          // de que se pierda.
+          canvas.style.width = anchoDisponible + 'px';
+          canvas.style.height = (anchoDisponible * viewport.height / viewport.width) + 'px';
           wrap.appendChild(canvas);
           await pagina.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+          var rectCanvas = canvas.getBoundingClientRect();
+          debugLineas.push('pagina ' + p + ': interno=' + canvas.width + 'x' + canvas.height + ' mostrado=' + Math.round(rectCanvas.width) + 'x' + Math.round(rectCanvas.height));
         }
         activarZoom(wrap);
+        pintarDebug();
       }catch(err){
         body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
+        pintarDebug('ERROR: ' + (err && err.name) + ': ' + (err && err.message) + (err && err.stack ? ('\n' + String(err.stack).slice(0,300)) : ''));
       }
       return;
     }
