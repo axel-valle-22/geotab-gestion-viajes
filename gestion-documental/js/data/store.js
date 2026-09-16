@@ -617,6 +617,19 @@ const GD = (function () {
     return f.id;
   }
 
+  async function eliminarFuncion(id) {
+    _data.funciones = _data.funciones.filter((f) => f.id !== id);
+    // Sacamos la referencia de las entidades que tuvieran esta funcion
+    // asignada, para no dejar ids colgando que despues rompan el calculo
+    // de "documentos requeridos" en la vista de una entidad.
+    _data.entidades.forEach((e) => {
+      if (e.funciones && e.funciones.includes(id)) {
+        e.funciones = e.funciones.filter((fid) => fid !== id);
+      }
+    });
+    await persistir();
+  }
+
   // ── Alertas / Reportes (la ejecución periódica la hace GitHub Actions,
   //    acá solo se guarda la configuración) ────────────────────────────────
   async function listarAlertas() {
@@ -788,6 +801,7 @@ const GD = (function () {
     crearTipoDocumento,
     listarFunciones,
     crearFuncion,
+    eliminarFuncion,
     listarAlertas,
     crearAlerta,
     toggleAlerta,
