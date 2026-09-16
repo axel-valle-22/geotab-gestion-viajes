@@ -1,0 +1,969 @@
+<!-- Gestion Documental - "Mis Documentos" para la app del chofer (MyGeotab Drive)
+
+     Objetivo (pedido por Axel): que CUALQUIER chofer, desde la app Geotab
+     Drive, pueda ver la documentacion de CUALQUIER unidad cargada en el
+     sistema (no solo "sus" papeles) -- por ejemplo para mostrarle a un
+     control caminero la VTV o el seguro del camion que esta manejando ese
+     dia, aunque no sea el vehiculo que tiene asignado siempre.
+
+     Por eso esta pantalla NO reutiliza el cruce de "Choferes" (Config >
+     Choferes) que sirve para otra cosa (que cada chofer vea sus propios
+     papeles personales, tipo carnet/registro). Ese cruce sigue existiendo
+     para el dia que se quiera agregar "Mis Papeles" (documentos de tipo
+     Operador). Esta pantalla es simplemente: buscar una unidad, ver sus
+     documentos. Sin login de chofer, sin edicion -- solo lectura.
+
+     Sigue el mismo patron ya probado en chofer.html (Gestion de Viajes):
+       - Registrado en MyGeotab con "path": "DriveAppLink/" para aparecer
+         como un item de menu real DENTRO de la app Geotab Drive (a
+         diferencia de "path": "GeotabDrive/", que solo lo muestra en
+         MyGeotab web).
+       - Usa GD.init(api) (mismo motor que index.html, en js/data/store.js)
+         para leer los datos ya sincronizados (Firestore + respaldo en
+         AddInData + cache en localStorage). NO llama a
+         GD.sincronizarConGeotab(): ese metodo hace Get/Device y Get/User
+         contra la API de Geotab, y (ver comentario de chofer.html) esas
+         llamadas fallan con "Bad request" cuando se ejecutan adentro de
+         Drive. La sincronizacion con Geotab (altas de vehiculos/choferes)
+         la sigue haciendo el panel del coordinador (index.html) desde
+         MyGeotab web; esta pantalla solo LEE lo que ya esta sincronizado.
+       - Mismo chequeo defensivo (typeof geotab !== 'undefined' &&
+         geotab.addin) que ya usan index.html/chofer.html, para poder abrir
+         este archivo suelto en el navegador (afuera de MyGeotab) sin que
+         explote con un ReferenceError.
+-->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- OJO 9: estas tres etiquetas le piden al que la muestre que NO guarde
+     una copia vieja de esta pagina -- se agregan porque se detecto que la
+     app de Geotab Drive estaba mostrando una version de esta pantalla de
+     varios cambios atras (con el panel amarillo de diagnostico que ya se
+     habia sacado del codigo, y con el boton "Volver a la lista" de un
+     diseño mucho mas viejo), aunque el archivo publicado ya estaba
+     actualizado. No hay garantia de que el WebView de la app las respete
+     (no se puede controlar desde HTML sola una cache mas profunda, por
+     ejemplo la del propio Geotab Drive), pero es la unica traba de este
+     tipo que se puede pedir desde el documento mismo. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Mis Documentos</title>
+<style>
+  /* OJO 8: a proposito NO se carga ninguna tipografia externa (antes se
+     pedia "Poppins" a Google Fonts con una etiqueta de hoja de estilos en
+     el head). Esa fuente
+     se veia bien en Chrome (que siempre tiene salida a internet), pero
+     dentro de la app de Geotab Drive dependia de que el WebView pudiera
+     salir a bajarla desde fonts.googleapis.com/fonts.gstatic.com -- si no
+     podia (o tardaba y no esperaba), la letra quedaba distinta a la de
+     Chrome sin que se note por que. "Gestion de Viajes" (chofer.html) NUNCA
+     pidio una tipografia propia -- por eso se ve siempre igual en Chrome y
+     en la app: en los dos casos usa la fuente nativa del sistema. Esta
+     pantalla ahora sigue el mismo criterio: se deja de pedir Poppins y se
+     usa directamente la pila de fuentes del sistema (mismo criterio que
+     usan la mayoria de las apps nativas), que no depende de ninguna
+     descarga y por lo tanto se ve igual en cualquier lado. */
+  :root{
+    --md-accent:#00A6E0; --md-accent-dark:#0078A1; --md-accent-light:#E3F5FB;
+    --md-bg:#F4F5F8; --md-border:#ECEDF2; --md-text:#20232B; --md-muted:#8A8F9C;
+    --md-radius:14px; --md-radius-lg:18px;
+    --md-shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--md-bg); color:var(--md-text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #md-app{max-width:560px;margin:0 auto;padding:14px 14px 40px}
+  #md-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  #md-header img{height:36px;flex-shrink:0}
+  #md-header h1{font-size:1.05rem;margin:0;font-weight:700}
+  #md-header p{margin:1px 0 0;font-size:.74rem;color:var(--md-muted)}
+
+  #md-search{position:relative;margin-bottom:14px}
+  #md-search input{
+    width:100%;padding:11px 14px;border:1.5px solid var(--md-border);border-radius:var(--md-radius);
+    font-size:.92rem;font-family:inherit;background:#fff;color:var(--md-text);
+  }
+  #md-search input:focus{outline:none;border-color:var(--md-accent);box-shadow:0 0 0 3px rgba(0,166,224,.15)}
+
+  #md-tipos{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .md-chip{
+    border:1.5px solid var(--md-border);background:#fff;color:var(--md-muted);
+    padding:6px 13px;border-radius:999px;font-size:.76rem;font-weight:600;cursor:pointer;
+    font-family:inherit;
+  }
+  .md-chip.md-chip-on{background:var(--md-accent);border-color:var(--md-accent);color:#fff}
+
+  .md-hint{font-size:.82rem;color:var(--md-muted);text-align:center;padding:36px 12px;line-height:1.5}
+  .md-error{color:#dc2626;font-weight:600}
+
+  .md-list{display:flex;flex-direction:column;gap:10px}
+  .md-unidad-card{
+    background:#fff;border:1px solid var(--md-border);border-radius:var(--md-radius-lg);
+    padding:14px 16px;box-shadow:var(--md-shadow);cursor:pointer;display:flex;
+    align-items:center;justify-content:space-between;gap:10px;
+  }
+  .md-unidad-card:active{transform:scale(.99)}
+  .md-unidad-nombre{font-weight:700;font-size:.94rem}
+  .md-unidad-tipo{font-size:.74rem;color:var(--md-muted);margin-top:2px}
+  .md-unidad-resumen{display:flex;gap:5px;flex-shrink:0}
+  .md-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .md-dot-vigente{background:#059669}
+  .md-dot-preaviso{background:#d97706}
+  .md-dot-vencido{background:#dc2626}
+  .md-dot-faltante{background:#cbd5e1}
+  .md-chevron{color:#c3c7d1;flex-shrink:0}
+
+  #md-detalle{display:none}
+  #md-volver{
+    background:none;border:none;color:var(--md-accent);font-family:inherit;font-weight:600;
+    font-size:.88rem;padding:8px 0 14px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  }
+  #md-detalle-titulo{font-size:1.1rem;font-weight:700;margin:0 0 2px}
+  #md-detalle-sub{font-size:.78rem;color:var(--md-muted);margin:0 0 16px}
+
+  .md-doc-card{
+    background:#fff;border:1.5px solid var(--md-border);border-radius:var(--md-radius-lg);
+    padding:14px 16px;margin-bottom:10px;box-shadow:var(--md-shadow);
+  }
+  .md-doc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .md-doc-nombre{font-weight:700;font-size:.92rem;line-height:1.3}
+  .md-badge{display:inline-flex;align-items:center;padding:4px 11px;border-radius:999px;font-size:.7rem;font-weight:700;white-space:nowrap}
+  .md-badge-vigente{background:#d1fae5;color:#065f46}
+  .md-badge-preaviso{background:#fef3c7;color:#78350f}
+  .md-badge-vencido{background:#fee2e2;color:#7f1d1d}
+  .md-badge-faltante{background:#f3f4f6;color:#6b7280}
+  .md-doc-fecha{font-size:.78rem;color:var(--md-muted);margin-top:6px}
+  .md-doc-obs{font-size:.78rem;color:#3A3F4B;margin-top:6px;font-style:italic}
+
+  .md-archivos{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+  .md-archivo-link{
+    display:flex;align-items:center;gap:8px;background:var(--md-accent-light);
+    color:var(--md-accent-dark);border:1px solid #BFEBFA;border-radius:var(--md-radius);
+    padding:10px 12px;font-size:.8rem;font-weight:600;text-decoration:none;
+    font-family:inherit;cursor:pointer;width:100%;text-align:left;box-sizing:border-box;
+  }
+  .md-archivo-link span{flex:1;min-width:0;word-break:break-word}
+  .md-archivo-link svg{width:16px;height:16px;flex-shrink:0}
+  .md-archivos-cargando{font-size:.76rem;color:var(--md-muted);margin-top:8px}
+  .md-sin-archivos{font-size:.78rem;color:var(--md-muted);margin-top:8px}
+
+  .md-spinner{
+    width:26px;height:26px;border-radius:50%;border:3px solid var(--md-border);
+    border-top-color:var(--md-accent);margin:0 auto 10px;animation:md-spin 1s linear infinite;
+  }
+  @keyframes md-spin{to{transform:rotate(360deg)}}
+
+  /* Visor de archivos: en vez de "descargar" (falla adentro del WebView de
+     Geotab Drive, ver comentario en abrirArchivo()), el archivo se muestra
+     adentro mismo de la pantalla.
+
+     OJO: esto NO es un overlay con position:fixed. Se probo asi primero y
+     el WebView de Geotab Drive no lo respeta -- todo indica que directamente
+     IGNORA "position:fixed" (lo trata como si fuera "static"), asi que
+     "inset:0" no tiene ningun efecto y el visor terminaba con el tamano de
+     su contenido, colgado despues de toda la lista (bloquear el scroll de
+     fondo tampoco soluciona nada si el problema es este). La solucion que
+     no depende de que el WebView soporte "fixed" es no pedirselo: el visor
+     es un panel FIJO dentro de "#md-detalle" (entre el subtitulo y la lista
+     de documentos), con un alto maximo fijo y su propio scroll interno.
+
+     OJO 2: el visor YA NO SE MUEVE de lugar con JS. Antes (con position:
+     fixed descartado) se reinsertaba con insertAdjacentElement al lado de
+     la tarjeta del documento tocado, y se devolvia a upa del body (la
+     etiqueta raiz del documento) al cerrarse. Eso resulto ser la causa real de que el encabezado se viera
+     roto en el WebView real (cada elemento en su propio renglon): tanto
+     "display:flex" como "float"+"display:inline-block" se probaron ahi y
+     los DOS fallaron identico en el telefono, aunque los dos andan
+     perfecto en Chrome -- todo indica que ese WebView tiene un bug al
+     recalcular el layout de un nodo que fue movido de lugar (reparented)
+     con JS despues de creado. Al dejar el visor siempre en el mismo lugar
+     del DOM (nunca se reinserta) el problema desaparece. */
+  #md-visor{
+    display:none;background:#14161c;border-radius:var(--md-radius-lg);
+    margin:0 0 14px;overflow:hidden;
+    box-shadow:var(--md-shadow);
+  }
+  #md-visor.md-visor-on{display:block}
+  /* OJO 3: el encabezado (titulo + botones) y el grupo de zoom se arman con
+     una tabla HTML, NO con "display:flex" ni "float"+"display:inline-block".
+     Las dos se probaron antes de dejar de mover el visor de lugar (ver OJO
+     2) y las dos se veian mal en el WebView real. Una fila de tabla es la
+     forma mas vieja y basica que hay en HTML para poner cosas en una sola
+     fila, la mas dificil de que un motor la dibuje mal, y sirve ademas como
+     doble resguardo junto con dejar de reparentar el visor.
+
+     OJO 4: la tabla del encabezado usa "table-layout:fixed" a proposito,
+     con un ancho FIJO (en px) para la celda de los botones. Sin esto, una
+     tabla normal agranda cada columna segun el contenido que tenga adentro
+     -- y como el titulo puede ser un nombre de archivo largo (viene de
+     "white-space:nowrap", necesario para el "..." final), la tabla entera
+     terminaba mas ancha que la pantalla y los botones de la derecha
+     (Cerrar, sobre todo) quedaban cortados por el "overflow:hidden" del
+     encabezado. Con table-layout:fixed la columna del titulo se achica
+     SIEMPRE al espacio que sobra (ahi si funciona el "..."), y la columna
+     de los botones nunca se mueve ni se corta. El ancho fijo (300px) sale
+     de medir en el navegador cuanto ocupan los botones + el grupo de zoom
+     ya armados (~292px) mas un margen chico. */
+  #md-visor-header{
+    padding:10px 14px;background:#20232B;overflow:hidden;
+  }
+  #md-visor-header-tabla{width:100%;table-layout:fixed;border-collapse:collapse}
+  #md-visor-header-tabla>tbody>tr>td{padding:0;vertical-align:middle}
+  #md-visor-titulo{
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:#fff;font-size:.86rem;font-weight:600;width:100%;
+  }
+  #md-visor-acciones-celda{width:300px;white-space:nowrap;text-align:right}
+  #md-visor-acciones{display:inline-table;margin-left:8px;border-collapse:collapse;vertical-align:middle}
+  #md-visor-acciones td{padding:0;vertical-align:middle}
+  .md-visor-btn{
+    background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;
+    padding:8px 12px;font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer;
+    margin-left:8px;
+  }
+  .md-visor-btn:active{background:rgba(255,255,255,.22)}
+  .md-visor-btn[hidden]{display:none}
+  /* Los botones de zoom se agrandan aparte (34x34 minimo, +grande que el
+     resto) porque son los que el chofer tiene que poder tocar bien: el
+     pellizcar con dos dedos y el doble toque no anduvieron en la app
+     Geotab Drive (parece que esa app le gana el gesto a la pagina antes de
+     que le llegue, algo esperable en una app pensada para no distraer al
+     chofer mientras maneja), asi que estos botones son la unica forma
+     confiable de hacer zoom ahi. */
+  #md-visor-zoom-grupo{
+    background:rgba(255,255,255,.08);border-radius:10px;
+    border-collapse:separate;border-spacing:2px;margin-right:8px;
+  }
+  #md-visor-zoom-grupo[hidden]{display:none}
+  #md-visor-zoom-grupo td{padding:0;vertical-align:middle}
+  .md-visor-zoom-btn{
+    background:rgba(255,255,255,.14);border:none;color:#fff;border-radius:8px;
+    width:34px;height:34px;font-family:inherit;font-size:1.15rem;font-weight:700;line-height:1;
+    cursor:pointer;
+  }
+  .md-visor-zoom-btn:active{background:rgba(255,255,255,.28)}
+  #md-visor-zoom-pct{
+    display:block;color:#fff;font-size:.72rem;font-weight:600;min-width:34px;text-align:center;
+  }
+  /* max-height (en vez de flex:1 en un contenedor de alto automatico) es lo
+     que le da al visor un tamano predecible y su propio scroll interno,
+     sin necesitar que el padre tenga una altura fija -- eso es justamente
+     lo que fallaba con el overlay de pantalla completa. */
+  #md-visor-body{max-height:70vh;overflow:auto;padding:14px;text-align:center}
+  #md-visor-body .md-hint{color:#cbd0da}
+
+  /* Todo el contenido que se puede agrandar (una imagen, o las paginas de un
+     PDF) va adentro de este contenedor -- el zoom cambia el ANCHO de ESTE
+     div (no el de la imagen/canvas suelto), y como cada imagen/canvas de
+     adentro esta al 100% de este contenedor, todos crecen juntos y en la
+     misma proporcion. Antes el zoom solo funcionaba con fotos (imagenes) y
+     no con los documentos en PDF (VTV, Titulo, etc.), porque cada pagina de
+     PDF se dibujaba en su propio canvas con un ancho fijo en pixeles --
+     ahora esos canvas tambien usan ancho en % de este contenedor, asi que
+     el zoom les llega igual que a una foto. */
+  #md-visor-zoom-wrap{width:100%;touch-action:none;transition:width .08s linear}
+  #md-visor-zoom-wrap img{width:100%;height:auto;display:block;border-radius:8px}
+  #md-visor-zoom-wrap canvas{width:100%;height:auto;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.4);background:#fff;margin-bottom:10px}
+  #md-visor-zoom-wrap canvas:last-child{margin-bottom:0}
+</style>
+</head>
+<body>
+<div id="md-app">
+
+  <div id="md-header">
+    <img src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transportes Dolores Parra">
+    <div>
+      <h1>Mis Documentos</h1>
+      <p>DoloresParra S.A. &middot; Documentacion por unidad</p>
+    </div>
+  </div>
+
+  <!-- ---------------- Vista lista de unidades ---------------- -->
+  <div id="md-lista-vista">
+    <div id="md-search">
+      <input type="text" id="md-input-buscar" placeholder="Buscar por patente o nombre..." autocomplete="off">
+    </div>
+    <div id="md-tipos">
+      <button type="button" class="md-chip md-chip-on" data-tipo="">Todas</button>
+      <button type="button" class="md-chip" data-tipo="Vehiculo">Vehiculos</button>
+      <button type="button" class="md-chip" data-tipo="AnexoVehicular">Acoplados</button>
+    </div>
+    <div id="md-lista"><div class="md-hint"><div class="md-spinner"></div>Cargando unidades...</div></div>
+  </div>
+
+  <!-- ---------------- Vista detalle de una unidad ---------------- -->
+  <div id="md-detalle">
+    <button type="button" id="md-volver">&larr; Volver a la lista</button>
+    <h2 id="md-detalle-titulo"></h2>
+    <p id="md-detalle-sub"></p>
+
+    <!-- Visor de archivos (imagen o PDF), en vez de intentar "descargar".
+         Vive siempre ACA, fijo -- ya NO se mueve de lugar con JS (ver el
+         comentario grande arriba de "#md-visor" en el bloque de estilos,
+         seccion "OJO 2": moverlo con insertAdjacentElement era lo que
+         rompia el layout del encabezado en el WebView real de Geotab
+         Drive). El encabezado (titulo + botones) usa una tabla HTML en vez
+         de flex/float por la razon explicada en "OJO 3" del mismo bloque
+         de estilos. -->
+    <!-- OJO 5: de aca para abajo, ademas de las reglas del bloque de estilos
+         (arriba, en la cabecera del documento), los colores/fondos claves del visor TAMBIEN
+         se ponen como estilo en linea (style="...") en cada etiqueta. Es
+         redundante a proposito: ya vimos varias veces en este WebView que
+         una regla CSS "de afuera" (en el bloque de estilos, por selector) a veces no
+         se aplica a algunos elementos, mientras que un estilo puesto
+         directo en la etiqueta (mas dificil de que el WebView lo ignore)
+         si funciona. Si en algun momento se confirma que el bloque de
+         estilos anda bien en todos los casos, estos estilos en linea se
+         pueden sacar. -->
+    <div id="md-visor" style="background:#14161c;border-radius:18px;overflow:hidden">
+      <div id="md-visor-header" style="padding:10px 14px;background:#20232B">
+        <table id="md-visor-header-tabla" role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:fixed;border-collapse:collapse"><tbody><tr>
+          <td id="md-visor-titulo" style="color:#fff;font-size:.86rem;font-weight:600"></td>
+          <td id="md-visor-acciones-celda" style="width:300px;white-space:nowrap;text-align:right">
+            <table id="md-visor-acciones" role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-table;margin-left:8px"><tbody><tr>
+              <td>
+                <table id="md-visor-zoom-grupo" role="presentation" cellspacing="0" cellpadding="0" border="0" hidden style="background:rgba(255,255,255,.08);border-radius:10px"><tbody><tr>
+                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-menos" aria-label="Alejar" style="background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:8px;width:34px;height:34px;font-size:1.15rem;font-weight:700">&minus;</button></td>
+                  <td><span id="md-visor-zoom-pct" style="color:#fff;font-size:.72rem;font-weight:600">100%</span></td>
+                  <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar" style="background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:8px;width:34px;height:34px;font-size:1.15rem;font-weight:700">&plus;</button></td>
+                </tr></tbody></table>
+              </td>
+              <td><button type="button" class="md-visor-btn" id="md-visor-descargar" style="background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:.8rem;font-weight:600;margin-left:8px">Descargar</button></td>
+              <td><button type="button" class="md-visor-btn" id="md-visor-cerrar" style="background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:.8rem;font-weight:600;margin-left:8px">Cerrar</button></td>
+            </tr></tbody></table>
+          </td>
+        </tr></tbody></table>
+      </div>
+      <div id="md-visor-body" style="max-height:70vh;overflow:auto;padding:14px;text-align:center"></div>
+    </div>
+
+    <div id="md-detalle-docs"></div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(typeof pdfjsLib !== 'undefined'){ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; }</script>
+<script src="js/firebase-config.js"></script>
+<script src="js/data/store.js"></script>
+<script>
+(function(){
+  'use strict';
+
+  var ICON_FILE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  var ESTADO_LABEL = { vigente:'Vigente', preaviso:'Preaviso', vencido:'Vencido', faltante:'Faltante' };
+
+  var gApi = null;
+  var gTipoFiltro = '';
+  var gTextoFiltro = '';
+  var gBuscarTimer = null;
+
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  // OJO 7: el titulo del visor (el nombre del archivo) NO se recorta con
+  // "text-overflow:ellipsis" de CSS -- se probo (celda de tabla con
+  // "overflow:hidden;text-overflow:ellipsis;white-space:nowrap") y en el
+  // WebView de Geotab Drive el recorte no se pinta: el nombre largo se
+  // sigue mostrando completo, superpuesto arriba de los botones de zoom /
+  // Descargar / Cerrar, en vez de cortarse con "...". Es la misma familia
+  // de bug que el canvas del PDF (ver mas arriba): el WebView calcula bien
+  // la CAJA del elemento, pero no respeta ese limite al PINTAR contenido
+  // que se pasa de ancho. La solucion es la misma idea: no depender de que
+  // el WebView recorte nada, y en cambio entregarle ya armado un texto
+  // corto que entra seguro, midiendolo antes con un canvas (que si devuelve
+  // medidas correctas, aunque no pinte bien texto largo en una celda).
+  function acortarTexto(texto, anchoMaximoPx){
+    texto = String(texto || '');
+    if(anchoMaximoPx <= 0) return '';
+    var canvas = acortarTexto._canvas || (acortarTexto._canvas = document.createElement('canvas'));
+    var ctx = canvas.getContext('2d');
+    ctx.font = "600 13.76px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    if(ctx.measureText(texto).width <= anchoMaximoPx) return texto;
+    var lo = 0, hi = texto.length, mejor = '';
+    while(lo <= hi){
+      var mid = (lo + hi) >> 1;
+      var candidato = texto.slice(0, mid) + '…';
+      if(ctx.measureText(candidato).width <= anchoMaximoPx){
+        mejor = candidato;
+        lo = mid + 1;
+      }else{
+        hi = mid - 1;
+      }
+    }
+    return mejor || '…';
+  }
+
+  function fmtFecha(ts){
+    return ts ? new Date(ts).toLocaleDateString('es-AR') : '-';
+  }
+
+  function fmtBytes(n){
+    if(!n) return '';
+    if(n < 1024) return n + ' B';
+    if(n < 1024*1024) return Math.round(n/1024) + ' KB';
+    return (n/1024/1024).toFixed(1) + ' MB';
+  }
+
+  // ---------------- Visor de archivos ----------------
+  //
+  // Adentro de la app Geotab Drive (Android), un link "a" con href="data:..."
+  // (base64 largo) y atributo download tira "Download failed": el WebView embebido de Drive
+  // no tiene enganchado un manejador de descargas nativo (DownloadManager)
+  // para data URIs, a diferencia de un navegador normal. La solucion no es
+  // "arreglar la descarga" -- es no depender de ella: el archivo se muestra
+  // directamente adentro de esta misma pantalla (imagen o PDF renderizado
+  // con pdf.js), que es ademas lo que un chofer necesita en la practica
+  // (mostrarselo a un control caminero), y se deja "Descargar" como boton
+  // aparte para cuando si funciona (navegador normal, MyGeotab web, etc.).
+
+  var gArchivoActual = null; // { nombre, tipo, dataUrl }
+
+  function dataUrlABlob(dataUrl){
+    var partes = dataUrl.split(',');
+    var meta = partes[0] || '';
+    var b64 = partes[1] || '';
+    var mimeMatch = meta.match(/data:([^;]+)/);
+    var mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    var binario = atob(b64);
+    var bytes = new Uint8Array(binario.length);
+    for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
+    return new Blob([bytes], { type: mime });
+  }
+
+  function cerrarVisor(){
+    var visor = document.getElementById('md-visor');
+    visor.classList.remove('md-visor-on');
+    document.getElementById('md-visor-body').innerHTML = '';
+    gArchivoActual = null;
+    resetZoom();
+    // El visor ya NO se mueve de lugar con JS (ver "OJO 2" en el bloque de
+    // estilos): vive siempre fijo dentro de "#md-detalle", antes de "#md-detalle-docs",
+    // asi que "cont.innerHTML = ..." en abrirDetalle() nunca lo toca.
+  }
+
+  // ---------------- Zoom de imagen (pellizcar, doble toque o botones) ----------------
+  //
+  // Un zoom con "transform:scale()" no sirve aca: al ser puramente visual
+  // (no cambia el tamaño de layout), el contenedor con overflow:auto no se
+  // entera de que hay mas para scrollear y el zoom queda "pegado" sin poder
+  // recorrer la imagen agrandada. Por eso se hace cambiando el ancho real
+  // de la imagen (width en %) -- el navegador arma solo el scroll para
+  // recorrerla con el dedo, sin JS extra para el paneo. Esto funciona bien
+  // para una FOTO (una etiqueta de imagen comun), pero NO alcanza para un
+  // PDF (ver "OJO 6" mas abajo, en gPdfMaster).
+  var gZoomWrap = null; // el "#md-visor-zoom-wrap" activo (null = nada zoomeable ahora)
+  var gZoomPct = 100;
+  var ZOOM_MIN = 100, ZOOM_MAX = 400, ZOOM_PASO = 60;
+
+  // OJO 6: el panel de diagnostico que se agrego en la version anterior
+  // (quedo temporalmente en la pantalla) mostro el problema real con los
+  // PDF en el celular del chofer: el canvas de cada pagina quedaba con el
+  // tamaño CORRECTO (por ejemplo 380 de ancho, igual que el resto de la
+  // pantalla), pero el CONTENIDO dibujado adentro se veia enorme, como si
+  // el tamaño del canvas no se hubiera respetado -- solo se veia la
+  // esquina superior izquierda de la pagina, gigante. Osea: el WebView de
+  // Geotab Drive arma bien el tamaño del canvas para el LAYOUT (por eso
+  // "mostrado" media lo que tenia que medir), pero al pintar el dibujo
+  // adentro de ese canvas, ese WebView parece IGNORAR ese tamaño y pintar
+  // el contenido a su resolucion interna real (mucho mas grande, pensada
+  // para verse nitida al hacer zoom), sin achicarlo -- la misma familia de
+  // bugs que ya encontramos antes (cosas que deberian ajustarse solas al
+  // tamaño de su caja, y en este WebView en particular no lo hacen).
+  //
+  // Por eso cambiar el ancho del canvas con CSS/porcentaje (que es como
+  // funciona el zoom de una foto) no sirve para un PDF aca: cambiar el
+  // tamaño de la CAJA no cambia lo que ya esta pintado adentro. La
+  // solucion: cada pagina de PDF se renderiza UNA sola vez, grande (al
+  // tamaño del zoom maximo, 400%), en un canvas que NUNCA se muestra
+  // ("master", solo vive en memoria); y lo que el chofer ve es otro canvas
+  // mas chico, donde se copia ese master ACHICADO con drawImage -- una
+  // operacion del propio canvas (pintar una imagen redimensionada adentro
+  // de otro canvas) que no depende de que el WebView respete tamaños por
+  // CSS, porque es el mismo canvas quien hace el achique al pintar.
+  var gPdfMaster = []; // [{ master, visible, anchoDisponible }] de la pagina actual (vacio si no hay PDF abierto)
+
+  function actualizarBotonesZoom(){
+    var grupo = document.getElementById('md-visor-zoom-grupo');
+    if(!grupo) return;
+    grupo.hidden = !gZoomWrap;
+    var pct = document.getElementById('md-visor-zoom-pct');
+    if(pct) pct.textContent = Math.round(gZoomPct) + '%';
+  }
+
+  // Redibuja cada pagina de PDF (a partir de su "master" en memoria) al
+  // tamaño que corresponde a "pct" de zoom -- ver "OJO 6" arriba.
+  function dibujarPaginasPdf(pct){
+    gPdfMaster.forEach(function(item){
+      var w = Math.max(1, Math.round(item.anchoDisponible * pct / 100));
+      var h = Math.max(1, Math.round(w * item.master.height / item.master.width));
+      if(item.visible.width !== w) item.visible.width = w;
+      if(item.visible.height !== h) item.visible.height = h;
+      item.visible.style.width = w + 'px';
+      item.visible.style.height = h + 'px';
+      var ctx = item.visible.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(item.master, 0, 0, item.master.width, item.master.height, 0, 0, w, h);
+    });
+  }
+
+  function aplicarZoom(pct){
+    if(!gZoomWrap) return;
+    pct = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pct));
+    gZoomPct = pct;
+    gZoomWrap.style.width = pct + '%'; // sigue sirviendo para el zoom de fotos
+    if(gPdfMaster.length) dibujarPaginasPdf(pct);
+    document.getElementById('md-visor-body').classList.toggle('md-zoom-activo', pct > 100);
+    actualizarBotonesZoom(); // refresca el "100%"/etc, ademas de mostrar/ocultar el grupo
+  }
+
+  function resetZoom(){
+    gZoomWrap = null;
+    gZoomPct = 100;
+    gPdfMaster = [];
+    document.getElementById('md-visor-body').classList.remove('md-zoom-activo');
+    actualizarBotonesZoom();
+  }
+
+  function distanciaEntreToques(touches){
+    var dx = touches[0].clientX - touches[1].clientX;
+    var dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // "wrap" es "#md-visor-zoom-wrap": el contenedor que envuelve la imagen (o
+  // todas las paginas del PDF) de este archivo. Antes esta funcion se
+  // enganchaba directo sobre el img, por eso al abrir un PDF (como la VTV)
+  // los botones de zoom no aparecian: las paginas de un PDF se dibujan en
+  // canvas, no en img, y nunca pasaban por aca. Ahora se engancha sobre
+  // el contenedor comun, asi sirve igual para una foto que para un PDF.
+  function activarZoom(wrap){
+    gZoomWrap = wrap;
+    gZoomPct = 100;
+    actualizarBotonesZoom();
+
+    // El paneo (recorrer el contenido agrandado con el dedo) se hace a mano
+    // moviendo scrollLeft/scrollTop del contenedor, en vez de dejarselo al
+    // scroll nativo del navegador: como el gesto de pellizcar (2 dedos)
+    // necesita "e.preventDefault()" en touchmove para no disparar el zoom
+    // nativo de la pagina a la vez, el arrastre de 1 dedo tambien queda
+    // interceptado -- si no se reimplementa el paneo a mano, el contenido
+    // agrandado queda sin forma de recorrerlo.
+    var cont = document.getElementById('md-visor-body');
+    var pinch = null; // { dist, pct } al empezar a pellizcar con 2 dedos
+    var pan = null;   // { x, y, movido } al arrastrar con 1 dedo
+    var ultimoToqueTs = 0;
+
+    wrap.addEventListener('touchstart', function(e){
+      if(e.touches.length === 2){
+        pinch = { dist: distanciaEntreToques(e.touches), pct: gZoomPct };
+        pan = null;
+      }else if(e.touches.length === 1){
+        pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, movido: false };
+      }
+      e.preventDefault();
+    }, { passive:false });
+
+    wrap.addEventListener('touchmove', function(e){
+      if(pinch && e.touches.length === 2){
+        aplicarZoom(pinch.pct * (distanciaEntreToques(e.touches) / pinch.dist));
+      }else if(pan && e.touches.length === 1){
+        var t = e.touches[0];
+        var dx = t.clientX - pan.x, dy = t.clientY - pan.y;
+        if(Math.abs(dx) > 4 || Math.abs(dy) > 4) pan.movido = true;
+        cont.scrollLeft -= dx;
+        cont.scrollTop -= dy;
+        pan.x = t.clientX; pan.y = t.clientY;
+      }
+      e.preventDefault();
+    }, { passive:false });
+
+    wrap.addEventListener('touchend', function(e){
+      if(e.touches.length < 2) pinch = null;
+      if(e.touches.length === 0){
+        if(pan && !pan.movido){
+          var ahora = Date.now();
+          if(ahora - ultimoToqueTs < 300){ aplicarZoom(gZoomPct > 100 ? 100 : 220); }
+          ultimoToqueTs = ahora;
+        }
+        pan = null;
+      }
+    });
+
+    // Doble click para cuando se abre esta pantalla desde una computadora.
+    wrap.addEventListener('dblclick', function(){ aplicarZoom(gZoomPct > 100 ? 100 : 220); });
+  }
+
+  async function descargarArchivoActual(){
+    if(!gArchivoActual) return;
+    var nombre = gArchivoActual.nombre || 'documento';
+    var blob;
+    try{
+      blob = dataUrlABlob(gArchivoActual.dataUrl);
+    }catch(err){
+      alert('No se pudo preparar el archivo para descargar.');
+      return;
+    }
+
+    // El boton "Descargar" con un link "a" con atributo download (aunque sea con un Blob en vez
+    // de la data URI cruda) tampoco funciona adentro del WebView de Geotab
+    // Drive: ese WebView no tiene enganchado un DownloadManager para poder
+    // guardar el archivo. Lo que SI suelen resolver estos WebViews (porque
+    // lo maneja el motor del navegador, no la app anfitriona) es la bandeja
+    // nativa "Compartir" de Android (Web Share API con archivos): desde ahi
+    // el chofer puede elegir "Guardar en Archivos", mandarlo por WhatsApp,
+    // por mail, etc. Por eso se intenta primero esto, y solo si no esta
+    // disponible (por ejemplo en una computadora) se cae a la descarga
+    // clasica.
+    var archivo = null;
+    try{ archivo = new File([blob], nombre, { type: blob.type || gArchivoActual.tipo || 'application/octet-stream' }); }catch(e){ archivo = null; }
+
+    if(archivo && navigator.canShare && navigator.canShare({ files: [archivo] })){
+      try{
+        await navigator.share({ files: [archivo], title: nombre });
+        return;
+      }catch(err){
+        if(err && err.name === 'AbortError') return; // el chofer cerro el cartel de compartir, no es un error
+        // si compartir falla por otro motivo, probamos con la descarga clasica de abajo
+      }
+    }
+
+    try{
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = nombre;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+    }catch(err){
+      alert('No se pudo descargar ni compartir el archivo en este dispositivo. Podés verlo directamente desde esta pantalla, o abrir esta pagina desde una computadora para descargarlo.');
+    }
+  }
+
+  async function abrirArchivo(a, origenBtn){
+    gArchivoActual = a;
+    var visor = document.getElementById('md-visor');
+    var body = document.getElementById('md-visor-body');
+    resetZoom();
+    body.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando...</div>';
+    body.scrollTop = 0;
+
+    // El visor vive en un lugar FIJO del DOM (dentro de "#md-detalle", antes
+    // de la lista de documentos) en vez de mostrarse como un overlay a
+    // pantalla completa (position:fixed) o de reinsertarse con JS al lado
+    // de la tarjeta tocada -- ver el comentario grande arriba de "#md-visor"
+    // en el bloque de estilos ("OJO" y "OJO 2"): ni "position:fixed" ni mover el nodo
+    // de lugar con JS se dibujan bien en el WebView de Geotab Drive. Aca
+    // solo se lo muestra y se hace scroll hacia el.
+    visor.classList.add('md-visor-on');
+    // scrollIntoView (en vez de dejar que el chofer lo encuentre solo) por
+    // si el documento tocado no estaba del todo a la vista -- funciona
+    // aunque el visor ya no dependa de "fixed": es scroll normal de la
+    // pagina hacia un elemento, que si funciona bien en este WebView.
+    visor.scrollIntoView({ block:'start', behavior:'smooth' });
+
+    // El titulo se pone DESPUES de mostrar el visor ("md-visor-on"), no
+    // antes: mientras el visor tiene "display:none" (por CSS, cuando todavia
+    // esta oculto) TODOS sus elementos de adentro miden 0 con
+    // getBoundingClientRect(), sin importar el "table-layout:fixed" -- un
+    // elemento sin caja de layout (display:none) no tiene ancho que medir
+    // todavia. Se descubrio este bug en la primera prueba real: el titulo
+    // se mostraba vacio porque "anchoCelda" media 0 y "acortarTexto" devolvia
+    // "" para un ancho maximo de 0 o negativo.
+    var elTitulo = document.getElementById('md-visor-titulo');
+    // El ancho de la celda del titulo ya esta resuelto por "table-layout:fixed"
+    // (ver "OJO 4") -- esa columna se achica al espacio que sobra sin
+    // importar el contenido. Por eso podemos medirla ahora (con el visor ya
+    // visible) y usarla para acortar el nombre "a mano" (ver "OJO 7").
+    var anchoTitulo = Math.max(0, elTitulo.getBoundingClientRect().width - 6);
+    elTitulo.textContent = acortarTexto(a.nombre || 'Documento', anchoTitulo);
+
+    var esImagen = (a.tipo || '').indexOf('image/') === 0;
+    var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
+
+    if(esImagen){
+      body.innerHTML = '<div id="md-visor-zoom-wrap"><img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '"></div>';
+      var imgEl = document.querySelector('#md-visor-zoom-wrap img');
+      imgEl.addEventListener('error', function(){
+        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar la imagen. Probá con el boton Descargar.</p>';
+      });
+      activarZoom(document.getElementById('md-visor-zoom-wrap'));
+      return;
+    }
+
+    if(esPdf){
+      if(typeof pdfjsLib === 'undefined'){
+        body.innerHTML = '<p class="md-hint">No se pudo cargar el visor de PDF. Probá con el boton Descargar, o abrí esta pantalla desde una computadora.</p>';
+        return;
+      }
+      try{
+        var b64 = (a.dataUrl.split(',')[1] || '');
+        var binario = atob(b64);
+        var bytes = new Uint8Array(binario.length);
+        for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
+        var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        body.innerHTML = '<div id="md-visor-zoom-wrap"></div>';
+        var wrap = document.getElementById('md-visor-zoom-wrap');
+        // El ancho de render se calcula segun el ancho real disponible en
+        // la pantalla (el celular del chofer), no un "scale" fijo pensado
+        // para monitor de escritorio -- asi la pagina entra justo en el
+        // ancho de la pantalla apenas se abre, sin tener que hacer zoom. El
+        // "master" de cada pagina (ver mas abajo) ya se renderiza al tamano
+        // del zoom maximo (400%), asi que se ve nitido en todos los niveles
+        // de zoom sin necesitar ademas un multiplicador de devicePixelRatio.
+        var anchoDisponible = Math.max(body.clientWidth - 4, 240);
+        for(var p = 1; p <= pdf.numPages; p++){
+          var pagina = await pdf.getPage(p);
+          var viewportBase = pagina.getViewport({ scale: 1 });
+          var factorBase = anchoDisponible / viewportBase.width;
+          // "master": se renderiza UNA sola vez, al tamano mas grande que se
+          // va a necesitar (zoom maximo, ZOOM_MAX%), y nunca se agrega a la
+          // pantalla -- ver "OJO 6" mas arriba. De ahi en mas, cualquier
+          // cambio de zoom se resuelve con drawImage() (dentro de
+          // dibujarPaginasPdf), sin volver a llamar a pdf.js.
+          var viewportMaster = pagina.getViewport({ scale: factorBase * (ZOOM_MAX / 100) });
+          var master = document.createElement('canvas');
+          master.width = viewportMaster.width;
+          master.height = viewportMaster.height;
+          await pagina.render({ canvasContext: master.getContext('2d'), viewport: viewportMaster }).promise;
+
+          // "visible": el canvas que si se agrega al DOM y que ve el chofer.
+          // Su tamano (ancho/alto, tanto en atributos como en estilo inline)
+          // lo fija dibujarPaginasPdf() de acuerdo al zoom actual -- aca
+          // arranca vacio, se dibuja mas abajo con dibujarPaginasPdf(100).
+          var visible = document.createElement('canvas');
+          visible.style.display = 'block';
+          visible.style.borderRadius = '4px';
+          visible.style.boxShadow = '0 2px 10px rgba(0,0,0,.4)';
+          visible.style.background = '#fff';
+          visible.style.marginBottom = '10px';
+          wrap.appendChild(visible);
+          gPdfMaster.push({ master: master, visible: visible, anchoDisponible: anchoDisponible });
+        }
+        dibujarPaginasPdf(100);
+        activarZoom(wrap);
+      }catch(err){
+        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
+      }
+      return;
+    }
+
+    // Tipo desconocido: no hay forma confiable de "mostrarlo" adentro de la
+    // pantalla, asi que la unica opcion es ofrecer la descarga.
+    body.innerHTML = '<p class="md-hint">Este tipo de archivo no se puede previsualizar aca. Usá el boton Descargar.</p>';
+  }
+
+  // ---------------- Vista lista de unidades ----------------
+
+  async function renderLista(){
+    var box = document.getElementById('md-lista');
+    box.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando unidades...</div>';
+    var items;
+    try{
+      items = await GD.listarEntidades({ texto: gTextoFiltro || null, tipo: gTipoFiltro || null });
+    }catch(err){
+      box.innerHTML = '<p class="md-hint md-error">No se pudo cargar la lista de unidades: ' + escapeHtml(err.message) + '</p>';
+      return;
+    }
+    // "Mis Documentos" es para ver papeles de unidades (vehiculos/acoplados),
+    // no de choferes: si no hay filtro de tipo puesto igual se excluyen los
+    // Operador para no mezclar documentacion personal en esta pantalla.
+    items = items.filter(function(e){ return e.tipo !== 'Operador'; });
+
+    if(!items.length){
+      box.innerHTML = '<p class="md-hint">No se encontraron unidades' + (gTextoFiltro ? ' para "' + escapeHtml(gTextoFiltro) + '"' : '') + '.</p>';
+      return;
+    }
+
+    var docsPorEntidad = {};
+    await Promise.all(items.map(function(e){
+      return GD.listarDocumentosDeEntidad(e.id).then(function(docs){ docsPorEntidad[e.id] = docs; });
+    }));
+
+    box.innerHTML = '<div class="md-list">' + items.map(function(e){
+      var docs = docsPorEntidad[e.id] || [];
+      var estados = { vigente:0, preaviso:0, vencido:0, faltante:0 };
+      docs.forEach(function(d){ if(d.estado && estados[d.estado] != null) estados[d.estado]++; });
+      var puntos = ['vencido','preaviso','faltante','vigente']
+        .filter(function(k){ return estados[k] > 0; })
+        .map(function(k){ return '<span class="md-dot md-dot-' + k + '" title="' + estados[k] + ' ' + ESTADO_LABEL[k] + '"></span>'; })
+        .join('');
+      return '' +
+        '<div class="md-unidad-card" data-id="' + e.id + '">' +
+          '<div>' +
+            '<div class="md-unidad-nombre">' + escapeHtml(e.descripcion || '(sin nombre)') + '</div>' +
+            '<div class="md-unidad-tipo">' + escapeHtml(e.tipo || '') + (docs.length ? ' &middot; ' + docs.length + ' documento(s)' : '') + '</div>' +
+          '</div>' +
+          '<div class="md-unidad-resumen">' + puntos + '</div>' +
+        '</div>';
+    }).join('') + '</div>';
+
+    box.querySelectorAll('.md-unidad-card').forEach(function(card){
+      card.addEventListener('click', function(){ abrirDetalle(card.getAttribute('data-id')); });
+    });
+  }
+
+  // ---------------- Vista detalle ----------------
+
+  async function abrirDetalle(entidadId){
+    cerrarVisor(); // asegura que el visor no quede adentro de #md-detalle-docs antes de reescribirlo
+    document.getElementById('md-lista-vista').style.display = 'none';
+    var detalle = document.getElementById('md-detalle');
+    detalle.style.display = 'block';
+    document.getElementById('md-detalle-titulo').textContent = 'Cargando...';
+    document.getElementById('md-detalle-sub').textContent = '';
+    document.getElementById('md-detalle-docs').innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando documentos...</div>';
+
+    var entidad, documentos;
+    try{
+      entidad = await GD.getEntidad(entidadId);
+      documentos = await GD.listarDocumentosDeEntidad(entidadId);
+    }catch(err){
+      document.getElementById('md-detalle-docs').innerHTML = '<p class="md-hint md-error">No se pudieron cargar los documentos: ' + escapeHtml(err.message) + '</p>';
+      return;
+    }
+    if(!entidad){
+      document.getElementById('md-detalle-titulo').textContent = 'Unidad no encontrada';
+      document.getElementById('md-detalle-docs').innerHTML = '';
+      return;
+    }
+
+    document.getElementById('md-detalle-titulo').textContent = entidad.descripcion || '(sin nombre)';
+    document.getElementById('md-detalle-sub').textContent = entidad.tipo || '';
+
+    var cont = document.getElementById('md-detalle-docs');
+    if(!documentos.length){
+      cont.innerHTML = '<p class="md-hint">Todavia no hay documentos cargados para esta unidad.</p>';
+      return;
+    }
+
+    // Orden: primero lo que necesita atencion (vencido/preaviso/faltante), despues lo vigente.
+    var orden = { vencido:0, preaviso:1, faltante:2, vigente:3 };
+    documentos.sort(function(a,b){
+      return (orden[a.estado] != null ? orden[a.estado] : 9) - (orden[b.estado] != null ? orden[b.estado] : 9);
+    });
+
+    cont.innerHTML = documentos.map(function(d){
+      var estado = d.estado || 'faltante';
+      var vencTxt = d.sinVencimiento ? 'Sin vencimiento' : (d.fechaHasta ? 'Vence: ' + fmtFecha(d.fechaHasta) : 'Sin fecha cargada');
+      return '' +
+        '<div class="md-doc-card" data-doc-id="' + d.id + '">' +
+          '<div class="md-doc-top">' +
+            '<div class="md-doc-nombre">' + escapeHtml(d.tipoDocumentoNombre || d.tipoDocumentoId || 'Documento') + '</div>' +
+            '<span class="md-badge md-badge-' + estado + '">' + (ESTADO_LABEL[estado] || estado) + '</span>' +
+          '</div>' +
+          '<div class="md-doc-fecha">' + vencTxt + '</div>' +
+          (d.observaciones ? '<div class="md-doc-obs">' + escapeHtml(d.observaciones) + '</div>' : '') +
+          '<div class="md-archivos" data-archivos-de="' + d.id + '">' +
+            ((d.archivos && d.archivos.length)
+              ? '<div class="md-archivos-cargando">Cargando archivos...</div>'
+              : '<div class="md-sin-archivos">Sin archivos adjuntos.</div>') +
+          '</div>' +
+        '</div>';
+    }).join('');
+
+    // Los archivos (con su dataUrl para poder verlos/descargarlos) viven
+    // aparte de gd_data/main (ver comentario grande en store.js: es para no
+    // inflar el documento que se sincroniza entero por Firestore), asi que
+    // se piden solo para los documentos que realmente tienen algo adjunto,
+    // y solo al entrar a esta unidad (no en la lista, para no pedir de mas).
+    documentos.filter(function(d){ return d.archivos && d.archivos.length; }).forEach(function(d){
+      GD.listarArchivos(d.id).then(function(archivos){
+        var box = cont.querySelector('[data-archivos-de="' + d.id + '"]');
+        if(!box) return;
+        if(!archivos.length){ box.innerHTML = '<div class="md-sin-archivos">Sin archivos adjuntos.</div>'; return; }
+        box.innerHTML = archivos.map(function(a, idx){
+          return '<button type="button" class="md-archivo-link" data-archivo-idx="' + idx + '">' +
+            ICON_FILE + '<span>' + escapeHtml(a.nombre) + (a.tamanoBytes ? ' (' + fmtBytes(a.tamanoBytes) + ')' : '') + '</span></button>';
+        }).join('');
+        box.querySelectorAll('.md-archivo-link').forEach(function(btn){
+          btn.addEventListener('click', function(){
+            abrirArchivo(archivos[Number(btn.getAttribute('data-archivo-idx'))], btn);
+          });
+        });
+      }).catch(function(err){
+        var box = cont.querySelector('[data-archivos-de="' + d.id + '"]');
+        if(box) box.innerHTML = '<div class="md-sin-archivos md-error">No se pudieron cargar los archivos.</div>';
+      });
+    });
+  }
+
+  function cerrarDetalle(){
+    cerrarVisor(); // por si quedo abierto: lo devuelve a upa antes de irse (ver comentario en cerrarVisor)
+    document.getElementById('md-detalle').style.display = 'none';
+    document.getElementById('md-lista-vista').style.display = 'block';
+  }
+
+  // ---------------- Eventos de filtro ----------------
+
+  function setupEvents(){
+    document.getElementById('md-volver').addEventListener('click', cerrarDetalle);
+    document.getElementById('md-visor-cerrar').addEventListener('click', cerrarVisor);
+    document.getElementById('md-visor-descargar').addEventListener('click', descargarArchivoActual);
+    document.getElementById('md-visor-zoom-mas').addEventListener('click', function(){ aplicarZoom(gZoomPct + ZOOM_PASO); });
+    document.getElementById('md-visor-zoom-menos').addEventListener('click', function(){ aplicarZoom(gZoomPct - ZOOM_PASO); });
+
+    document.getElementById('md-input-buscar').addEventListener('input', function(e){
+      var val = e.target.value;
+      clearTimeout(gBuscarTimer);
+      gBuscarTimer = setTimeout(function(){ gTextoFiltro = val; renderLista(); }, 250);
+    });
+
+    document.querySelectorAll('#md-tipos .md-chip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        document.querySelectorAll('#md-tipos .md-chip').forEach(function(c){ c.classList.remove('md-chip-on'); });
+        chip.classList.add('md-chip-on');
+        gTipoFiltro = chip.getAttribute('data-tipo') || '';
+        renderLista();
+      });
+    });
+  }
+
+  // ---------------- Arranque (ciclo de vida del Add-In) ----------------
+
+  function doInit(api){
+    if(window._mdInitDone === 'real') return; // evita doble inicializacion (Drive a veces reintenta)
+    window._mdInitDone = api ? 'real' : 'null';
+    gApi = api;
+    setupEvents();
+    GD.init(gApi).then(function(){
+      renderLista();
+      GD.onChange(function(){
+        // Si se esta viendo el detalle de una unidad, no la cerramos solos
+        // por un cambio en tiempo real; alcanza con refrescar la lista de
+        // fondo para cuando la persona vuelva atras.
+        if(document.getElementById('md-detalle').style.display !== 'block') renderLista();
+      });
+    });
+  }
+
+  if(typeof geotab !== 'undefined' && geotab.addin){
+    geotab.addin.gestionDocumentalMisDocumentos = function(){
+      return {
+        initialize: function(api, state, callback){ doInit(api); if(typeof callback === 'function') callback(); },
+        focus: function(){},
+        blur: function(){},
+      };
+    };
+  }
+
+  // Permite abrir este archivo suelto en un navegador (fuera de MyGeotab)
+  // para probarlo: sin api, GD.init() sigue funcionando con localStorage.
+  setTimeout(function(){ if(typeof window._mdInitDone === 'undefined') doInit(null); }, 800);
+
+})();
+</script>
+</body>
+</html>
