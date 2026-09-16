@@ -38,9 +38,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mis Documentos</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap">
 <style>
+  /* OJO 8: a proposito NO se carga ninguna tipografia externa (antes se
+     pedia "Poppins" a Google Fonts con una etiqueta de hoja de estilos en
+     el head). Esa fuente
+     se veia bien en Chrome (que siempre tiene salida a internet), pero
+     dentro de la app de Geotab Drive dependia de que el WebView pudiera
+     salir a bajarla desde fonts.googleapis.com/fonts.gstatic.com -- si no
+     podia (o tardaba y no esperaba), la letra quedaba distinta a la de
+     Chrome sin que se note por que. "Gestion de Viajes" (chofer.html) NUNCA
+     pidio una tipografia propia -- por eso se ve siempre igual en Chrome y
+     en la app: en los dos casos usa la fuente nativa del sistema. Esta
+     pantalla ahora sigue el mismo criterio: se deja de pedir Poppins y se
+     usa directamente la pila de fuentes del sistema (mismo criterio que
+     usan la mayoria de las apps nativas), que no depende de ninguna
+     descarga y por lo tanto se ve igual en cualquier lado. */
   :root{
     --md-accent:#00A6E0; --md-accent-dark:#0078A1; --md-accent-light:#E3F5FB;
     --md-bg:#F4F5F8; --md-border:#ECEDF2; --md-text:#20232B; --md-muted:#8A8F9C;
@@ -51,7 +63,7 @@
   html,body{margin:0;height:100%}
   body{
     background:var(--md-bg); color:var(--md-text);
-    font-family:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-tap-highlight-color:transparent;
   }
   #md-app{max-width:560px;margin:0 auto;padding:14px 14px 40px}
