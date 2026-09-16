@@ -1308,7 +1308,7 @@ function updateTrackBadges(v){
     /* El historial de GPS es la fuente mas precisa de ingresos/egresos, pero solo reconstruye
 los sitios que pudo seguir en secuencia: se completa con los horarios ya sellados en el
 viaje para no perder avance ya conseguido. */
-var __merge = gvMergeSitiosRealForward(v.sitiosReal, statuses);
+var __vFreshTB = GV.Storage.getViaje(v.id) || v; /* se relee fresco: mientras esta promesa esperaba la respuesta de historial GPS, el listener en tiempo real de Firebase pudo haber reemplazado por completo los objetos de viajes -- por ejemplo porque el viaje se acaba de cerrar solo al llegar a destino. Si se mezclaba contra el v.sitiosReal viejo, capturado al arrancar el ciclo de render de Seguimiento, el resultado borraba el ingreso a destino recien sellado por otro chequeo al guardarse. Bug real: viaje 258 del 16/9/2026, el viaje se cerro bien pero el ingreso a destino desaparecio del itinerario. */ var __merge = gvMergeSitiosRealForward(__vFreshTB.sitiosReal, statuses);
 if(__merge.changed){
   v.sitiosReal = __merge.merged;
   GV.Storage.updateViaje(v.id, { sitiosReal: __merge.merged });
