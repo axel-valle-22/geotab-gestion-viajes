@@ -10,12 +10,13 @@ window.GD_VIEWS.funciones = async function render(container) {
       ${funciones
         .map(
           (f) => `
-        <div class="gd-func-card">
+        <div class="gd-func-card" data-id="${f.id}">
           <div class="gd-func-nombre">${f.nombre}</div>
           <div class="gd-func-tipo">${f.tipoEntidad}</div>
           <div class="gd-func-docs">${(f.tiposDocumentoIds || [])
             .map((id) => tiposDocumento.find((t) => t.id === id)?.nombre || id)
             .join(", ") || "Sin documentos asignados"}</div>
+          <button type="button" class="gd-link gd-borrar-funcion">Eliminar</button>
         </div>`
         )
         .join("")}
@@ -36,6 +37,16 @@ window.GD_VIEWS.funciones = async function render(container) {
       <span id="gd-form-funcion-msg"></span>
     </form>
   `;
+
+  container.querySelectorAll(".gd-borrar-funcion").forEach((btn) =>
+    btn.addEventListener("click", async (e) => {
+      const id = e.target.closest(".gd-func-card").dataset.id;
+      if (confirm("¿Eliminar esta función? Si alguna entidad la tiene asignada, se le va a sacar.")) {
+        await GD.eliminarFuncion(id);
+        render(container);
+      }
+    })
+  );
 
   document.getElementById("gd-form-funcion").addEventListener("submit", async (ev) => {
     ev.preventDefault();
