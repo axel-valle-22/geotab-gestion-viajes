@@ -609,8 +609,8 @@ var hit = null;
 for(var i = 0; i < hist.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
-var s2 = GV.pickSiteAt({ lat: rec.latitude, lng: rec.longitude }, sitesN, { doneIds: doneIds });
-if(!(s2 && s2.id === 'destino')){ __salio = true; continue; }
+var __fueraDestino = !GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, __sDest, sitesN, 0);
+if(__fueraDestino){ __salio = true; continue; }
 if(__salio){ hit = rec; break; }
 }
 if(!hit) return;
