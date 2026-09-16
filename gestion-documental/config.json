@@ -1,7 +1,7 @@
 {
     "name": "Gestión Documental",
     "supportEmail": "avalle@doloresparra.com.ar",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "items": [
         {
             "url": "https://axel-valle-22.github.io/geotab-gestion-viajes/gestion-documental/index.html",
@@ -12,7 +12,7 @@
             "icon": "https://axel-valle-22.github.io/geotab-gestion-viajes/gestion-documental/images/icon.svg"
         },
         {
-            "url": "https://axel-valle-22.github.io/geotab-gestion-viajes/gestion-documental/misdocumentos.html?v=3",
+            "url": "https://axel-valle-22.github.io/geotab-gestion-viajes/gestion-documental/misdocumentos-v2.html",
             "path": "GeotabDrive/",
             "menuName": {
                 "es": "Mis Documentos"
