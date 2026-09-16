@@ -37,6 +37,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- OJO 9: estas tres etiquetas le piden al que la muestre que NO guarde
+     una copia vieja de esta pagina -- se agregan porque se detecto que la
+     app de Geotab Drive estaba mostrando una version de esta pantalla de
+     varios cambios atras (con el panel amarillo de diagnostico que ya se
+     habia sacado del codigo, y con el boton "Volver a la lista" de un
+     diseño mucho mas viejo), aunque el archivo publicado ya estaba
+     actualizado. No hay garantia de que el WebView de la app las respete
+     (no se puede controlar desde HTML sola una cache mas profunda, por
+     ejemplo la del propio Geotab Drive), pero es la unica traba de este
+     tipo que se puede pedir desde el documento mismo. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Mis Documentos</title>
 <style>
   /* OJO 8: a proposito NO se carga ninguna tipografia externa (antes se
