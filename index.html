@@ -431,7 +431,7 @@ function checkDelays(){
     if(v.estado === 'planificado'){
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
-        if(v.estado !== 'demorado'){ v.estado = 'demorado'; changed = true; GV.Storage.markDirtyViaje(v.id); }
+        if(v.estado !== 'demorado'){ v.estado = 'demorado'; v.demoradoOrigen = true; changed = true; GV.Storage.markDirtyViaje(v.id); }
         var bucket = Math.floor(elapsedMs / DELAY);
         var st = v.demoraSalida || { lastAlertBucket: -1 };
         if(bucket > st.lastAlertBucket){
@@ -660,7 +660,7 @@ function checkDwellAlerts(){
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
         } else { return; }
-      } else if(v.estado === 'demorado'){
+      } else if(v.estado === 'demorado' && v.demoradoOrigen){
         /* Aca NO se exige puedeIniciar(v): la deteccion de que la unidad ya se alejo del origen es
            un hecho fisico (GPS), no depende de si el gerenciamiento fue aprobado -- si se exigiera,
            un viaje demorado sin gerenciamiento aprobado se quedaria trabado en "Demorado" para
@@ -685,7 +685,7 @@ function checkDwellAlerts(){
                     return;
         }
       }
-      var __st = classifyVehicleStatus(v.vehiculoId, r);
+      else if(v.estado === 'demorado'){ /* Demorado por quedarse mas tiempo del programado en un sitio (parada, destino o el propio origen) despues de haber arrancado el viaje -- no por no haber salido a horario (esa causa tiene v.demoradoOrigen=true y la maneja la rama de arriba). Se resuelve mas abajo, cuando la unidad sale del sitio donde esta detenida (dwellState). No conviene reusar la rama de arriba aca: lejos del origen da siempre true una vez que el viaje ya esta en curso lejos de la base, e inventaba un salio-con-demora recalculado contra la hora programada de salida aunque el viaje llevara horas en curso -- bug real: viaje 258 del 16/9/2026, demorado por Parada 3 EQUIPEL, genero una alerta de salida con 1h49min de demora cuando en realidad habia salido del origen con 14 min. */ } var __st = classifyVehicleStatus(v.vehiculoId, r);
       gLiveStatusCache[v.id] = __st;
       if(gPanelView === 'lista'){ renderTrips(); }
       var speed = r.speed || 0;
@@ -768,7 +768,7 @@ function checkDwellAlerts(){
                  en este sitio: mientras siga asi, el viaje figura como demorado (para que el
                  coordinador haga foco). Al salir de este sitio se revierte automaticamente a "en
                  curso" mas abajo. */
-              GV.Storage.updateViaje(v.id, { estado: 'demorado' });
+              GV.Storage.updateViaje(v.id, { estado: 'demorado', demoradoOrigen: false });
               v.estado = 'demorado';
               if(gPanelView === 'lista'){ renderTrips(); }
               renderStats();
