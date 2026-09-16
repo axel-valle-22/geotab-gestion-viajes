@@ -667,40 +667,11 @@
     var esImagen = (a.tipo || '').indexOf('image/') === 0;
     var esPdf = (a.tipo || '') === 'application/pdf' || /\.pdf$/i.test(a.nombre || '');
 
-    // PANEL DE DIAGNOSTICO TEMPORAL -- esto es solo para averiguar, con una
-    // captura de pantalla del celular real, por que el documento no se ve
-    // bien ahi (aunque en Chrome se ve perfecto). Se saca en cuanto se
-    // identifique la causa real. Se muestra como texto en la pantalla (no
-    // en la consola) porque desde el celular no se puede abrir devtools.
-    var debugLineas = [
-      'tipo="' + (a.tipo || '') + '" nombre="' + (a.nombre || '') + '"',
-      'esImagen=' + esImagen + ' esPdf=' + esPdf,
-      'pdfjsLib=' + (typeof pdfjsLib) + ' Worker=' + (typeof Worker),
-      'devicePixelRatio=' + (window.devicePixelRatio || 1),
-      'innerWidth=' + window.innerWidth + ' body.clientWidth=' + body.clientWidth + ' visor.clientWidth=' + visor.clientWidth,
-      'titulo: anchoCelda=' + Math.round(anchoTitulo) + ' texto="' + elTitulo.textContent + '"'
-    ];
-    function pintarDebug(extra){
-      if(extra) debugLineas.push(extra);
-      var pre = document.getElementById('md-visor-debug');
-      if(!pre){
-        pre = document.createElement('pre');
-        pre.id = 'md-visor-debug';
-        pre.style.cssText = 'background:#fff3c4;color:#5a4600;font-size:.68rem;line-height:1.4;text-align:left;white-space:pre-wrap;padding:8px;margin:0 0 10px;border-radius:6px;border:1px solid #e0c34a';
-        body.insertBefore(pre, body.firstChild);
-      }
-      pre.textContent = 'DEBUG TEMPORAL:\n' + debugLineas.join('\n');
-    }
-
     if(esImagen){
       body.innerHTML = '<div id="md-visor-zoom-wrap"><img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '"></div>';
-      pintarDebug();
       var imgEl = document.querySelector('#md-visor-zoom-wrap img');
-      imgEl.addEventListener('load', function(){
-        pintarDebug('img cargada: natural=' + imgEl.naturalWidth + 'x' + imgEl.naturalHeight + ' mostrada=' + Math.round(imgEl.getBoundingClientRect().width) + 'x' + Math.round(imgEl.getBoundingClientRect().height));
-      });
       imgEl.addEventListener('error', function(){
-        pintarDebug('ERROR: la imagen no cargo (src invalido o formato no soportado)');
+        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar la imagen. Probá con el boton Descargar.</p>';
       });
       activarZoom(document.getElementById('md-visor-zoom-wrap'));
       return;
@@ -709,7 +680,6 @@
     if(esPdf){
       if(typeof pdfjsLib === 'undefined'){
         body.innerHTML = '<p class="md-hint">No se pudo cargar el visor de PDF. Probá con el boton Descargar, o abrí esta pantalla desde una computadora.</p>';
-        pintarDebug();
         return;
       }
       try{
@@ -718,22 +688,16 @@
         var bytes = new Uint8Array(binario.length);
         for(var i = 0; i < binario.length; i++){ bytes[i] = binario.charCodeAt(i); }
         var pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-        debugLineas.push('pdf cargado, paginas=' + pdf.numPages);
         body.innerHTML = '<div id="md-visor-zoom-wrap"></div>';
         var wrap = document.getElementById('md-visor-zoom-wrap');
         // El ancho de render se calcula segun el ancho real disponible en
         // la pantalla (el celular del chofer), no un "scale" fijo pensado
         // para monitor de escritorio -- asi la pagina entra justo en el
-        // ancho de la pantalla apenas se abre, sin tener que hacer zoom. Se
-        // usa devicePixelRatio para que se vea nitido SIN pasarse: se probo
-        // duplicar la resolucion de mas (pensando en el zoom con los
-        // botones +/-) y en un PDF de varias paginas el renderizado paso de
-        // ser instantaneo a tardar casi un minuto -- no vale la pena ese
-        // costo, mejor priorizar que el documento aparezca rapido aunque el
-        // zoom a 400% se vea un poco menos nitido.
+        // ancho de la pantalla apenas se abre, sin tener que hacer zoom. El
+        // "master" de cada pagina (ver mas abajo) ya se renderiza al tamano
+        // del zoom maximo (400%), asi que se ve nitido en todos los niveles
+        // de zoom sin necesitar ademas un multiplicador de devicePixelRatio.
         var anchoDisponible = Math.max(body.clientWidth - 4, 240);
-        var dpr = window.devicePixelRatio || 1;
-        debugLineas.push('anchoDisponible=' + anchoDisponible + ' dpr=' + dpr);
         for(var p = 1; p <= pdf.numPages; p++){
           var pagina = await pdf.getPage(p);
           var viewportBase = pagina.getViewport({ scale: 1 });
@@ -761,18 +725,11 @@
           visible.style.marginBottom = '10px';
           wrap.appendChild(visible);
           gPdfMaster.push({ master: master, visible: visible, anchoDisponible: anchoDisponible });
-          debugLineas.push('pagina ' + p + ': master=' + master.width + 'x' + master.height);
         }
         dibujarPaginasPdf(100);
-        gPdfMaster.forEach(function(item, idx){
-          var rectVisible = item.visible.getBoundingClientRect();
-          debugLineas.push('pagina ' + (idx + 1) + ': visible=' + item.visible.width + 'x' + item.visible.height + ' mostrado=' + Math.round(rectVisible.width) + 'x' + Math.round(rectVisible.height));
-        });
         activarZoom(wrap);
-        pintarDebug();
       }catch(err){
         body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
-        pintarDebug('ERROR: ' + (err && err.name) + ': ' + (err && err.message) + (err && err.stack ? ('\n' + String(err.stack).slice(0,300)) : ''));
       }
       return;
     }
