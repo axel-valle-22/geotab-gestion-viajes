@@ -332,6 +332,7 @@ body {
 .gd-func-nombre { font-weight: 700; color: #20232B; }
 .gd-func-tipo { font-size: .78rem; color: #8A8F9C; margin-top: 2px; }
 .gd-func-docs { font-size: .8rem; margin-top: 8px; color: #3A3F4B; line-height: 1.4; }
+.gd-func-card .gd-borrar-funcion { display: block; margin-top: 10px; font-size: .8rem; }
 
 /* ---------------- Formularios simples ---------------- */
 .gd-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
