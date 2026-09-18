@@ -552,6 +552,21 @@ renderStats(); renderAlertas(); renderEventsWidget();
 if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
 }
 
+/* Mismo criterio que arriba (cerrarOAvisarLlegadaDestino) pero para los cierres MANUALES del
+viaje (boton "Marcar finalizado", tanto en la lista de viajes como en el detalle): si el GPS
+nunca llego a detectar la llegada al destino (o el panel no estaba abierto para que corriera el
+chequeo automatico), el ingreso real a ese sitio quedaba vacio para siempre aunque el viaje ya
+figurase Finalizado. Esto completa sitiosReal.destino.ingreso con el horario del cierre manual
+SOLO si todavia no tenia uno cargado (nunca pisa un horario real ya confirmado por GPS). */
+function sitiosRealAlCompletar(v, hitISO){
+var sr = Object.assign({}, v.sitiosReal || {});
+if(v.destino){
+sr.destino = Object.assign({}, sr.destino || {});
+if(!sr.destino.ingreso) sr.destino.ingreso = hitISO;
+}
+return sr;
+}
+
 var gDestinoScan = {};
 function checkDestinoLlegadas(){
 if(!gApi) return;
@@ -1237,7 +1252,8 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
       GV.Storage.updateViaje(id, { estado: 'en_curso', iniciadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); });
     } else if(action === 'completar'){
       if(!confirm('¿Marcar este viaje como finalizado?')) return;
-      GV.Storage.updateViaje(id, { estado: 'completado', completadoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); });
+      var __hitCompletar = new Date().toISOString();
+      GV.Storage.updateViaje(id, { estado: 'completado', completadoEn: __hitCompletar, sitiosReal: sitiosRealAlCompletar(viaje, __hitCompletar) }).then(function(){ renderStats(); renderTrips(); renderTracking(); });
     } else if(action === 'cancelar'){
       if(!confirm('¿Cancelar este viaje?')) return;
       GV.Storage.updateViaje(id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); });
@@ -2288,7 +2304,7 @@ function renderCamEventMarkers(){
 }
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
-document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString(), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, sitiosReal: {}, dwellState: null, autoIniciado: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
+document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = new Date().toISOString(); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, sitiosReal: {}, dwellState: null, autoIniciado: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 var __detJornadaEditarBtn = document.getElementById('gv-det-jornada-editar');
 if(__detJornadaEditarBtn){
   __detJornadaEditarBtn.addEventListener('click', function(){
