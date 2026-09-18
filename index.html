@@ -724,6 +724,21 @@ function checkDwellAlerts(){
       Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) __doneIds.push(k); });
       var atSite = GV.pickSiteAt({lat:r.latitude,lng:r.longitude}, sites, { stickyId: dw ? dw.siteId : null, doneIds: __doneIds });
       if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){
+        var __destSiteLive = sites.filter(function(s){ return s.id === 'destino'; })[0];
+        var __mismoOrigenDestinoLive = v.origen && typeof v.origen.lat === 'number' && __destSiteLive && (GV.distKm(v.origen, __destSiteLive) * 1000) <= GV.effectiveRadiusM(__destSiteLive, sites);
+        if(__mismoOrigenDestinoLive){
+          /* Origen y destino son el mismo predio (viaje de ida y vuelta): una sola lectura de GPS
+             adentro de la geocerca no alcanza para saber si la unidad recien esta arrancando
+             (todavia parada ahi, sin haberse ido nunca) o si realmente se fue y volvio. Eso solo se
+             puede confirmar revisando el historial -- lo hace checkDestinoLlegadas, que ademas exige
+             que lo "afuera" haya durado un minimo (GV.MIN_DWELL_MIN) para no confundir ruido de GPS
+             con una salida real. Antes esta rama cerraba (o frenaba, si quedaban paradas) el viaje
+             con la primera lectura GPS que cayera adentro del circulo, sin importar si la unidad
+             arranco recien y nunca se movio de ahi. Bug real: viajes 258 y 289 del 18/9/2026, alerta
+             de "ingreso a Destino" a los pocos minutos de iniciado el viaje, con el recorrido entero
+             todavia sin hacer. Aca no se hace nada este ciclo: se espera esa confirmacion. */
+          return;
+        }
         cerrarOAvisarLlegadaDestino(v, new Date().toISOString(), atSite.label);
         return;
       }
