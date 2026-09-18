@@ -595,7 +595,20 @@ Object.keys(srN).forEach(function(k){ if(srN[k] && srN[k].egreso) doneIds.push(k
    (el caso tipico de ida y vuelta), los primeros puntos del historial ya caen dentro
    del destino y el viaje se cerraria solo, recien iniciado. Antes de aceptar una
    llegada hay que comprobar que la unidad efectivamente se fue de ahi: o porque ya
-   completo un sitio lejano, o porque aparece al menos un punto fuera del destino. */
+   completo un sitio lejano, o porque aparece un tramo sostenido fuera del destino
+   (no un solo punto: cuando origen y destino son el mismo predio, el limite de la
+   geocerca (300 m por defecto) puede quedar corto respecto del tamaño real del
+   playon/base, y un movimiento normal ahi adentro -- o ruido de GPS en el borde --
+   hace que un punto suelto caiga afuera y el siguiente ya este de nuevo adentro. Un
+   solo punto afuera bastaba antes para marcar la unidad como "salio", y el proximo
+   punto adentro se tomaba como que ya volvio y termino el viaje -- aunque en la
+   practica nunca se haya movido de la base y no se haya completado ni una sola
+   parada. Bug real: viaje 258 del 18/9/2026, alerta de "ingreso a Destino" con las 6
+   paradas del recorrido todavia sin visitar, pocos minutos despues de iniciado. Ahora
+   se exige que lo "afuera" dure al menos GV.MIN_DWELL_MIN minutos seguidos (el mismo
+   umbral que se usa en el resto de la app para no confundir ruido con una permanencia
+   real) antes de confiar en que la unidad efectivamente se fue; mientras tanto, si
+   vuelve a aparecer adentro, se descarta como ruido y se sigue esperando. */
 var __sDest = sitesN.filter(function(s){ return s.id === 'destino'; })[0];
 var __rDest = GV.effectiveRadiusM(__sDest, sitesN);
 var __salio = false;
@@ -606,12 +619,21 @@ var dKm = GV.distKm(s, __sDest);
 if(dKm !== null && dKm * 1000 > __rDest) __salio = true;
 });
 var hit = null;
+var __fueraDesde = null;
+var __minSalidaMs = (GV.MIN_DWELL_MIN || 3) * 60000;
 for(var i = 0; i < hist.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
 var __fueraDestino = !GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, __sDest, sitesN, 0);
-if(__fueraDestino){ __salio = true; continue; }
+if(__fueraDestino){
+if(!__salio){
+if(!__fueraDesde) __fueraDesde = rec.dateTime;
+if(new Date(rec.dateTime).getTime() - new Date(__fueraDesde).getTime() >= __minSalidaMs) __salio = true;
+}
+continue;
+}
 if(__salio){ hit = rec; break; }
+__fueraDesde = null; /* volvio a entrar sin llegar al minimo: fue ruido, no una salida real */
 }
 if(!hit) return;
 var hitISO = new Date(hit.dateTime).toISOString();
