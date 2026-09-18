@@ -109,7 +109,7 @@ estilos del add-in (el mismo que usa common.js). */
 if(document.getElementById('gv-trk-styles')) return;
 var st = document.createElement('style');
 st.id = 'gv-trk-styles';
-st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:118px minmax(140px,1.2fr) 152px minmax(150px,1.6fr) minmax(120px,1fr) 64px minmax(140px,1.6fr) 128px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:110px 1fr minmax(110px,1.4fr) 62px minmax(140px,1.8fr) 92px 58px}.gv-trk-hide-sm{display:none}}";
+st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:118px minmax(140px,1.2fr) 84px 84px 152px minmax(150px,1.6fr) minmax(120px,1fr) 64px minmax(140px,1.6fr) 128px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:110px 1fr 72px minmax(110px,1.4fr) 62px minmax(140px,1.8fr) 92px 58px}.gv-trk-hide-sm{display:none}}";
 /* No se usa #gv-style-container: common.js (GV.injectCSS) omite inyectar el CSS base
        del add-in si ese contenedor ya tiene un <style>, y la vista quedaba sin estilos. */
     (document.head || document.documentElement || document.body).appendChild(st);
@@ -666,6 +666,124 @@ function confirmarSalidaDeOrigen(v, r){
   }
   return (Date.now() - new Date(v.salidaOrigenTentativaDesde).getTime()) >= (GV.MIN_DWELL_MIN || 3) * 60000;
 }
+
+/* ---------------- Jornada del chofer: inicio real, HS Chofer / HS Manejo, alerta 12hs ----------------
+   Resuelve un problema real: Coordinacion a veces carga el viaje en el sistema bastante despues de
+   que el camion ya arranco a moverse -- o directamente lo carga con el viaje ya en curso porque se
+   olvido. Si se tomara "ahora" (el momento de crear el viaje) como inicio de la jornada del
+   chofer, las horas quedarian mal. En cambio, se escanea el historial de ESE dia para encontrar el
+   primer momento en que la unidad realmente empezo a trabajar, usando dos señales:
+     1) se alejo de forma sostenida del sitio de origen (mismo criterio de minutos seguidos que ya
+        usa confirmarSalidaDeOrigen, para no confundir una maniobra en el playon con una salida
+        real);
+     2) el motor quedo encendido de forma sostenida -- para el caso de una unidad que pernocta en
+        el campo y no se mueve hasta mucho despues (por ejemplo, esperando para posicionarse a
+        descargar): ahi el GPS solo no alcanza, porque la unidad nunca "sale" de ningun lado.
+   Se toma la que haya pasado primero. Si ninguna de las dos aparece, se usa
+   GV.HORA_JORNADA_DEFECTO (08:00) como ultimo recurso, pero SIEMPRE marcado como estimado
+   (fuente:'estimado', confirmado:false) -- nunca se muestra como si fuera un horario medido de
+   verdad, para no repetir el mismo problema de fondo que motivo los arreglos de hoy (mostrar como
+   certeza algo que en realidad es un invento). El coordinador puede corregirlo a mano desde el
+   detalle del viaje (fuente pasa a 'manual', confirmado a true). */
+function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr){
+  var estimado = { inicio: GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8).toISOString(), fuente: 'estimado', confirmado: false };
+  if(!gApi || !vehiculoId) return Promise.resolve(estimado);
+  var diaInicio = GV.dateFromDateStr(fechaBaseStr);
+  var ahora = new Date();
+  var esHoy = (GV.dateStr(ahora) === fechaBaseStr);
+  var tope = esHoy ? ahora : GV.dateFromDateStr(fechaBaseStr, 23, 59, 59);
+  if(diaInicio >= tope) return Promise.resolve(estimado);
+  var desdeISO = diaInicio.toISOString(), hastaISO = tope.toISOString();
+  return Promise.all([
+    GV.getHistory(gApi, vehiculoId, desdeISO, hastaISO),
+    GV.getIgnitionHistory(gApi, vehiculoId, desdeISO, hastaISO)
+  ]).then(function(res){
+    var hist = res[0] || [], ign = res[1] || [];
+    var tsMovimiento = null;
+    if(origenSite && typeof origenSite.lat === 'number'){
+      var minSalidaMs = (GV.MIN_DWELL_MIN || 3) * 60000;
+      var fueraDesde = null;
+      for(var i = 0; i < hist.length; i++){
+        var rec = hist[i];
+        if(rec.latitude == null) continue;
+        var afuera = !GV.isWithinSite({ lat: rec.latitude, lng: rec.longitude }, origenSite);
+        if(afuera){
+          if(!fueraDesde) fueraDesde = rec.dateTime;
+          if(new Date(rec.dateTime).getTime() - new Date(fueraDesde).getTime() >= minSalidaMs){ tsMovimiento = fueraDesde; break; }
+        } else { fueraDesde = null; }
+      }
+    }
+    var minMotorMs = (GV.MIN_MOTOR_SOSTENIDO_MIN || 10) * 60000;
+    var tsMotor = null;
+    var encendidoDesde = null;
+    for(var j = 0; j < ign.length; j++){
+      var st = ign[j];
+      var prendido = (st.data === 1 || st.data === true);
+      if(prendido){
+        if(!encendidoDesde) encendidoDesde = st.dateTime;
+      } else if(encendidoDesde){
+        if(new Date(st.dateTime).getTime() - new Date(encendidoDesde).getTime() >= minMotorMs){ tsMotor = encendidoDesde; break; }
+        encendidoDesde = null;
+      }
+    }
+    if(!tsMotor && encendidoDesde && (ahora.getTime() - new Date(encendidoDesde).getTime()) >= minMotorMs){ tsMotor = encendidoDesde; }
+    var candidatos = [];
+    if(tsMovimiento) candidatos.push({ ts: tsMovimiento, fuente: 'movimiento' });
+    if(tsMotor) candidatos.push({ ts: tsMotor, fuente: 'motor' });
+    if(!candidatos.length) return estimado;
+    candidatos.sort(function(a,b){ return new Date(a.ts) - new Date(b.ts); });
+    return { inicio: new Date(candidatos[0].ts).toISOString(), fuente: candidatos[0].fuente, confirmado: true };
+  })['catch'](function(){ return estimado; });
+}
+
+/* Se corre cada vez que pasa el loop principal (cada 60s) y tambien apenas se crea un viaje nuevo.
+   Para cada viaje activo, si todavia no tiene calculada la jornada de HOY, la calcula (backfill
+   automatico); si ya la tiene, controla si ya paso el umbral de 12hs para disparar la alerta una
+   sola vez. jornadas queda guardado por dia (v.jornadas['2026-09-18'] = {...}) para que un viaje
+   que sigue varios dias (pernocte en el campo) tenga un inicio de jornada propio cada dia, en vez
+   de arrastrar siempre el del primer dia. */
+function checkJornadas(){
+  if(!gApi) return;
+  var hoyStr = GV.dateStr(new Date());
+  var activos = GV.Storage.getViajes().filter(function(v){
+    /* Un "planificado" para una fecha futura todavia no arranco: calcular su jornada de HOY no
+       tendria sentido (no aparece en Seguimiento hasta que llegue su dia) y solo gastaria consultas
+       de historial al pedo. Se lo deja pasar recien cuando su fecha programada ya llego. */
+    if(v.estado === 'planificado' && GV.dateStr(v.fechaSalida) > hoyStr) return false;
+    return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId && v.origen;
+  });
+  activos.forEach(function(v){
+    var jornadas = v.jornadas || {};
+    if(!jornadas[hoyStr]){
+      detectarInicioJornada(v.vehiculoId, v.origen, hoyStr).then(function(res){
+        var vv = GV.Storage.getViaje(v.id);
+        if(!vv) return;
+        var jj = Object.assign({}, vv.jornadas || {});
+        if(jj[hoyStr]) return; /* se calculo o se edito a mano mientras esperabamos la respuesta */
+        jj[hoyStr] = { inicio: res.inicio, fuente: res.fuente, confirmado: res.confirmado, alertado12hs: false };
+        GV.Storage.updateViaje(v.id, { jornadas: jj });
+      });
+      return;
+    }
+    var hoy = jornadas[hoyStr];
+    if(!hoy.alertado12hs){
+      var minutosChofer = (Date.now() - new Date(hoy.inicio).getTime()) / 60000;
+      if(minutosChofer >= (GV.HS_CHOFER_ALERTA_MIN || 720)){
+        var jj2 = Object.assign({}, jornadas);
+        jj2[hoyStr] = Object.assign({}, hoy, { alertado12hs: true });
+        GV.Storage.updateViaje(v.id, { jornadas: jj2 });
+        GV.Storage.addAlerta({
+          id: 'al_' + v.id + '_12hs_' + hoyStr,
+          tipo: 'chofer_12hs',
+          viajeId: v.id,
+          creadoEn: new Date().toISOString(),
+          texto: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').'
+        });
+      }
+    }
+  });
+}
+
 function checkDwellAlerts(){
   if(!gApi) return;
   var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId && !v.llegadaDestinoPendienteEn; });
@@ -1101,6 +1219,10 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
       if(msg){ msg.style.display='block'; msg.style.background='#d1fae5'; msg.style.color='#065f46'; msg.textContent='Viaje guardado. El chofer vera la notificacion en su app y debera completar el gerenciamiento antes de iniciar.'; }
       resetForm();
       renderStats(); renderTrips();
+      /* Si el camion ya venia moviendose antes de que se cargara este viaje (Coordinacion lo carga
+         tarde, o directamente con el viaje ya en curso), esto calcula de una el inicio real de la
+         jornada del chofer en vez de esperar hasta 60 segundos al proximo ciclo de checkJornadas(). */
+      checkJornadas();
       setTimeout(function(){ showTab('panel'); }, 1400);
     });
   });
@@ -1362,8 +1484,83 @@ function fetchHistoryForViaje(v, fromOverride, toOverride){
   });
 }
 
+/* Arma el contenido de la celda "HS Chofer" de Seguimiento a partir de v.jornadas[hoyStr] (ver
+   checkJornadas() / detectarInicioJornada() mas arriba). Si el inicio es 'estimado' (no se pudo
+   confirmar por movimiento ni por motor) se muestra en naranja con un asterisco y el tooltip deja
+   bien claro que es un valor por defecto sin confirmar -- nunca se ve igual que un horario medido
+   de verdad, justamente para que Coordinacion sepa cuales revisar. Si ya supero el umbral de
+   alerta (GV.HS_CHOFER_ALERTA_MIN) se muestra en rojo. */
+/* Texto largo (para el detalle del viaje) equivalente a gvHsChoferHtml, pero con la fuente
+   explicada en palabras y sin recortar -- se reusa tanto al abrir el detalle como cada vez que
+   refreshDetalle() lo actualiza en vivo (cada 60s) o despues de guardar una edicion manual. */
+function gvJornadaTextoInfo(v){
+  var hoyStr = GV.dateStr(new Date());
+  var jn = v.jornadas && v.jornadas[hoyStr];
+  if(!jn) return { texto: 'Todavia no se calculo (se calcula solo en el proximo minuto, o recarga la pagina).', esEstimado: false };
+  var horaTxt = GV.fmtDate(jn.inicio).split(' ')[1] || '';
+  var hsTxt = GV.fmtDurMin(Math.max(0, Date.now() - new Date(jn.inicio).getTime()));
+  if(jn.fuente === 'estimado'){
+    return { texto: horaTxt + ' — ESTIMADO, sin confirmar (valor por defecto, no se pudo detectar automaticamente). Lleva ' + hsTxt + ' en servicio. Corregilo aca si sabes el horario real.', esEstimado: true };
+  }
+  var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido de forma sostenida' : (jn.fuente === 'manual' ? 'editado a mano' : 'salida sostenida del origen');
+  return { texto: horaTxt + ' — detectado por ' + fuenteTxt + '. Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
+}
+
+function gvJornadaBlockHtml(v){
+  var info = gvJornadaTextoInfo(v);
+  return '<div id="gv-det-jornada" style="background:' + (info.esEstimado ? '#fffbeb' : '#f9fafb') + ';border:1px solid ' + (info.esEstimado ? '#fcd34d' : '#e5e7eb') + ';border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:.82rem">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' +
+    '<div><b>Jornada del chofer (hoy):</b> <span id="gv-det-jornada-txt">' + GV.escapeHtml(info.texto) + '</span></div>' +
+    '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-jornada-editar">Editar hora de inicio</button>' +
+    '</div>' +
+    '<div id="gv-det-jornada-edit" style="display:none;margin-top:8px">' +
+    '<input type="time" id="gv-det-jornada-hora" style="padding:6px;border:1px solid #d1d5db;border-radius:6px">' +
+    ' <button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-jornada-guardar">Guardar</button>' +
+    ' <button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-jornada-cancelar-edit">Cancelar</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function gvActualizarJornadaTexto(v){
+  var el = document.getElementById('gv-det-jornada-txt');
+  if(!el) return;
+  var info = gvJornadaTextoInfo(v);
+  el.textContent = info.texto;
+  var box = document.getElementById('gv-det-jornada');
+  if(box){ box.style.background = info.esEstimado ? '#fffbeb' : '#f9fafb'; box.style.borderColor = info.esEstimado ? '#fcd34d' : '#e5e7eb'; }
+}
+
+function gvHsChoferHtml(v, hoyStr){
+  var jn = v.jornadas && v.jornadas[hoyStr];
+  if(!jn) return { html: '<span class="gv-trk-hs" style="color:#9ca3af">--</span>', title: 'Todavia no se calculo el inicio de jornada de hoy.' };
+  var ms = Date.now() - new Date(jn.inicio).getTime();
+  var durTxt = GV.fmtDurMin(Math.max(0, ms));
+  var horaTxt = GV.fmtDate(jn.inicio).split(' ')[1] || '';
+  if(jn.fuente === 'estimado'){
+    return {
+      html: '<span class="gv-trk-hs" style="color:#b45309">' + durTxt + ' *</span>',
+      title: 'ESTIMADO, sin confirmar: se supuso inicio de jornada a las ' + horaTxt + ' (valor por defecto) porque no se pudo detectar automaticamente. Editalo en el detalle del viaje si conoces el horario real.'
+    };
+  }
+  var esAlerta = (ms / 60000) >= (GV.HS_CHOFER_ALERTA_MIN || 720);
+  var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : 'movimiento del vehiculo');
+  return {
+    html: '<span class="gv-trk-hs' + (esAlerta ? ' gv-trk-hs-alerta' : '') + '">' + durTxt + (esAlerta ? ' &#9888;' : '') + '</span>',
+    title: 'Inicio de jornada: ' + horaTxt + ' (detectado por ' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
+  };
+}
+
 function updateTrackBadges(v){
   if(!gApi || !v.vehiculoId) return;
+  /* HS Manejo es siempre "lo manejado HOY" (no desde el inicio del viaje completo, que puede venir
+     de varios dias atras si la unidad quedo pernoctando en el campo) -- por eso usa la medianoche
+     de hoy, independiente de dayStart (que abajo sigue usandose para el historial de sitios del
+     viaje). Es una consulta aparte (Trip) y no bloquea el resto de la celda si falla o tarda. */
+  var hoyInicio = new Date(); hoyInicio.setHours(0,0,0,0);
+  GV.getTripsToday(gApi, v.vehiculoId, hoyInicio.toISOString(), new Date().toISOString()).then(function(ms){
+    var __hsmEl = document.getElementById('gv-trk-hsmanejo-' + v.id);
+    if(__hsmEl) __hsmEl.textContent = GV.fmtDurMin(ms);
+  });
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
   fetchHistoryForViaje(v, dayStart, new Date()).then(function(hist){
     var statuses = computeStopStatuses(v, hist);
@@ -1505,6 +1702,8 @@ function renderTracking(){
 '<div class="gv-trk-row gv-trk-head">' +
 '<div class="gv-trk-cell">Unidad</div>' +
 '<div class="gv-trk-cell">Conductor</div>' +
+'<div class="gv-trk-cell" title="Horas que lleva el chofer en servicio, desde el inicio real de la jornada (detectado automaticamente, o editado a mano en el detalle del viaje)">HS Chofer</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm" title="Horas de manejo real de hoy (tramos con la unidad efectivamente circulando)">HS Manejo</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm">Estado</div>' +
 '<div class="gv-trk-cell">Detalle</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm">En vivo</div>' +
@@ -1532,9 +1731,12 @@ var __navInit = null;
 try{ __navInit = gvNavDetalleTexto(v, v.sitiosReal); }catch(navErr){ console.error('gvNavDetalleTexto (renderTracking)', navErr); }
 var __navInitTxt = __navInit ? __navInit.texto : '';
 var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
+var __hsChoferHtml = gvHsChoferHtml(v, hoyStr);
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
 '<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + '</div>' +
 '<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + '</div>' +
+'<div class="gv-trk-cell" id="gv-trk-hschofer-' + v.id + '" title="' + GV.escapeHtml(__hsChoferHtml.title) + '">' + __hsChoferHtml.html + '</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm gv-trk-hs" id="gv-trk-hsmanejo-' + v.id + '">--</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
 '<div class="gv-trk-cell gv-trk-nav' + (__navInit ? (' gv-trk-nav-' + __navInit.kind) : '') + '" id="gv-track-nav-' + v.id + '" title="' + GV.escapeHtml(__navInitTxt) + '">' + GV.escapeHtml(__navInitTxt) + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-unknown" id="gv-track-status-' + v.id + '">Obteniendo estado...</div>' +
@@ -1706,7 +1908,8 @@ overlay.innerHTML =
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
   '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + '</div>' +
-(v.llegadaDestinoPendienteEn ? ('<div style="font-size:.82rem;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad ingreso al destino el ' + GV.fmtDate(v.llegadaDestinoPendienteEn) + ' pero quedan sitios sin completar (' + paradasSinCompletar(v).map(function(p){ return GV.escapeHtml(p.label); }).join(', ') + '). Confirma el cierre con <b>Marcar finalizado</b> si esos sitios no se van a completar, o usa <b>Agregar espera</b> para dejar la unidad esperando aca y retomar el resto del recorrido mas tarde.</div>') : '') +
+((v.vehiculoId && v.origen && (v.estado==='en_curso'||v.estado==='demorado'||v.estado==='planificado')) ? gvJornadaBlockHtml(v) : '') +
+(v.llegadaDestinoPendienteEn ?('<div style="font-size:.82rem;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad ingreso al destino el ' + GV.fmtDate(v.llegadaDestinoPendienteEn) + ' pero quedan sitios sin completar (' + paradasSinCompletar(v).map(function(p){ return GV.escapeHtml(p.label); }).join(', ') + '). Confirma el cierre con <b>Marcar finalizado</b> si esos sitios no se van a completar, o usa <b>Agregar espera</b> para dejar la unidad esperando aca y retomar el resto del recorrido mas tarde.</div>') : '') +
 tramosHtml +
 retrasosHtml +
 ((v.vehiculoId && (v.estado==='en_curso'||v.estado==='demorado')) ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
@@ -2086,6 +2289,46 @@ function renderCamEventMarkers(){
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: new Date().toISOString(), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, sitiosReal: {}, dwellState: null, autoIniciado: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
+var __detJornadaEditarBtn = document.getElementById('gv-det-jornada-editar');
+if(__detJornadaEditarBtn){
+  __detJornadaEditarBtn.addEventListener('click', function(){
+    var editBox = document.getElementById('gv-det-jornada-edit');
+    if(!editBox) return;
+    var mostrar = editBox.style.display === 'none';
+    editBox.style.display = mostrar ? 'block' : 'none';
+    if(mostrar){
+      var horaInput = document.getElementById('gv-det-jornada-hora');
+      var __vFreshJ = GV.Storage.getViaje(v.id) || v;
+      var __hoyStrJ = GV.dateStr(new Date());
+      var __jnActual = __vFreshJ.jornadas && __vFreshJ.jornadas[__hoyStrJ];
+      if(horaInput) horaInput.value = __jnActual ? (GV.fmtDate(__jnActual.inicio).split(' ')[1] || '') : '';
+    }
+  });
+}
+var __detJornadaCancelBtn = document.getElementById('gv-det-jornada-cancelar-edit');
+if(__detJornadaCancelBtn){ __detJornadaCancelBtn.addEventListener('click', function(){ var editBox = document.getElementById('gv-det-jornada-edit'); if(editBox) editBox.style.display = 'none'; }); }
+var __detJornadaGuardarBtn = document.getElementById('gv-det-jornada-guardar');
+if(__detJornadaGuardarBtn){
+  __detJornadaGuardarBtn.addEventListener('click', function(){
+    var horaInput = document.getElementById('gv-det-jornada-hora');
+    if(!horaInput || !horaInput.value){ alert('Elegi una hora.'); return; }
+    var __vFreshG = GV.Storage.getViaje(v.id);
+    if(!__vFreshG) return;
+    var __hoyStrG = GV.dateStr(new Date());
+    var __partsG = horaInput.value.split(':');
+    var __inicioG = GV.dateFromDateStr(__hoyStrG, parseInt(__partsG[0],10), parseInt(__partsG[1],10), 0).toISOString();
+    var __jjPrev = (__vFreshG.jornadas && __vFreshG.jornadas[__hoyStrG]) || {};
+    var __jj = Object.assign({}, __vFreshG.jornadas || {});
+    __jj[__hoyStrG] = { inicio: __inicioG, fuente: 'manual', confirmado: true, alertado12hs: __jjPrev.alertado12hs || false };
+    GV.Storage.updateViaje(v.id, { jornadas: __jj }).then(function(){
+      v = GV.Storage.getViaje(v.id) || v;
+      gvActualizarJornadaTexto(v);
+      var editBox = document.getElementById('gv-det-jornada-edit');
+      if(editBox) editBox.style.display = 'none';
+      renderTracking();
+    });
+  });
+}
 
 function abrirClonarViaje(){
 var ov5 = document.createElement('div');
@@ -3261,6 +3504,7 @@ function refreshDetalle(){
 var __vFresh = GV.Storage.getViaje(v.id);
 if(!__vFresh){ return; }
 v = __vFresh;
+gvActualizarJornadaTexto(v);
 renderItinerario(cachedRoute, cachedFullHist);
 loadHist();
 if(v.estado !== 'en_curso' && v.estado !== 'demorado'){
@@ -3280,7 +3524,7 @@ function doInit(api){
   setupEvents();
 
   GV.Storage.init(api).then(function(){
-    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas();
+    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkJornadas();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
@@ -3297,7 +3541,7 @@ function doInit(api){
   if(api){
     loadMasterData(api);
     setInterval(function(){
-      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas();
+      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkJornadas();
       GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
   } else {
