@@ -641,6 +641,31 @@ cerrarOAvisarLlegadaDestino(vv, hitISO, GV.siteNameFor(vv.destino) || 'Destino')
 });
 });
 }
+/* Confirma que la unidad realmente se alejo del origen, exigiendo que la lectura "afuera" se
+   sostenga al menos GV.MIN_DWELL_MIN minutos seguidos -- en vez de creerle a una sola lectura de
+   GPS -- antes de dar por hecho que salio. Sin esto, en un predio grande (el circulo automatico
+   de deteccion son 300 m por defecto) o con ruido de GPS justo en el borde, una lectura suelta
+   afuera alcanzaba para marcar la unidad como "ya salio" e inventar una salida con demora que en
+   la realidad todavia no paso -- exactamente el mismo problema que ya se resolvio para la llegada
+   a destino, pero del lado de la salida. Si la unidad vuelve a aparecer adentro antes de cumplir
+   el minimo, se descarta como ruido y se empieza a contar de nuevo la proxima vez que salga.
+   Bug real: viaje 289 (VERA LUIS MIGUEL) del 18/9/2026, demorado en origen (rotura de guardabarros,
+   la unidad seguia en la base) marcado igual como "ya salio" 55 minutos antes de que arrancara. */
+function confirmarSalidaDeOrigen(v, r){
+  if(!v.origen) return true;
+  var afuera = !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen);
+  if(!afuera){
+    if(v.salidaOrigenTentativaDesde){ GV.Storage.updateViaje(v.id, { salidaOrigenTentativaDesde: null }); v.salidaOrigenTentativaDesde = null; }
+    return false;
+  }
+  if(!v.salidaOrigenTentativaDesde){
+    var __ahoraTentativa = new Date().toISOString();
+    GV.Storage.updateViaje(v.id, { salidaOrigenTentativaDesde: __ahoraTentativa });
+    v.salidaOrigenTentativaDesde = __ahoraTentativa;
+    return false;
+  }
+  return (Date.now() - new Date(v.salidaOrigenTentativaDesde).getTime()) >= (GV.MIN_DWELL_MIN || 3) * 60000;
+}
 function checkDwellAlerts(){
   if(!gApi) return;
   var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId && !v.llegadaDestinoPendienteEn; });
@@ -664,7 +689,7 @@ function checkDwellAlerts(){
            movia cuando checkDelays lo marcaba "demorado" a los 20 minutos (esa rama si ignora el
            gerenciamiento a proposito). Que la unidad salio es un hecho fisico: se refleja en el
            momento, y el gerenciamiento pendiente sigue avisado en el badge del viaje y en la alerta. */
-        var __awayFromOrigin = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true;
+        var __awayFromOrigin = confirmarSalidaDeOrigen(v, r);
         /* Tampoco se esperan 5 minutos desde la hora programada: apenas el GPS confirma que la unidad
            dejo el origen, el viaje pasa a "en curso" para que el coordinador lo vea en tiempo real. Se
            admite hasta 30 minutos antes de lo programado, para no auto-iniciar viajes cuya unidad
@@ -693,7 +718,7 @@ function checkDwellAlerts(){
            salida queda igual en salioConDemora/demoraSalidaMin (visible en el detalle del viaje) y en
            la alerta ya emitida por checkDelays. Asi en "Demorados" el coordinador solo ve las unidades
            que TODAVIA estan paradas en el origen o en una carga/descarga. */
-        var __awayFromOrigin2 = v.origen ? !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen) : true;
+        var __awayFromOrigin2 = confirmarSalidaDeOrigen(v, r);
         if(__awayFromOrigin2){
           var __demoraMsAuto2 = Date.now() - new Date(v.fechaSalida).getTime();
           var __updatesAuto2 = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true, salioConDemora: true, demoraSalidaMin: Math.round(__demoraMsAuto2/60000) };
