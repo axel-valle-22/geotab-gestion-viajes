@@ -28,6 +28,16 @@ if(isNaN(dt.getTime())) return '';
 return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
 };
 
+/* Inversa de GV.dateStr: arma una fecha LOCAL (no UTC) a partir de un string 'YYYY-MM-DD', con la
+   hora que se le pida (0:00 por defecto). OJO: new Date('YYYY-MM-DD') sin hora lo interpreta el
+   navegador como medianoche UTC, lo que en Argentina (UTC-3) cae en el DIA ANTERIOR a las 21:00 --
+   por eso hace falta esta funcion en vez de parsear el string directo, para todo lo que necesite
+   "medianoche local de tal dia" o "las 8 de la mañana de tal dia". */
+GV.dateFromDateStr = function(str, hour, min, sec){
+  var p = String(str).split('-');
+  return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10), hour||0, min||0, sec||0, 0);
+};
+
 GV.statusLabel = function(s){
   return {planificado:'Planificado',en_curso:'En Curso',completado:'Completado',demorado:'Demorado',cancelado:'Cancelado'}[s] || s;
 };
@@ -85,6 +95,23 @@ GV.SITE_MIN_RADIUS_M = 80;
 GV.SITE_NEAR_WARN_M = 600;
 GV.SITE_EXIT_HYSTERESIS_M = 50;
 GV.MIN_DWELL_MIN = 3;
+
+/* ---------------- Jornada del chofer: constantes ----------------
+   Usadas para calcular, de forma automatica, a que hora arranco REALMENTE la jornada de un
+   chofer -- no la hora en la que Coordinacion cargo el viaje en el sistema, que puede ser bastante
+   despues (o directamente un dia entero despues si se olvidaron). Ver detectarInicioJornada() en
+   index.html. */
+GV.MIN_MOTOR_SOSTENIDO_MIN = 10; /* minutos que el motor tiene que quedar prendido sin apagarse para
+   contarlo como inicio real de jornada, y no como un encendido breve de rutina (calentar la
+   cabina, cargar bateria, etc. mientras la unidad pernocta en el campo). Valor de arranque, sin
+   calibrar todavia contra casos reales de esta flota -- conviene revisarlo despues de ver un par
+   de semanas de datos y ajustarlo si hace falta. */
+GV.HORA_JORNADA_DEFECTO = 8; /* hora (0-23) que se usa como ultimo recurso cuando ni el movimiento
+   sostenido ni el motor sostenido permiten detectar un inicio real (por ejemplo, sin historial
+   disponible todavia para ese dispositivo). Se marca SIEMPRE como estimado/sin confirmar -- nunca
+   se muestra como si fuera un horario medido de verdad. */
+GV.HS_CHOFER_ALERTA_MIN = 12 * 60; /* umbral en minutos para la alerta de "chofer lleva mas de 12
+   horas en servicio". */
 GV.siteBaseRadiusM = function(loc){
   var r = loc ? (typeof loc.radioM === "number" ? loc.radioM : null) : null;
   return (r != null && r > 0) ? r : GV.SITE_GEOFENCE_M;
@@ -1277,6 +1304,49 @@ if(!api || !deviceId){ resolve([]); return; }
 api.call('Get', { typeName: 'LogRecord', search: { deviceSearch: { id: deviceId }, fromDate: fromISO, toDate: toISO } }, function(res){
 resolve((res || []).slice().sort(function(a,b){ return new Date(a.dateTime) - new Date(b.dateTime); }));
 }, function(){ resolve([]); });
+});
+};
+
+/* ---------------- Historial de encendido de motor (StatusData / diagnostico de Ignicion) ----------------
+   Complementa a GV.getHistory para el caso de una unidad que pernocta en el campo (no vuelve a la
+   base) y al otro dia el chofer prende el motor bastante antes de mover el camion -- ahi el GPS
+   solo no alcanza para saber cuando arranco realmente la jornada, hace falta el estado de
+   encendido. DiagnosticIgnitionId es el diagnostico estandar de Geotab para esto, pero no esta
+   confirmado en vivo que este disponible para todos los equipos de esta flota (no se pudo probar
+   contra la API real todavia). Por eso esta funcion nunca rompe nada si falla o si el diagnostico
+   no existe para un equipo: ante cualquier error devuelve un array vacio, y detectarInicioJornada
+   (en index.html) sigue funcionando solo con la señal de movimiento. */
+GV.getIgnitionHistory = function(api, deviceId, fromISO, toISO){
+return new Promise(function(resolve){
+if(!api || !deviceId){ resolve([]); return; }
+try{
+api.call('Get', { typeName: 'StatusData', search: { deviceSearch: { id: deviceId }, diagnosticSearch: { id: 'DiagnosticIgnitionId' }, fromDate: fromISO, toDate: toISO } }, function(res){
+resolve((res || []).slice().sort(function(a,b){ return new Date(a.dateTime) - new Date(b.dateTime); }));
+}, function(){ resolve([]); });
+}catch(e){ resolve([]); }
+});
+};
+
+/* ---------------- Tramos de manejo reales del dia (entidad Trip de Geotab) ----------------
+   Geotab ya separa, por dispositivo, cada tramo de manejo real (Trip: inicio, fin), descontando
+   las paradas -- en vez de reconstruir eso a mano a partir de LogRecord, se suma directamente la
+   duracion de los tramos de hoy. Se usa para la columna "HS Manejo" de Seguimiento. Devuelve la
+   suma en milisegundos; ante cualquier error devuelve 0 (la columna simplemente queda en 0 en vez
+   de romper el resto de la fila). */
+GV.getTripsToday = function(api, deviceId, fromISO, toISO){
+return new Promise(function(resolve){
+if(!api || !deviceId){ resolve(0); return; }
+try{
+api.call('Get', { typeName: 'Trip', search: { deviceSearch: { id: deviceId }, fromDate: fromISO, toDate: toISO } }, function(res){
+var totalMs = 0;
+(res || []).forEach(function(t){
+if(!t.start || !t.stop) return;
+var d = new Date(t.stop).getTime() - new Date(t.start).getTime();
+if(!isNaN(d) && d > 0) totalMs += d;
+});
+resolve(totalMs);
+}, function(){ resolve(0); });
+}catch(e){ resolve(0); }
 });
 };
 
