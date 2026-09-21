@@ -845,6 +845,17 @@ function checkDwellAlerts(){
           var __salioTarde = __demoraMsAuto > 20*60*1000;
           var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true };
           if(__salioTarde){ __updatesAuto.salioConDemora = true; __updatesAuto.demoraSalidaMin = Math.round(__demoraMsAuto/60000); }
+          /* Bug real (21/9, viaje de Chavez Nicolas Emanuel): al auto-iniciar por GPS nunca se dejaba
+             sellado el horario real de salida del ORIGEN (sitiosReal.origen.egreso) -- esa fila quedaba
+             con "Egreso real" en blanco para siempre, aunque la unidad ya hubiera salido: el recalculo
+             por historial del detalle del viaje tampoco puede reconstruirlo despues, porque arranca a
+             mirar el historial recien desde iniciadoEn, cuando la unidad ya esta afuera del origen. Se
+             sella aca con el mismo horario ya usado para confirmar la salida (salidaOrigenTentativaDesde). */
+          if(!(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
+            var __srAuto = Object.assign({}, v.sitiosReal || {});
+            __srAuto.origen = Object.assign({}, __srAuto.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
+            __updatesAuto.sitiosReal = __srAuto;
+          }
           GV.Storage.updateViaje(v.id, __updatesAuto);
           v.estado = 'en_curso';
           if(__salioTarde){ v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto.demoraSalidaMin; }
@@ -868,6 +879,13 @@ function checkDwellAlerts(){
         if(__awayFromOrigin2){
           var __demoraMsAuto2 = Date.now() - new Date(v.fechaSalida).getTime();
           var __updatesAuto2 = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true, salioConDemora: true, demoraSalidaMin: Math.round(__demoraMsAuto2/60000) };
+          /* Mismo resguardo que en la rama de arriba (planificado -> en_curso): sellar sitiosReal.origen.egreso
+             al auto-iniciar por GPS, para que "Egreso real" del origen no quede en blanco para siempre. */
+          if(!(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
+            var __srAuto2 = Object.assign({}, v.sitiosReal || {});
+            __srAuto2.origen = Object.assign({}, __srAuto2.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
+            __updatesAuto2.sitiosReal = __srAuto2;
+          }
           GV.Storage.updateViaje(v.id, __updatesAuto2);
           v.estado = 'en_curso'; v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto2.demoraSalidaMin;
           GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad ya salio de ' + (v.origen ? GV.siteNameFor(v.origen) : 'origen') + ' (' + GV.fmtDurMin(__demoraMsAuto2) + ' de demora sobre lo programado) y deja de figurar como demorada.', fecha: new Date().toISOString(), viajeId: v.id });
