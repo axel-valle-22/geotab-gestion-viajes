@@ -745,6 +745,19 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr){
     var candidatos = [];
     if(tsMovimiento) candidatos.push({ ts: tsMovimiento, fuente: 'movimiento' });
     if(tsMotor) candidatos.push({ ts: tsMotor, fuente: 'motor' });
+    /* Resguardo (bug real del 21/9: viaje de Chavez Nicolas Emanuel marcando 19hs en servicio
+       para un viaje que ni habia arrancado): a veces el historial de encendido/movimiento trae
+       (o esta funcion deriva de el) un timestamp de FUERA del rango [diaInicio, tope] que se
+       pidio -- por ejemplo un registro de encendido de la unidad de UN DIA ANTERIOR (otro viaje,
+       otro chofer, la unidad quedo encendida de la noche a la mañana, etc.). Sin este filtro ese
+       timestamp viejo se cuela como si fuera el inicio de la jornada de HOY y las "HS Chofer"
+       quedan infladas con horas que en realidad son de otro dia (y hasta disparan la alerta de
+       12hs en falso). Se descarta cualquier candidato que no caiga dentro de la ventana pedida
+       antes de elegir el mas temprano. */
+    candidatos = candidatos.filter(function(c){
+      var t = new Date(c.ts).getTime();
+      return t >= diaInicio.getTime() && t <= tope.getTime();
+    });
     if(!candidatos.length) return estimado;
     candidatos.sort(function(a,b){ return new Date(a.ts) - new Date(b.ts); });
     return { inicio: new Date(candidatos[0].ts).toISOString(), fuente: candidatos[0].fuente, confirmado: true };
