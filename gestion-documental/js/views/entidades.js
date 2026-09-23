@@ -368,9 +368,6 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
   }
 
   function htmlArchivos() {
-    if (!doc.id) {
-      return `<p class="gd-hint">Guardá el documento (botón Guardar más abajo) para poder adjuntar archivos.</p>`;
-    }
     const lista = st.archivosCargados
       ? st.archivos.length
         ? `<div class="gd-archivos-grid">${st.archivos.map(htmlArchivoTarjeta).join("")}</div>`
@@ -426,7 +423,7 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
         <div class="gd-modal-body">
           ${seccionAccordion("info", 1, "Información del Documento", htmlInfo())}
           ${seccionAccordion("entidades", 2, "Entidades asociadas al documento", htmlEntidades())}
-          ${seccionAccordion("archivos", 3, `Archivos adjuntos${doc.id ? ` (${st.archivos.length})` : ""}`, htmlArchivos())}
+          ${seccionAccordion("archivos", 3, `Archivos adjuntos (${st.archivos.length})`, htmlArchivos())}
           ${seccionAccordion("extra", 4, "Datos extra", htmlExtra())}
         </div>
         <div class="gd-modal-actions">
@@ -575,25 +572,47 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
     if (inputArchivo) inputArchivo.addEventListener("change", async (e) => {
       const archivos = e.target.files;
       if (!archivos || !archivos.length) return;
-      if (!doc.id) {
-        st.msgArchivos = "Error: guardá el documento antes de adjuntar archivos.";
+      if (!doc.id && !tipo && !doc.tipoDocumentoId) {
+        st.msgArchivos = "Error: elegí un tipo de documento antes de adjuntar archivos.";
         pintar();
         return;
       }
       st.subiendo = true;
       st.msgArchivos = "";
       pintar();
-      let errorFinal = "";
-      for (const file of Array.from(archivos)) {
-        try {
-          const registro = await GD.subirArchivo(entidadId, doc.id, file);
-          st.archivos.push(registro);
-        } catch (err) {
-          errorFinal = "Error: " + err.message;
+      try {
+        if (!doc.id) {
+          // Todavía no se guardó el documento (por ejemplo, no se cargaron
+          // las fechas): lo creamos igual con lo que haya en el formulario,
+          // para que se pueda adjuntar el archivo desde el principio sin
+          // obligar a completar fechas antes.
+          const datosIniciales = {
+            tipoDocumentoId: (tipo && tipo.id) || doc.tipoDocumentoId,
+            tipoDocumentoNombre: (tipo && tipo.nombre) || null,
+            fechaDesde: form.fechaDesde ? new Date(form.fechaDesde).getTime() : null,
+            fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? new Date(form.fechaHasta).getTime() : null,
+            sinVencimiento: !!form.sinVencimiento,
+            diasPreaviso: Number(form.diasPreaviso) || 30,
+            observaciones: form.observaciones || "",
+          };
+          const nuevoId = await GD.guardarDocumento(entidadId, null, datosIniciales);
+          doc = { ...doc, ...datosIniciales, id: nuevoId, estado: GD.calcularEstado({ ...doc, ...datosIniciales }) };
+          st.archivosCargados = true;
         }
+        let errorFinal = "";
+        for (const file of Array.from(archivos)) {
+          try {
+            const registro = await GD.subirArchivo(entidadId, doc.id, file);
+            st.archivos.push(registro);
+          } catch (err) {
+            errorFinal = "Error: " + err.message;
+          }
+        }
+        st.msgArchivos = errorFinal || "Archivo(s) subido(s).";
+      } catch (err) {
+        st.msgArchivos = "Error: " + err.message;
       }
       st.subiendo = false;
-      st.msgArchivos = errorFinal || "Archivo(s) subido(s).";
       pintar();
       if (onGuardado) onGuardado();
     });
