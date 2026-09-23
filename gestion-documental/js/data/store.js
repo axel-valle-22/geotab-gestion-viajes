@@ -418,6 +418,14 @@ const GD = (function () {
         _data.documentos.some((d) => d.entidadId === e.id && d.activo !== false && calcularEstado(d) === estado)
       );
     }
+    // Orden alfanumérico "natural": alfabético para los choferes (por
+    // nombre y apellido) y numérico ascendente para los códigos de
+    // vehículo tipo "L42", "L43" — localeCompare con numeric:true entiende
+    // los números adentro del texto, así no queda "L100" antes que "L43"
+    // como pasaría comparando las cadenas letra por letra.
+    items = items
+      .slice()
+      .sort((a, b) => (a.descripcion || "").localeCompare(b.descripcion || "", "es", { numeric: true, sensitivity: "base" }));
     return items;
   }
 
