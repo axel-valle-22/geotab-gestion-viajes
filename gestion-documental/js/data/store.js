@@ -56,6 +56,22 @@ const ESTADOS = { VIGENTE: "vigente", PREAVISO: "preaviso", VENCIDO: "vencido", 
  */
 const ARCHIVO_MAX_BYTES = 650 * 1024; // objetivo tras comprimir (~650KB → ~890KB en base64)
 
+// Firestore rechaza el documento COMPLETO si supera ~1 MiB, y lo hace con un
+// error propio de Firestore (no con el cartel en español de más abajo) si no
+// lo frenamos antes nosotros. Lo que realmente pesa en el documento es el
+// campo `dataUrl` (el string en base64), así que el control tiene que mirar
+// el largo de ESE string y no los "bytes reales" del archivo, que es una
+// cuenta más chica y por eso venía dejando pasar archivos que Firestore
+// rechazaba igual (ver dataUrlABytes más abajo).
+const FIRESTORE_DOC_MAX_BYTES = 1024 * 1024; // 1 MiB, límite real de Firestore por documento
+const MARGEN_METADATA_BYTES = 4096; // lugar para nombre/tipo/fechas del resto del documento
+const LIMITE_DATAURL_BYTES = FIRESTORE_DOC_MAX_BYTES - MARGEN_METADATA_BYTES;
+// Si un PDF ya viene liviano (por ejemplo, comprimido de antemano fuera de la
+// app) no tiene sentido rasterizarlo de nuevo: eso le haría perder cualquier
+// texto seleccionable/buscable que ya tenga. Se deja pasar tal cual siempre
+// que, ya en base64, quede cómodo por debajo del límite real de Firestore.
+const UMBRAL_PDF_SIN_RECOMPRIMIR = Math.floor((LIMITE_DATAURL_BYTES * 3) / 4);
+
 function leerArchivoComoDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -519,16 +535,23 @@ const GD = (function () {
     if (esImagen) {
       dataUrl = await comprimirImagen(file);
     } else if (esPdf) {
-      // Si pdf.js/jsPDF fallan por lo que sea, comprimirPdf devuelve null y
-      // seguimos con el PDF tal cual vino (después se valida el tamaño igual).
-      dataUrl = (await comprimirPdf(file)) || (await leerArchivoComoDataUrl(file));
+      if (file.size <= UMBRAL_PDF_SIN_RECOMPRIMIR) {
+        // Ya entra cómodo tal cual: se sube sin volver a comprimir, para no
+        // perder texto seleccionable/buscable de un PDF ya optimizado.
+        dataUrl = await leerArchivoComoDataUrl(file);
+      } else {
+        // Si pdf.js/jsPDF fallan por lo que sea, comprimirPdf devuelve null y
+        // seguimos con el PDF tal cual vino (después se valida el tamaño igual).
+        dataUrl = (await comprimirPdf(file)) || (await leerArchivoComoDataUrl(file));
+      }
     } else {
       dataUrl = await leerArchivoComoDataUrl(file);
     }
 
-    const tamanoBytes = dataUrlABytes(dataUrl);
-    if (tamanoBytes > ARCHIVO_MAX_BYTES * 1.4) {
-      const limiteMb = ((ARCHIVO_MAX_BYTES * 1.4) / (1024 * 1024)).toFixed(1);
+    const tamanoBytes = dataUrlABytes(dataUrl); // tamaño real del archivo, para guardar/mostrar
+    const tamanoDataUrl = dataUrl.length; // largo real de la cadena que queda en el documento
+    if (tamanoDataUrl > LIMITE_DATAURL_BYTES) {
+      const limiteMb = ((LIMITE_DATAURL_BYTES * 3) / 4 / (1024 * 1024)).toFixed(1);
       throw new Error(
         esImagen || esPdf
           ? `El archivo sigue pesando demasiado incluso comprimido (límite ~${limiteMb} MB). Probá con otro archivo, o si es un PDF de muchas páginas dividilo en partes.`
