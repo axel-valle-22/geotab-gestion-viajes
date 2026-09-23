@@ -636,6 +636,25 @@ const GD = (function () {
     return t.id;
   }
 
+  async function eliminarTipoDocumento(id) {
+    _data.tiposDocumento = _data.tiposDocumento.filter((t) => t.id !== id);
+    // Sacamos la referencia de las funciones y reportes que tuvieran este
+    // tipo de documento asignado, para no dejar ids colgando. Los
+    // documentos ya creados con este tipo no se tocan: cada uno guarda su
+    // propio nombre (tipoDocumentoNombre) y va a seguir mostrandose igual.
+    _data.funciones.forEach((f) => {
+      if (f.tiposDocumentoIds && f.tiposDocumentoIds.includes(id)) {
+        f.tiposDocumentoIds = f.tiposDocumentoIds.filter((tid) => tid !== id);
+      }
+    });
+    _data.reportes.forEach((r) => {
+      if (r.tiposDocumentoIds && r.tiposDocumentoIds.includes(id)) {
+        r.tiposDocumentoIds = r.tiposDocumentoIds.filter((tid) => tid !== id);
+      }
+    });
+    await persistir();
+  }
+
   // ── Funciones ────────────────────────────────────────────────────────────
   async function listarFunciones() {
     return _data.funciones.slice().sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
@@ -830,6 +849,7 @@ const GD = (function () {
     listarEliminados,
     listarTiposDocumento,
     crearTipoDocumento,
+    eliminarTipoDocumento,
     listarFunciones,
     crearFuncion,
     eliminarFuncion,
