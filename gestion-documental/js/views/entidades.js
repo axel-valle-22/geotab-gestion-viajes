@@ -203,12 +203,20 @@ async function renderDetalle(container, entidadId) {
   // función) — cubre el caso de una entidad sin funciones asignadas, o de
   // un tipo de documento puntual que no forma parte de ninguna función.
   document.getElementById("gd-btn-agregar-doc").addEventListener("click", () => {
+    // Solo se ofrecen los tipos de documento pensados para el tipo de esta
+    // entidad (Vehiculo/AnexoVehicular/Operador) más los marcados como
+    // "usoGlobal" (aplican a cualquier tipo de entidad). Antes se mostraba
+    // la lista completa de tipos de documento, mezclando por ejemplo tipos
+    // de Operador en el modal de un Vehículo.
+    const tiposParaEstaEntidad = tiposDocumento.filter(
+      (t) => t.tipoEntidad === entidad.tipo || t.usoGlobal
+    );
     abrirModalDocumento({
       entidad,
       entidadId,
       doc: { id: null, entidadId, tipoDocumentoId: null, estado: "faltante", archivos: [] },
       tipo: null,
-      tiposDocumentoOpciones: tiposDocumento,
+      tiposDocumentoOpciones: tiposParaEstaEntidad,
       onGuardado: () => renderDetalle(container, entidadId),
     });
   });
