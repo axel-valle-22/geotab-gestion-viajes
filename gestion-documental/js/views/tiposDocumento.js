@@ -28,6 +28,7 @@ window.GD_VIEWS.tiposDocumento = async function render(container) {
         <option value="Vehiculo">Vehículo</option>
         <option value="AnexoVehicular">AnexoVehicular</option>
         <option value="Operador">Operador</option>
+        <option value="Seguros">Seguros (documentos generales de la empresa)</option>
       </select>
       <label>Días de preaviso <input type="number" name="diasPreaviso" value="30" /></label>
       <label><input type="checkbox" name="sinVencimiento" /> Sin vencimiento</label>
