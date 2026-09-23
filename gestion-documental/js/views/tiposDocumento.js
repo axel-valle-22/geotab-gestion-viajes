@@ -7,13 +7,14 @@ window.GD_VIEWS.tiposDocumento = async function render(container) {
   container.innerHTML = `
     <h2>Tipos de Documento</h2>
     <table class="gd-tabla">
-      <thead><tr><th>Nombre</th><th>Tipo Entidad</th><th>Preaviso (días)</th><th>Sin vencimiento</th></tr></thead>
+      <thead><tr><th>Nombre</th><th>Tipo Entidad</th><th>Preaviso (días)</th><th>Sin vencimiento</th><th></th></tr></thead>
       <tbody>
         ${tipos
           .map(
-            (t) => `<tr>
+            (t) => `<tr data-id="${t.id}">
               <td>${t.nombre}</td><td>${t.tipoEntidad}</td><td>${t.diasPreaviso}</td>
               <td>${t.sinVencimiento ? "Sí" : "No"}</td>
+              <td><button type="button" class="gd-link gd-borrar-tipo">Eliminar</button></td>
             </tr>`
           )
           .join("")}
@@ -34,6 +35,20 @@ window.GD_VIEWS.tiposDocumento = async function render(container) {
       <span id="gd-form-tipo-msg"></span>
     </form>
   `;
+
+  container.querySelectorAll(".gd-borrar-tipo").forEach((btn) =>
+    btn.addEventListener("click", async (e) => {
+      const id = e.target.closest("tr").dataset.id;
+      if (
+        confirm(
+          "¿Eliminar este tipo de documento? Los documentos ya creados con este tipo van a seguir mostrando su nombre, pero dejará de estar disponible para elegir en documentos nuevos."
+        )
+      ) {
+        await GD.eliminarTipoDocumento(id);
+        render(container);
+      }
+    })
+  );
 
   document.getElementById("gd-form-tipo").addEventListener("submit", async (ev) => {
     ev.preventDefault();
