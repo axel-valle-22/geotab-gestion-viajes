@@ -406,8 +406,14 @@ const GD = (function () {
   }
 
   // ── Entidades ────────────────────────────────────────────────────────────
+  const SEGUROS_ENTIDAD_ID = "seguros_empresa";
+
   async function listarEntidades({ tipo = null, estado = null, texto = null } = {}) {
-    let items = _data.entidades.filter((e) => e.activo !== false);
+    // "Seguros" es una entidad interna (ver obtenerEntidadSeguros) que sirve
+    // para colgar documentos generales de la empresa (pólizas SVO, ART,
+    // etc.) sin atarlos a un vehículo/chofer puntual. Nunca se lista en la
+    // pantalla de Entidades, tiene su propia pantalla dedicada.
+    let items = _data.entidades.filter((e) => e.activo !== false && e.tipo !== "Seguros");
     if (tipo) items = items.filter((e) => e.tipo === tipo);
     if (texto) {
       const t = texto.toLowerCase();
@@ -438,6 +444,26 @@ const GD = (function () {
     _data.entidades.push(ent);
     await persistir();
     return ent.id;
+  }
+
+  // Entidad "singleton" (siempre el mismo id) que representa a la empresa,
+  // para poder reusar toda la infraestructura de documentos/tipos/archivos
+  // ya armada para Vehiculo/AnexoVehicular/Operador sin duplicar código.
+  // Se crea sola la primera vez que se abre la pantalla "Seguros".
+  async function obtenerEntidadSeguros() {
+    let ent = _data.entidades.find((e) => e.id === SEGUROS_ENTIDAD_ID);
+    if (!ent) {
+      ent = {
+        id: SEGUROS_ENTIDAD_ID,
+        tipo: "Seguros",
+        descripcion: "Transporte Dolores Parra",
+        activo: true,
+        funciones: [],
+      };
+      _data.entidades.push(ent);
+      await persistir();
+    }
+    return ent;
   }
 
   // ── Documentos (antes subcolección, ahora array del mismo doc) ──────────
@@ -837,6 +863,7 @@ const GD = (function () {
     listarEntidades,
     getEntidad,
     crearEntidad,
+    obtenerEntidadSeguros,
     listarDocumentosDeEntidad,
     guardarDocumento,
     eliminarDocumento,
