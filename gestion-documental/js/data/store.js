@@ -72,6 +72,13 @@ const LIMITE_DATAURL_BYTES = FIRESTORE_DOC_MAX_BYTES - MARGEN_METADATA_BYTES;
 // que, ya en base64, quede cómodo por debajo del límite real de Firestore.
 const UMBRAL_PDF_SIN_RECOMPRIMIR = Math.floor((LIMITE_DATAURL_BYTES * 3) / 4);
 
+// Archivos más grandes que un documento de Firestore: se guardan partidos en
+// varios documentos de `gd_archivos` ("partes") y se vuelven a unir al
+// leerlos. Así un PDF pesado entra entero y SIN perder calidad. El tope
+// total existe para no gastar de golpe el 1 GiB gratis de Firestore.
+const TAMANO_PARTE_CHARS = 900 * 1024; // caracteres de base64 por parte (< 1 MiB por documento)
+const MAX_ARCHIVO_PARTIDO_CHARS = 20 * 1024 * 1024; // ~15 MB de archivo real como máximo
+
 function leerArchivoComoDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -569,9 +576,25 @@ const GD = (function () {
     if (!_fbArchivosCol) return [];
     try {
       const snap = await _fbArchivosCol.where("documentoId", "==", documentoId).get();
-      return snap.docs
+      const archivos = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.creadoEn || 0) - (b.creadoEn || 0));
+      // Los archivos grandes vienen partidos: se traen sus partes y se unen.
+      await Promise.all(
+        archivos
+          .filter((a) => a.partes > 0 && !a.dataUrl)
+          .map(async (a) => {
+            const partes = await Promise.all(
+              Array.from({ length: a.partes }, (_, i) => _fbArchivosCol.doc(`${a.id}_p${i}`).get())
+            );
+            if (partes.some((p) => !p.exists)) {
+              console.error("Faltan partes del archivo", a.id);
+              return;
+            }
+            a.dataUrl = partes.map((p) => p.data().datos).join("");
+          })
+      );
+      return archivos.filter((a) => a.dataUrl);
     } catch (err) {
       console.error("No se pudieron cargar los archivos adjuntos", err);
       return [];
@@ -611,11 +634,17 @@ const GD = (function () {
         //    página en imagen con pdf.js/jsPDF), y se queda con el más chico.
         // Si todo falla, sigue con el PDF tal cual vino (después se valida
         // el tamaño igual y se avisa).
+        // 2) Si no entra en un solo documento, se guarda partido en varios
+        //    (ver TAMANO_PARTE_CHARS), también sin perder calidad.
+        // 3) Solo si es tan grande que ni partido entra, se usa el método
+        //    anterior (convertir cada página en imagen con pdf.js/jsPDF).
+        const original = await leerArchivoComoDataUrl(file);
         const optimizado = await optimizarPdfSinPerderCalidad(file);
-        if (optimizado && dataUrlABytes(optimizado) <= UMBRAL_PDF_SIN_RECOMPRIMIR) {
-          dataUrl = optimizado;
+        const sinPerdida = optimizado && optimizado.length < original.length ? optimizado : original;
+        if (sinPerdida.length <= MAX_ARCHIVO_PARTIDO_CHARS) {
+          dataUrl = sinPerdida;
         } else {
-          const candidatos = [optimizado, await comprimirPdf(file), await leerArchivoComoDataUrl(file)].filter(Boolean);
+          const candidatos = [sinPerdida, await comprimirPdf(file)].filter(Boolean);
           dataUrl = candidatos.reduce((a, b) => (b.length < a.length ? b : a));
         }
       }
@@ -625,27 +654,42 @@ const GD = (function () {
 
     const tamanoBytes = dataUrlABytes(dataUrl); // tamaño real del archivo, para guardar/mostrar
     const tamanoDataUrl = dataUrl.length; // largo real de la cadena que queda en el documento
-    if (tamanoDataUrl > LIMITE_DATAURL_BYTES) {
-      const limiteMb = ((LIMITE_DATAURL_BYTES * 3) / 4 / (1024 * 1024)).toFixed(1);
+    if (tamanoDataUrl > MAX_ARCHIVO_PARTIDO_CHARS) {
+      const limiteMb = ((MAX_ARCHIVO_PARTIDO_CHARS * 3) / 4 / (1024 * 1024)).toFixed(0);
       throw new Error(
-        esImagen || esPdf
-          ? `El archivo sigue pesando demasiado incluso comprimido (límite ~${limiteMb} MB). Probá con otro archivo, o si es un PDF de muchas páginas dividilo en partes.`
-          : `El archivo pesa demasiado (límite ~${limiteMb} MB para Word/Excel/etc., porque no se puede comprimir automáticamente). Comprimilo antes de subirlo.`
+        `El archivo pesa demasiado incluso comprimido (límite ~${limiteMb} MB). Si es un PDF de muchas páginas, dividilo en partes.`
       );
     }
 
     const archivoId = uid("arc");
+    // Si no entra en un solo documento de Firestore, se guardan primero las
+    // partes (en el mismo `gd_archivos`, con otro documentoId para que no
+    // aparezcan como archivos sueltos) y después el registro principal.
+    let partes = 0;
+    if (tamanoDataUrl > LIMITE_DATAURL_BYTES) {
+      partes = Math.ceil(tamanoDataUrl / TAMANO_PARTE_CHARS);
+      for (let i = 0; i < partes; i++) {
+        await _fbArchivosCol.doc(`${archivoId}_p${i}`).set({
+          parteDe: archivoId,
+          indice: i,
+          documentoId: `__parte__${documentoId}`,
+          datos: dataUrl.slice(i * TAMANO_PARTE_CHARS, (i + 1) * TAMANO_PARTE_CHARS),
+          creadoEn: Date.now(),
+        });
+      }
+    }
     const registro = {
       documentoId,
       entidadId,
       nombre: file.name,
       tipo: file.type || "application/octet-stream",
       tamanoBytes,
-      dataUrl,
+      ...(partes ? { partes } : { dataUrl }),
       creadoPor: usuarioActual(),
       creadoEn: Date.now(),
     };
     await _fbArchivosCol.doc(archivoId).set(registro);
+    if (partes) registro.dataUrl = dataUrl; // para devolverlo completo a quien lo subió
 
     const doc = _data.documentos.find((d) => d.id === documentoId);
     if (doc) {
@@ -664,6 +708,9 @@ const GD = (function () {
   async function eliminarArchivo(entidadId, documentoId, archivoId) {
     if (_fbArchivosCol) {
       try {
+        const principal = await _fbArchivosCol.doc(archivoId).get();
+        const partes = (principal.exists && principal.data().partes) || 0;
+        for (let i = 0; i < partes; i++) await _fbArchivosCol.doc(`${archivoId}_p${i}`).delete();
         await _fbArchivosCol.doc(archivoId).delete();
       } catch (err) {
         console.error("No se pudo borrar el archivo en Firestore", err);
