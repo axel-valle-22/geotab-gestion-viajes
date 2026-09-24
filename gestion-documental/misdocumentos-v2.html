@@ -287,6 +287,10 @@
 
   <!-- ---------------- Vista lista de unidades ---------------- -->
   <div id="md-lista-vista">
+    <!-- "Mis papeles": documentos personales (entidad Operador) del chofer
+         que tiene la sesion abierta. Se identifica igual que en
+         Config > Choferes: nombre de usuario de Geotab -> entidad. -->
+    <div id="md-mis-papeles"></div>
     <div id="md-search">
       <input type="text" id="md-input-buscar" placeholder="Buscar por patente o nombre..." autocomplete="off">
     </div>
@@ -936,6 +940,46 @@
 
   // ---------------- Vista lista de unidades ----------------
 
+  // ---------------- Mis papeles (documentos del propio chofer) ----------------
+
+  // Busca la entidad Operador del usuario logueado usando el cruce
+  // Config > Choferes (nombre de usuario de Geotab -> entidadId).
+  async function buscarMiEntidad(){
+    var yo = (GD.usuarioActual() || '').trim().toLowerCase();
+    if(!yo || yo === 'desconocido') return null;
+    var choferes = await GD.listarUsuarios();
+    var cruce = choferes.find(function(c){ return (c.nombre || '').trim().toLowerCase() === yo && c.entidadId; });
+    if(!cruce) return null;
+    var ent = await GD.getEntidad(cruce.entidadId);
+    return (ent && ent.activo !== false) ? ent : null;
+  }
+
+  async function renderMisPapeles(){
+    var box = document.getElementById('md-mis-papeles');
+    if(!box) return;
+    var ent;
+    try{ ent = await buscarMiEntidad(); }catch(err){ ent = null; }
+    if(!ent){ box.innerHTML = ''; return; }
+    var docs = [];
+    try{ docs = await GD.listarDocumentosDeEntidad(ent.id); }catch(err){ docs = []; }
+    var estados = { vigente:0, preaviso:0, vencido:0, faltante:0 };
+    docs.forEach(function(d){ if(d.estado && estados[d.estado] != null) estados[d.estado]++; });
+    var puntos = ['vencido','preaviso','faltante','vigente']
+      .filter(function(k){ return estados[k] > 0; })
+      .map(function(k){ return '<span class="md-dot md-dot-' + k + '" title="' + estados[k] + ' ' + ESTADO_LABEL[k] + '"></span>'; })
+      .join('');
+    box.innerHTML = '' +
+      '<div style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--md-muted);margin:4px 2px 8px">Mis papeles</div>' +
+      '<div class="md-unidad-card" data-id="' + ent.id + '" style="margin-bottom:16px;border-left:4px solid var(--md-accent)">' +
+        '<div>' +
+          '<div class="md-unidad-nombre">' + escapeHtml(ent.descripcion || '(sin nombre)') + '</div>' +
+          '<div class="md-unidad-tipo">Documentacion personal' + (docs.length ? ' &middot; ' + docs.length + ' documento(s)' : '') + '</div>' +
+        '</div>' +
+        '<div class="md-unidad-resumen">' + puntos + '</div>' +
+      '</div>';
+    box.querySelector('.md-unidad-card').addEventListener('click', function(){ abrirDetalle(ent.id); });
+  }
+
   async function renderLista(){
     var box = document.getElementById('md-lista');
     box.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando unidades...</div>';
@@ -1108,12 +1152,13 @@
     gApi = api;
     setupEvents();
     GD.init(gApi).then(function(){
+      renderMisPapeles();
       renderLista();
       GD.onChange(function(){
         // Si se esta viendo el detalle de una unidad, no la cerramos solos
         // por un cambio en tiempo real; alcanza con refrescar la lista de
         // fondo para cuando la persona vuelva atras.
-        if(document.getElementById('md-detalle').style.display !== 'block') renderLista();
+        if(document.getElementById('md-detalle').style.display !== 'block'){ renderMisPapeles(); renderLista(); }
       });
     });
   }
