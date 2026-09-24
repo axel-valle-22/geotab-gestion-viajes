@@ -340,7 +340,7 @@
                   <td><button type="button" class="md-visor-zoom-btn" id="md-visor-zoom-mas" aria-label="Acercar" style="background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:8px;width:34px;height:34px;font-size:1.15rem;font-weight:700">&plus;</button></td>
                 </tr></tbody></table>
               </td>
-              <td><button type="button" class="md-visor-btn" id="md-visor-descargar" style="background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:.8rem;font-weight:600;margin-left:8px">Descargar</button></td>
+              <!-- Sin boton "Descargar": el chofer solo visualiza los archivos (pedido de Logistica). -->
               <td><button type="button" class="md-visor-btn" id="md-visor-cerrar" style="background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:.8rem;font-weight:600;margin-left:8px">Cerrar</button></td>
             </tr></tbody></table>
           </td>
@@ -871,7 +871,7 @@
       body.innerHTML = '<div id="md-visor-zoom-wrap"><img src="' + a.dataUrl + '" alt="' + escapeHtml(a.nombre || '') + '"></div>';
       var imgEl = document.querySelector('#md-visor-zoom-wrap img');
       imgEl.addEventListener('error', function(){
-        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar la imagen. Probá con el boton Descargar.</p>';
+        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar la imagen. Probá cerrarlo y abrirlo de nuevo.</p>';
       });
       activarZoom(document.getElementById('md-visor-zoom-wrap'));
       return;
@@ -879,7 +879,7 @@
 
     if(esPdf){
       if(typeof pdfjsLib === 'undefined'){
-        body.innerHTML = '<p class="md-hint">No se pudo cargar el visor de PDF. Probá con el boton Descargar, o abrí esta pantalla desde una computadora.</p>';
+        body.innerHTML = '<p class="md-hint">No se pudo cargar el visor de PDF. Probá cerrarlo y abrirlo de nuevo.</p>';
         return;
       }
       try{
@@ -929,14 +929,14 @@
         dibujarPaginasPdf(100);
         activarZoom(wrap);
       }catch(err){
-        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá con el boton Descargar.</p>';
+        body.innerHTML = '<p class="md-hint md-error">No se pudo mostrar el PDF (' + escapeHtml(err.message || '') + '). Probá cerrarlo y abrirlo de nuevo.</p>';
       }
       return;
     }
 
     // Tipo desconocido: no hay forma confiable de "mostrarlo" adentro de la
     // pantalla, asi que la unica opcion es ofrecer la descarga.
-    body.innerHTML = '<p class="md-hint">Este tipo de archivo no se puede previsualizar aca. Usá el boton Descargar.</p>';
+    body.innerHTML = '<p class="md-hint">Este tipo de archivo no se puede ver en la app. Pedile a la oficina que lo cargue como PDF o foto.</p>';
   }
 
   // ---------------- Vista lista de unidades ----------------
@@ -1184,7 +1184,6 @@
   function setupEvents(){
     document.getElementById('md-volver').addEventListener('click', cerrarDetalle);
     document.getElementById('md-visor-cerrar').addEventListener('click', cerrarVisor);
-    document.getElementById('md-visor-descargar').addEventListener('click', descargarArchivoActual);
     document.getElementById('md-visor-zoom-mas').addEventListener('click', function(){ aplicarZoom(gZoomPct + ZOOM_PASO); });
     document.getElementById('md-visor-zoom-menos').addEventListener('click', function(){ aplicarZoom(gZoomPct - ZOOM_PASO); });
 
