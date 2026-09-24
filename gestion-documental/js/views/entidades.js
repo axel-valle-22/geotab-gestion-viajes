@@ -21,7 +21,8 @@ const GD_ESTADO_ICON = { vigente: "check", preaviso: "warn", vencido: "cross", f
 const GD_ESTADO_LABEL = { vigente: "Vigente", preaviso: "Preaviso", vencido: "Vencido", faltante: "Faltante" };
 
 function gdFmtFecha(ts) {
-  return ts ? new Date(ts).toLocaleDateString("es-AR") : "-";
+  const d = gdFechaDeTs(ts); // ver store.js: corrige el corrimiento de un día por la zona horaria
+  return d ? d.toLocaleDateString("es-AR") : "-";
 }
 function gdFmtFechaHora(ts) {
   return ts ? new Date(ts).toLocaleString("es-AR") : "-";
@@ -33,8 +34,8 @@ function gdFmtBytes(n) {
   return (n / 1024 / 1024).toFixed(1) + " MB";
 }
 function gdToInputDate(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
+  const d = gdFechaDeTs(ts);
+  if (!d) return "";
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${mm}-${dd}`;
@@ -266,7 +267,7 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
         GD.calcularEstado({
           activo: true,
           sinVencimiento: form.sinVencimiento,
-          fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? new Date(form.fechaHasta).getTime() : null,
+          fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? gdInputATs(form.fechaHasta) : null,
           diasPreaviso: Number(form.diasPreaviso) || 30,
         }) || "faltante"
       );
@@ -530,8 +531,8 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
       const datos = {
         tipoDocumentoId: (tipo && tipo.id) || doc.tipoDocumentoId,
         tipoDocumentoNombre: (tipo && tipo.nombre) || null,
-        fechaDesde: form.fechaDesde ? new Date(form.fechaDesde).getTime() : null,
-        fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? new Date(form.fechaHasta).getTime() : null,
+        fechaDesde: form.fechaDesde ? gdInputATs(form.fechaDesde) : null,
+        fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? gdInputATs(form.fechaHasta) : null,
         sinVencimiento: !!form.sinVencimiento,
         diasPreaviso: Number(form.diasPreaviso) || 30,
         observaciones: form.observaciones || "",
@@ -595,8 +596,8 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
           const datosIniciales = {
             tipoDocumentoId: (tipo && tipo.id) || doc.tipoDocumentoId,
             tipoDocumentoNombre: (tipo && tipo.nombre) || null,
-            fechaDesde: form.fechaDesde ? new Date(form.fechaDesde).getTime() : null,
-            fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? new Date(form.fechaHasta).getTime() : null,
+            fechaDesde: form.fechaDesde ? gdInputATs(form.fechaDesde) : null,
+            fechaHasta: form.sinVencimiento ? null : form.fechaHasta ? gdInputATs(form.fechaHasta) : null,
             sinVencimiento: !!form.sinVencimiento,
             diasPreaviso: Number(form.diasPreaviso) || 30,
             observaciones: form.observaciones || "",
