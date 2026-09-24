@@ -195,6 +195,36 @@ async function comprimirPdf(file) {
   return mejor; // no entró del todo con la compresión más agresiva: se valida afuera, igual que las fotos
 }
 
+/**
+ * Achica un PDF pesado sin rasterizarlo (ver js/data/pdf-optimizador.js):
+ * recomprime sus imágenes y agrupa el contenido de las páginas para que se
+ * comprima mejor. Devuelve un dataUrl, o null si no se pudo o no achicó.
+ * Antes de aceptarlo se abre el resultado con pdf.js para confirmar que
+ * quedó sano y con la misma cantidad de páginas.
+ */
+async function optimizarPdfSinPerderCalidad(file) {
+  if (typeof window.GD_optimizarPdf !== "function") return null;
+  try {
+    const original = new Uint8Array(await file.arrayBuffer());
+    const salida = await window.GD_optimizarPdf(original, { objetivoBytes: UMBRAL_PDF_SIN_RECOMPRIMIR });
+    if (!salida) return null;
+    if (typeof pdfjsLib !== "undefined") {
+      const [a, b] = await Promise.all([
+        pdfjsLib.getDocument({ data: original.slice() }).promise,
+        pdfjsLib.getDocument({ data: salida.slice() }).promise,
+      ]);
+      const ok = a.numPages === b.numPages;
+      if (ok) await (await b.getPage(1)).getOperatorList(); // que la primera página se pueda dibujar
+      a.destroy(); b.destroy();
+      if (!ok) return null;
+    }
+    return await leerArchivoComoDataUrl(new Blob([salida], { type: "application/pdf" }));
+  } catch (e) {
+    console.warn("La optimización sin pérdida no funcionó con este PDF, se sigue con el método anterior:", e);
+    return null;
+  }
+}
+
 function vacio() {
   return {
     entidades: [], // { id, tipo, descripcion, geotabId, funciones:[], activo }
@@ -574,9 +604,20 @@ const GD = (function () {
         // perder texto seleccionable/buscable de un PDF ya optimizado.
         dataUrl = await leerArchivoComoDataUrl(file);
       } else {
-        // Si pdf.js/jsPDF fallan por lo que sea, comprimirPdf devuelve null y
-        // seguimos con el PDF tal cual vino (después se valida el tamaño igual).
-        dataUrl = (await comprimirPdf(file)) || (await leerArchivoComoDataUrl(file));
+        // 1) Primero se intenta achicarlo SIN perder calidad (el texto sigue
+        //    siendo texto; ver js/data/pdf-optimizador.js). Alcanza para la
+        //    mayoría de los PDF generados por sistemas (pólizas, listados).
+        // 2) Si con eso no entra, se usa el método anterior (convertir cada
+        //    página en imagen con pdf.js/jsPDF), y se queda con el más chico.
+        // Si todo falla, sigue con el PDF tal cual vino (después se valida
+        // el tamaño igual y se avisa).
+        const optimizado = await optimizarPdfSinPerderCalidad(file);
+        if (optimizado && dataUrlABytes(optimizado) <= UMBRAL_PDF_SIN_RECOMPRIMIR) {
+          dataUrl = optimizado;
+        } else {
+          const candidatos = [optimizado, await comprimirPdf(file), await leerArchivoComoDataUrl(file)].filter(Boolean);
+          dataUrl = candidatos.reduce((a, b) => (b.length < a.length ? b : a));
+        }
       }
     } else {
       dataUrl = await leerArchivoComoDataUrl(file);
