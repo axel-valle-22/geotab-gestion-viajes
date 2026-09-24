@@ -381,7 +381,8 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
           <input type="file" id="gd-input-archivo" style="display:none" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" ${st.subiendo ? "disabled" : ""} />
         </label>
       </div>
-      <p class="gd-hint">Las fotos y los PDF se comprimen automáticamente, sin perder calidad. Tamaño máximo aproximado por archivo: 15 MB.</p>
+      <p class="gd-hint">Las fotos y los PDF se comprimen automáticamente, sin perder calidad. Tamaño máximo aproximado por archivo: 15 MB. Si subís un archivo con el mismo nombre que uno existente, el anterior se reemplaza.</p>
+      ${st.renovando && st.archivos.length ? `<p class="gd-hint" style="color:#b45309;font-weight:600">Renovación: al subir el archivo nuevo se van a borrar automáticamente ${st.archivos.length === 1 ? "el archivo anterior" : `los ${st.archivos.length} archivos anteriores`}.</p>` : ""}
       ${lista}
       ${st.msgArchivos ? `<p class="gd-archivos-msg ${st.msgArchivos.startsWith("Error") ? "gd-error" : "gd-ok"}">${st.msgArchivos}</p>` : ""}
     `;
@@ -555,6 +556,11 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
       form.fechaDesde = gdToInputDate(Date.now());
       form.fechaHasta = "";
       st.editing = true;
+      // Al renovar, el próximo archivo que se suba reemplaza a los anteriores
+      // (el certificado viejo ya no sirve y solo ocuparía espacio).
+      st.renovando = true;
+      st.abiertas.archivos = true;
+      cargarArchivosSiHaceFalta();
       st.abiertas.info = true;
       pintar();
     });
@@ -600,15 +606,24 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
           st.archivosCargados = true;
         }
         let errorFinal = "";
+        let reemplazados = 0;
+        // Si se está renovando, los archivos que había antes se borran junto
+        // con el primer archivo nuevo que se suba bien.
+        let anterioresPorRenovacion = st.renovando ? st.archivos.map((a) => a.id) : [];
         for (const file of Array.from(archivos)) {
           try {
-            const registro = await GD.subirArchivo(entidadId, doc.id, file);
+            const mismoNombre = st.archivos.filter((a) => a.nombre === file.name).map((a) => a.id);
+            const reemplazarIds = [...new Set([...anterioresPorRenovacion, ...mismoNombre])];
+            const registro = await GD.subirArchivo(entidadId, doc.id, file, { reemplazarIds });
+            st.archivos = st.archivos.filter((a) => !reemplazarIds.includes(a.id));
             st.archivos.push(registro);
+            reemplazados += reemplazarIds.length;
+            if (anterioresPorRenovacion.length) { anterioresPorRenovacion = []; st.renovando = false; }
           } catch (err) {
             errorFinal = "Error: " + err.message;
           }
         }
-        st.msgArchivos = errorFinal || "Archivo(s) subido(s).";
+        st.msgArchivos = errorFinal || (reemplazados ? `Archivo(s) subido(s). Se borraron ${reemplazados} archivo(s) anterior(es).` : "Archivo(s) subido(s).");
       } catch (err) {
         st.msgArchivos = "Error: " + err.message;
       }
