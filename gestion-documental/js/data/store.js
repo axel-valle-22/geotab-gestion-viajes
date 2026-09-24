@@ -252,12 +252,50 @@ function vacio() {
   };
 }
 
+// ── Fechas (solo día, sin hora) ────────────────────────────────────────────
+// Bug corregido: antes se guardaba new Date("2026-06-01").getTime(), que el
+// navegador interpreta como la medianoche en Londres (UTC). En Argentina
+// (UTC-3) eso es el 31/05 a las 21 hs, y por eso "01/06/2026" aparecía como
+// "31/05/2026" (y cada vez que se volvía a guardar, se corría un día más).
+// Ahora las fechas se guardan al MEDIODÍA hora local del día elegido, que
+// no cambia de día en ninguna zona horaria razonable. Las fechas viejas
+// (guardadas a medianoche UTC) se reconocen y se leen como el día que se
+// eligió originalmente.
+const MS_DIA = 24 * 60 * 60 * 1000;
+function gdInputATs(valor) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor || "");
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0).getTime();
+}
+function gdFechaDeTs(ts) {
+  if (ts === null || ts === undefined || ts === "") return null;
+  if (typeof ts === "string" && /^\d{4}-\d{2}-\d{2}$/.test(ts)) return new Date(gdInputATs(ts));
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  if (typeof ts === "number" && ts % MS_DIA === 0) {
+    // Formato viejo: medianoche UTC → se toma el día UTC, que es el que se eligió.
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
+  }
+  return d;
+}
+function gdNormalizarTs(ts) {
+  const d = gdFechaDeTs(ts);
+  return d ? d.getTime() : ts;
+}
+if (typeof window !== "undefined") {
+  window.gdInputATs = gdInputATs;
+  window.gdFechaDeTs = gdFechaDeTs;
+}
+
 function calcularEstado(doc, hoy = new Date()) {
   if (!doc || doc.activo === false) return null;
   if (doc.sinVencimiento) return ESTADOS.VIGENTE;
   if (!doc.fechaHasta) return ESTADOS.FALTANTE;
 
-  const vencimiento = new Date(doc.fechaHasta);
+  // El documento vale durante todo el día de vencimiento (hasta las 23:59).
+  const dia = gdFechaDeTs(doc.fechaHasta);
+  if (!dia) return ESTADOS.FALTANTE;
+  const vencimiento = new Date(dia.getFullYear(), dia.getMonth(), dia.getDate(), 23, 59, 59);
   const diasPreaviso = Number.isFinite(doc.diasPreaviso) ? doc.diasPreaviso : 30;
   const inicioPreaviso = new Date(vencimiento);
   inicioPreaviso.setDate(inicioPreaviso.getDate() - diasPreaviso);
@@ -347,6 +385,7 @@ const GD = (function () {
           if (d) {
             _data = Object.assign(vacio(), d);
             saveToLS();
+            corregirFechasViejas();
           }
           notify();
         },
@@ -413,6 +452,29 @@ const GD = (function () {
       console.error("No se pudo conectar a Firestore, sigo con AddInData/localStorage", err);
     }
     notify();
+  }
+
+  // Pasa una sola vez las fechas guardadas con el formato viejo (medianoche
+  // UTC, ver gdFechaDeTs) al formato nuevo (mediodía local del mismo día),
+  // para que queden bien en todos lados. Solo lo hace el panel de la
+  // oficina (no la app del chofer), y solo si hay algo para corregir.
+  let _corrigiendoFechas = false;
+  function corregirFechasViejas() {
+    if (_corrigiendoFechas || typeof document === "undefined" || !document.getElementById("gd-content")) return;
+    let cambios = 0;
+    (_data.documentos || []).forEach((doc) => {
+      ["fechaDesde", "fechaHasta"].forEach((campo) => {
+        const v = doc[campo];
+        if ((typeof v === "number" && v % MS_DIA === 0) || (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v))) {
+          doc[campo] = gdNormalizarTs(v);
+          cambios++;
+        }
+      });
+    });
+    if (!cambios) return;
+    _corrigiendoFechas = true;
+    console.info(`Gestión Documental: se corrigieron ${cambios} fecha(s) guardadas con el formato viejo.`);
+    persistir().finally(() => { _corrigiendoFechas = false; });
   }
 
   function usuarioActual() {
