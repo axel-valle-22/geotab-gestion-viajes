@@ -10,7 +10,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Gestión Documental</title>
-  <link rel="stylesheet" href="css/styles.css?v=11" />
+  <link rel="stylesheet" href="css/styles.css?v=12" />
 
   <!-- Firebase se carga dinámicamente desde store.js (mismo CDN/versión que
        usa Gestión de Viajes), no hace falta declararlo acá. -->
@@ -71,6 +71,8 @@
 
       <button id="gd-btn-sync" class="gd-nav-btn" style="margin-top:10px;border-top:1px solid var(--gd-nav-border);padding-top:14px;border-radius:var(--gd-radius);">⟳ Sincronizar con Geotab</button>
       <div class="gd-nav-status" id="gd-auth-status">Conectando…</div>
+      <!-- Medidor de almacenamiento (ver GD.usoAlmacenamiento en store.js). -->
+      <div id="gd-almacenamiento" style="padding:0 18px 14px;font-size:.72rem;color:var(--gd-nav-text-muted)"></div>
     </nav>
     <main id="gd-content">Cargando…</main>
   </div>
@@ -82,23 +84,48 @@
   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script src="js/firebase-config.js?v=11"></script>
+  <script src="js/firebase-config.js?v=12"></script>
   <!-- Optimizador de PDF sin pérdida (usa pdf-lib/pako de cdnjs, que se
        cargan solos recién cuando hace falta): store.js lo prueba antes de
        rasterizar un PDF pesado. -->
-  <script src="js/data/pdf-optimizador.js?v=11"></script>
-  <script src="js/data/store.js?v=11"></script>
-  <script src="js/geotab-api.js?v=11"></script>
-  <script src="js/views/indicadores.js?v=11"></script>
-  <script src="js/views/entidades.js?v=11"></script>
-  <script src="js/views/seguros.js?v=11"></script>
-  <script src="js/views/eliminados.js?v=11"></script>
-  <script src="js/views/alertas.js?v=11"></script>
-  <script src="js/views/reportes.js?v=11"></script>
-  <script src="js/views/tiposDocumento.js?v=11"></script>
-  <script src="js/views/funciones.js?v=11"></script>
-  <script src="js/views/usuarios.js?v=11"></script>
-  <script src="js/views/auditoria.js?v=11"></script>
-  <script src="js/app.js?v=11"></script>
+  <script src="js/data/pdf-optimizador.js?v=12"></script>
+  <script src="js/data/store.js?v=12"></script>
+  <script src="js/geotab-api.js?v=12"></script>
+  <script src="js/views/indicadores.js?v=12"></script>
+  <script src="js/views/entidades.js?v=12"></script>
+  <script src="js/views/seguros.js?v=12"></script>
+  <script src="js/views/eliminados.js?v=12"></script>
+  <script src="js/views/alertas.js?v=12"></script>
+  <script src="js/views/reportes.js?v=12"></script>
+  <script src="js/views/tiposDocumento.js?v=12"></script>
+  <script src="js/views/funciones.js?v=12"></script>
+  <script src="js/views/usuarios.js?v=12"></script>
+  <script src="js/views/auditoria.js?v=12"></script>
+  <script src="js/app.js?v=12"></script>
+  <script>
+    // Medidor de almacenamiento: se actualiza solo con cada cambio de datos.
+    (function () {
+      function mb(b) { return b >= 1024 * 1024 * 1024 ? (b / 1024 / 1024 / 1024).toFixed(2) + " GB" : Math.round(b / 1024 / 1024) + " MB"; }
+      function pintar() {
+        var box = document.getElementById("gd-almacenamiento");
+        if (!box || !window.GD || !GD.usoAlmacenamiento) return;
+        var u = GD.usoAlmacenamiento();
+        var pct = Math.min(100, Math.round(u.porcentaje * 100));
+        var color = pct >= 90 ? "#dc2626" : pct >= 70 ? "#f59e0b" : "#16a34a";
+        var aviso = pct >= 90 ? "Casi lleno: borrá archivos viejos o pasá a un plan pago."
+                  : pct >= 70 ? "Atención: más del 70% usado." : "";
+        box.innerHTML =
+          '<div style="margin-bottom:4px">Almacenamiento: ' + mb(u.usados) + " de " + mb(u.limite) + " (" + pct + "%)</div>" +
+          '<div style="height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden">' +
+            '<div style="height:100%;width:' + Math.max(pct, 1) + "%;background:" + color + '"></div></div>' +
+          '<div style="margin-top:4px">' + u.cantidadArchivos + " archivo(s)" + (aviso ? ' · <b style="color:' + color + '">' + aviso + "</b>" : "") + "</div>";
+      }
+      var intentos = 0;
+      (function esperarGD() {
+        if (window.GD && GD.onChange && GD.usoAlmacenamiento) { GD.onChange(pintar); pintar(); setInterval(pintar, 30000); }
+        else if (intentos++ < 100) setTimeout(esperarGD, 300);
+      })();
+    })();
+  </script>
 </body>
 </html>
