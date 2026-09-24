@@ -579,7 +579,9 @@
   }
 
   function fmtFecha(ts){
-    return ts ? new Date(ts).toLocaleDateString('es-AR') : '-';
+    // gdFechaDeTs (store.js) corrige el corrimiento de un dia por la zona horaria.
+    var d = typeof gdFechaDeTs === 'function' ? gdFechaDeTs(ts) : (ts ? new Date(ts) : null);
+    return d ? d.toLocaleDateString('es-AR') : '-';
   }
 
   function fmtBytes(n){
