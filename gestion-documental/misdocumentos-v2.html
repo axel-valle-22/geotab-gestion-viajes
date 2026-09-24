@@ -298,6 +298,7 @@
       <button type="button" class="md-chip md-chip-on" data-tipo="">Todas</button>
       <button type="button" class="md-chip" data-tipo="Vehiculo">Vehiculos</button>
       <button type="button" class="md-chip" data-tipo="AnexoVehicular">Acoplados</button>
+      <button type="button" class="md-chip" data-tipo="Seguros">Seguros</button>
     </div>
     <div id="md-lista"><div class="md-hint"><div class="md-spinner"></div>Cargando unidades...</div></div>
   </div>
@@ -980,8 +981,64 @@
     box.querySelector('.md-unidad-card').addEventListener('click', function(){ abrirDetalle(ent.id); });
   }
 
+  // ---------------- Seguros (documentos generales de la empresa) ----------------
+
+  // Los documentos de "Seguros" cuelgan de una entidad interna de la empresa
+  // (ver GD.obtenerEntidadSeguros en store.js). Al chofer solo se le muestran
+  // los tipos de esta lista (se comparan sin mayusculas, acentos ni espacios,
+  // asi "Certificado ART" y "certificadoArt" cuentan igual). Para mostrarle
+  // otro seguro al chofer, agregar su nombre aca.
+  var SEGUROS_ENTIDAD_ID = 'seguros_empresa';
+  var SEGUROS_VISIBLES_CHOFER = ['certificadoart', 'certificadosvo'];
+
+  function normalizarNombre(s){
+    return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  async function documentosSegurosVisibles(){
+    var tipos = await GD.listarTiposDocumento();
+    var nombrePorTipo = {};
+    tipos.forEach(function(t){ nombrePorTipo[t.id] = t.nombre; });
+    var docs = await GD.listarDocumentosDeEntidad(SEGUROS_ENTIDAD_ID);
+    return docs
+      .map(function(d){ return Object.assign({}, d, { tipoDocumentoNombre: d.tipoDocumentoNombre || nombrePorTipo[d.tipoDocumentoId] || '' }); })
+      .filter(function(d){ return SEGUROS_VISIBLES_CHOFER.indexOf(normalizarNombre(d.tipoDocumentoNombre)) !== -1; });
+  }
+
+  async function renderSeguros(box){
+    var docs;
+    try{ docs = await documentosSegurosVisibles(); }
+    catch(err){
+      box.innerHTML = '<p class="md-hint md-error">No se pudieron cargar los seguros: ' + escapeHtml(err.message) + '</p>';
+      return;
+    }
+    if(!docs.length){
+      box.innerHTML = '<p class="md-hint">Todavia no hay certificados de seguros cargados.</p>';
+      return;
+    }
+    var estados = { vigente:0, preaviso:0, vencido:0, faltante:0 };
+    docs.forEach(function(d){ if(d.estado && estados[d.estado] != null) estados[d.estado]++; });
+    var puntos = ['vencido','preaviso','faltante','vigente']
+      .filter(function(k){ return estados[k] > 0; })
+      .map(function(k){ return '<span class="md-dot md-dot-' + k + '" title="' + estados[k] + ' ' + ESTADO_LABEL[k] + '"></span>'; })
+      .join('');
+    box.innerHTML = '<div class="md-list">' +
+      '<div class="md-unidad-card" data-id="' + SEGUROS_ENTIDAD_ID + '">' +
+        '<div>' +
+          '<div class="md-unidad-nombre">Seguros de la empresa</div>' +
+          '<div class="md-unidad-tipo">' + escapeHtml(docs.map(function(d){ return d.tipoDocumentoNombre; }).join(' · ')) + '</div>' +
+        '</div>' +
+        '<div class="md-unidad-resumen">' + puntos + '</div>' +
+      '</div></div>';
+    box.querySelector('.md-unidad-card').addEventListener('click', function(){ abrirDetalle(SEGUROS_ENTIDAD_ID); });
+  }
+
   async function renderLista(){
     var box = document.getElementById('md-lista');
+    if(gTipoFiltro === 'Seguros'){
+      box.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando seguros...</div>';
+      return renderSeguros(box);
+    }
     box.innerHTML = '<div class="md-hint"><div class="md-spinner"></div>Cargando unidades...</div>';
     var items;
     try{
@@ -1042,7 +1099,10 @@
     var entidad, documentos;
     try{
       entidad = await GD.getEntidad(entidadId);
-      documentos = await GD.listarDocumentosDeEntidad(entidadId);
+      // En Seguros el chofer ve solo los certificados permitidos (ver SEGUROS_VISIBLES_CHOFER).
+      documentos = entidadId === SEGUROS_ENTIDAD_ID
+        ? await documentosSegurosVisibles()
+        : await GD.listarDocumentosDeEntidad(entidadId);
     }catch(err){
       document.getElementById('md-detalle-docs').innerHTML = '<p class="md-hint md-error">No se pudieron cargar los documentos: ' + escapeHtml(err.message) + '</p>';
       return;
@@ -1053,8 +1113,8 @@
       return;
     }
 
-    document.getElementById('md-detalle-titulo').textContent = entidad.descripcion || '(sin nombre)';
-    document.getElementById('md-detalle-sub').textContent = entidad.tipo || '';
+    document.getElementById('md-detalle-titulo').textContent = entidadId === SEGUROS_ENTIDAD_ID ? 'Seguros de la empresa' : (entidad.descripcion || '(sin nombre)');
+    document.getElementById('md-detalle-sub').textContent = entidadId === SEGUROS_ENTIDAD_ID ? (entidad.descripcion || '') : (entidad.tipo || '');
 
     var cont = document.getElementById('md-detalle-docs');
     if(!documentos.length){
