@@ -79,6 +79,13 @@ const UMBRAL_PDF_SIN_RECOMPRIMIR = Math.floor((LIMITE_DATAURL_BYTES * 3) / 4);
 const TAMANO_PARTE_CHARS = 900 * 1024; // caracteres de base64 por parte (< 1 MiB por documento)
 const MAX_ARCHIVO_PARTIDO_CHARS = 20 * 1024 * 1024; // ~15 MB de archivo real como máximo
 
+// Espacio total gratis de Firestore (plan Spark) para TODO el proyecto de
+// Firebase. Se usa para el medidor de almacenamiento y para frenar las
+// subidas antes de llegar al tope (si se pasa, Firebase puede cortar el
+// servicio hasta que se libere espacio o se pase a un plan pago).
+const FIRESTORE_ESPACIO_GRATIS_BYTES = 1024 * 1024 * 1024; // 1 GiB
+const USO_MAXIMO_PARA_SUBIR = 0.95; // por encima de esto no se aceptan archivos nuevos
+
 function leerArchivoComoDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -559,6 +566,11 @@ const GD = (function () {
 
   async function eliminarDocumentoDefinitivo(entidadId, documentoId) {
     const doc = _data.documentos.find((d) => d.id === documentoId);
+    // Al borrar para siempre un documento se borran también sus archivos
+    // adjuntos: si no, quedarían ocupando espacio sin que nadie los vea.
+    if (doc && Array.isArray(doc.archivos)) {
+      for (const a of doc.archivos.slice()) await borrarArchivoDeFirestore(a.id);
+    }
     registrarAuditoria(entidadId, documentoId, "eliminado_definitivo", {
       documentoNombre: doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId)),
     });
@@ -612,9 +624,18 @@ const GD = (function () {
    * resto de los tipos (Word, Excel, etc.) se validan contra
    * ARCHIVO_MAX_BYTES porque no se pueden comprimir del lado del cliente.
    */
-  async function subirArchivo(entidadId, documentoId, file) {
+  async function subirArchivo(entidadId, documentoId, file, opciones = {}) {
     if (!_fbArchivosCol) throw new Error("Todavía no hay conexión con el almacenamiento de archivos.");
     if (!documentoId) throw new Error("Primero hay que guardar el documento antes de adjuntar archivos.");
+    // Archivos que este reemplaza (se borran recién cuando el nuevo quedó
+    // guardado, así nunca se pierde el viejo si la subida falla).
+    const reemplazarIds = (opciones.reemplazarIds || []).filter(Boolean);
+    const uso = usoAlmacenamiento();
+    if (uso.porcentaje >= USO_MAXIMO_PARA_SUBIR && !reemplazarIds.length) {
+      throw new Error(
+        `El almacenamiento está casi lleno (${Math.round(uso.porcentaje * 100)}%). Borrá archivos que ya no se usen o pasá Firebase a un plan pago antes de subir más.`
+      );
+    }
 
     const esImagen = (file.type || "").startsWith("image/");
     const esPdf = (file.type || "") === "application/pdf";
@@ -700,22 +721,65 @@ const GD = (function () {
       archivoNombre: file.name,
       documentoNombre: doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId)),
     });
+    // Borrado automático de los archivos reemplazados.
+    for (const viejoId of reemplazarIds) {
+      if (viejoId === archivoId) continue;
+      await borrarArchivoDeFirestore(viejoId);
+      const viejo = doc && Array.isArray(doc.archivos) ? doc.archivos.find((a) => a.id === viejoId) : null;
+      if (doc && Array.isArray(doc.archivos)) doc.archivos = doc.archivos.filter((a) => a.id !== viejoId);
+      registrarAuditoria(entidadId, documentoId, "archivo_reemplazado", {
+        archivoNombre: viejo && viejo.nombre,
+        documentoNombre: doc && (doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId)),
+      });
+    }
     await persistir();
     notify();
     return { id: archivoId, ...registro };
   }
 
-  async function eliminarArchivo(entidadId, documentoId, archivoId) {
-    if (_fbArchivosCol) {
-      try {
-        const principal = await _fbArchivosCol.doc(archivoId).get();
-        const partes = (principal.exists && principal.data().partes) || 0;
-        for (let i = 0; i < partes; i++) await _fbArchivosCol.doc(`${archivoId}_p${i}`).delete();
-        await _fbArchivosCol.doc(archivoId).delete();
-      } catch (err) {
-        console.error("No se pudo borrar el archivo en Firestore", err);
-      }
+  // Borra un archivo (y sus partes, si es de los grandes) de `gd_archivos`.
+  async function borrarArchivoDeFirestore(archivoId) {
+    if (!_fbArchivosCol) return;
+    try {
+      const principal = await _fbArchivosCol.doc(archivoId).get();
+      const partes = (principal.exists && principal.data().partes) || 0;
+      for (let i = 0; i < partes; i++) await _fbArchivosCol.doc(`${archivoId}_p${i}`).delete();
+      await _fbArchivosCol.doc(archivoId).delete();
+    } catch (err) {
+      console.error("No se pudo borrar el archivo en Firestore", err);
     }
+  }
+
+  /**
+   * Cuánto espacio de Firestore ocupa Gestión Documental (aproximado): la
+   * suma de todos los archivos adjuntos (como se guardan, en base64, que
+   * pesa ~1/3 más que el archivo real) más el documento principal de datos.
+   * Se calcula con los datos que ya están en memoria, sin leer Firestore.
+   * No incluye lo de Gestión de Viajes, que comparte el mismo proyecto pero
+   * pesa muy poco (solo texto).
+   */
+  function usoAlmacenamiento() {
+    let bytesArchivos = 0;
+    let cantidadArchivos = 0;
+    _data.documentos.forEach((d) =>
+      (d.archivos || []).forEach((a) => {
+        bytesArchivos += Math.ceil(((a.tamanoBytes || 0) * 4) / 3) + 200;
+        cantidadArchivos++;
+      })
+    );
+    let bytesDatos = 0;
+    try { bytesDatos = JSON.stringify(_data).length; } catch (e) { /* no importa para el aproximado */ }
+    const usados = bytesArchivos + bytesDatos;
+    return {
+      usados,
+      limite: FIRESTORE_ESPACIO_GRATIS_BYTES,
+      porcentaje: usados / FIRESTORE_ESPACIO_GRATIS_BYTES,
+      cantidadArchivos,
+    };
+  }
+
+  async function eliminarArchivo(entidadId, documentoId, archivoId) {
+    await borrarArchivoDeFirestore(archivoId);
     const doc = _data.documentos.find((d) => d.id === documentoId);
     const archivoBorrado = doc && Array.isArray(doc.archivos) ? doc.archivos.find((a) => a.id === archivoId) : null;
     if (doc && Array.isArray(doc.archivos)) {
@@ -960,6 +1024,7 @@ const GD = (function () {
     listarArchivos,
     subirArchivo,
     eliminarArchivo,
+    usoAlmacenamiento,
     ARCHIVO_MAX_BYTES,
     listarEliminados,
     listarTiposDocumento,
