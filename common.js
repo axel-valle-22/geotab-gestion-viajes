@@ -1421,7 +1421,145 @@ GV.Storage = (function(){
   var _listeners = [];
       var _pendingWrites = 0;
     var _dirtyViajeIds = {}; var _removedViajeIds = {};
-    var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
+    var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); cargarHistorico(); setTimeout(function(){ archivarAntiguos(); }, 30000); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
+
+  /* ---------------- Archivo histórico ----------------
+     Todo Gestion de Viajes vive en UN solo documento de Firestore (gv_data/main) y Firestore no
+     deja que un documento pase de 1 MiB (aunque se pague). Para que nunca se llene, los viajes
+     completados/cancelados con mas de DIAS_HISTORICO dias, y las alertas de mas de DIAS_HISTORICO
+     dias, se mueven solos a gv_historico/AAAA-MM (un documento por mes; si un mes se llenara se
+     sigue en AAAA-MM_2, _3...). No se pierde nada: se leen al abrir y getViajes()/getViaje() los
+     siguen devolviendo, asi el calendario, la lista y las estadisticas muestran todo igual.
+     Si alguien edita un viaje ya archivado, vuelve solo al documento principal. */
+  var DIAS_HISTORICO = 90;
+  var MAX_POR_CORRIDA = 300; // tope de viajes/alertas movidos por vez (el resto en la proxima)
+  var MAX_BYTES_MES = 800 * 1024; // margen bajo el limite de 1 MiB por documento
+  var _hist = { viajes: [], alertaIds: {}, docDeViaje: {}, cargado: false };
+  var _archivadoCorrido = false;
+
+  function fechaDe(x){
+    var t = Date.parse((x && (x.fechaSalida || x.fecha || x.creadoEn)) || '');
+    return isNaN(t) ? null : t;
+  }
+  function claveMes(x){
+    var t = fechaDe(x); var d = new Date(t == null ? Date.now() : t);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+  }
+  function viajeArchivable(v, limite){
+    var t = fechaDe(v);
+    return (v.estado === 'completado' || v.estado === 'cancelado') && t != null && t < limite;
+  }
+  function alertaArchivable(a, limite){
+    var t = fechaDe(a);
+    return t != null && t < limite;
+  }
+
+  function cargarHistorico(){
+    if(!_fbDb) return Promise.resolve();
+    return _fbDb.collection('gv_historico').get().then(function(qs){
+      var viajes = [], ids = {}, docDe = {};
+      qs.forEach(function(doc){
+        var d = doc.data() || {};
+        (d.viajes || []).forEach(function(v){ viajes.push(v); docDe[v.id] = doc.id; });
+        (d.alertas || []).forEach(function(a){ if(a && a.id) ids[a.id] = true; });
+      });
+      _hist.viajes = viajes; _hist.alertaIds = ids; _hist.docDeViaje = docDe; _hist.cargado = true;
+      notify();
+    })['catch'](function(){ /* sin historico: se sigue con lo del documento principal */ });
+  }
+
+  // Mueve al historico lo viejo. Una transaccion de Firestore garantiza que se saque del
+  // documento principal y se agregue al mes al mismo tiempo (o nada, si algo falla).
+  function archivarAntiguos(){
+    if(_archivadoCorrido || !_fbDb || !_fbDocRef) return Promise.resolve(0);
+    var limite = Date.now() - DIAS_HISTORICO * 24 * 3600 * 1000;
+    var hayAlgo = _data.viajes.some(function(v){ return viajeArchivable(v, limite); }) ||
+                  _data.alertas.some(function(a){ return alertaArchivable(a, limite); });
+    if(!hayAlgo) return Promise.resolve(0);
+    _archivadoCorrido = true;
+    var movidos = 0;
+    var histCol = _fbDb.collection('gv_historico');
+    return _fbDb.runTransaction(function(tx){
+      return tx.get(_fbDocRef).then(function(snap){
+        var d = snap.exists ? snap.data() : {};
+        var viajes = (d.viajes || []).slice(), alertas = (d.alertas || []).slice();
+        var aMover = viajes.filter(function(v){ return viajeArchivable(v, limite); }).slice(0, MAX_POR_CORRIDA);
+        var alMover = alertas.filter(function(a){ return alertaArchivable(a, limite); }).slice(0, MAX_POR_CORRIDA);
+        if(!aMover.length && !alMover.length) return null;
+        var porMes = {};
+        aMover.forEach(function(v){ var k = claveMes(v); (porMes[k] = porMes[k] || { viajes: [], alertas: [] }).viajes.push(v); });
+        alMover.forEach(function(a){ var k = claveMes(a); (porMes[k] = porMes[k] || { viajes: [], alertas: [] }).alertas.push(a); });
+        var meses = Object.keys(porMes);
+        // Firestore exige hacer todas las lecturas antes de escribir: se leen hasta 5 documentos
+        // por mes (AAAA-MM, AAAA-MM_2 ... _5) para elegir en cual entra.
+        var refs = [];
+        meses.forEach(function(k){ for(var n = 1; n <= 5; n++){ refs.push({ mes: k, ref: histCol.doc(n === 1 ? k : k + '_' + n) }); } });
+        return Promise.all(refs.map(function(r){ return tx.get(r.ref); })).then(function(snaps){
+          var destinos = {};
+          meses.forEach(function(k){
+            var nuevo = porMes[k];
+            var tam = JSON.stringify(nuevo).length;
+            var ultimo = null;
+            for(var i = 0; i < refs.length; i++){
+              if(refs[i].mes !== k) continue;
+              var ex = snaps[i].exists ? snaps[i].data() : { viajes: [], alertas: [] };
+              ultimo = { ref: refs[i].ref, ex: ex };
+              if(JSON.stringify(ex).length + tam <= MAX_BYTES_MES){ destinos[k] = ultimo; break; }
+            }
+            if(!destinos[k]) destinos[k] = ultimo; // muy improbable: 5 documentos llenos en un mismo mes
+          });
+          meses.forEach(function(k){
+            var dst = destinos[k]; if(!dst) return;
+            var ex = dst.ex, nuevo = porMes[k];
+            var idsV = {}; (ex.viajes || []).forEach(function(v){ idsV[v.id] = true; });
+            var idsA = {}; (ex.alertas || []).forEach(function(a){ idsA[a.id] = true; });
+            tx.set(dst.ref, {
+              viajes: (ex.viajes || []).filter(function(v){ return !nuevo.viajes.some(function(n){ return n.id === v.id; }); }).concat(nuevo.viajes),
+              alertas: (ex.alertas || []).concat(nuevo.alertas.filter(function(a){ return !idsA[a.id]; })),
+              actualizadoEn: new Date().toISOString()
+            });
+          });
+          var sacarV = {}; aMover.forEach(function(v){ sacarV[v.id] = true; });
+          var sacarA = {}; alMover.forEach(function(a){ sacarA[a.id] = true; });
+          tx.set(_fbDocRef, {
+            viajes: viajes.filter(function(v){ return !sacarV[v.id]; }),
+            alertas: alertas.filter(function(a){ return !sacarA[a.id]; })
+          }, { merge: true });
+          movidos = aMover.length + alMover.length;
+          return true;
+        });
+      });
+    }).then(function(){ return cargarHistorico(); }).then(function(){ return movidos; })
+      ['catch'](function(err){ try{ console.warn('No se pudo pasar al historico (se reintenta la proxima vez):', err); }catch(e){} _archivadoCorrido = false; return 0; });
+  }
+
+  // Si se toca un viaje archivado (editarlo, reabrirlo), vuelve al documento principal.
+  function traerDelHistorico(id){
+    var idx = -1;
+    for(var i = 0; i < _hist.viajes.length; i++){ if(_hist.viajes[i].id === id){ idx = i; break; } }
+    if(idx < 0 || _data.viajes.some(function(v){ return v.id === id; })) return null;
+    var v = _hist.viajes[idx];
+    _hist.viajes.splice(idx, 1);
+    _data.viajes.push(v);
+    var docId = _hist.docDeViaje[id]; delete _hist.docDeViaje[id];
+    if(_fbDb && docId){
+      var ref = _fbDb.collection('gv_historico').doc(docId);
+      _fbDb.runTransaction(function(tx){
+        return tx.get(ref).then(function(s){
+          if(!s.exists) return;
+          var d = s.data();
+          tx.set(ref, { viajes: (d.viajes || []).filter(function(x){ return x.id !== id; }) }, { merge: true });
+        });
+      })['catch'](function(){});
+    }
+    return v;
+  }
+
+  function todosLosViajes(){
+    if(!_hist.viajes.length) return _data.viajes;
+    var activos = {}; _data.viajes.forEach(function(v){ activos[v.id] = true; });
+    return _data.viajes.concat(_hist.viajes.filter(function(v){ return !activos[v.id]; }));
+  }
 
   function loadFromLS(){
     try{
@@ -1573,26 +1711,29 @@ GV.Storage = (function(){
     init: init,
     refresh: refresh,
     onChange: function(fn){ _listeners.push(fn); },
-    getViajes: function(){ return _data.viajes; },
+    getViajes: function(){ return todosLosViajes(); },
+    archivarAntiguos: function(){ _archivadoCorrido = false; return archivarAntiguos(); },
+    historicoCargado: function(){ return _hist.cargado; },
     getConductores: function(){ return _data.conductores; },
     setConductores: function(list){ _data.conductores = list || []; return persist(); },
     getAlertas: function(){ return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
     addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = true; return persist(); },
     updateViaje: function(id, patch){
-      var v = _data.viajes.find(function(x){ return x.id === id; });
+      var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
       if(v){ Object.keys(patch).forEach(function(k){ v[k] = patch[k]; }); }
       if(id) _dirtyViajeIds[id] = true;
       return persist();
     },
-    markDirtyViaje: function(id){ if(id) _dirtyViajeIds[id] = true; },
+    markDirtyViaje: function(id){ if(id){ traerDelHistorico(id); _dirtyViajeIds[id] = true; } },
     removeViaje: function(id){
+      traerDelHistorico(id);
       _data.viajes = _data.viajes.filter(function(v){ return v.id !== id; });
       if(id){ _removedViajeIds[id] = true; delete _dirtyViajeIds[id]; }
       return persist();
     },
-    getViaje: function(id){ return _data.viajes.find(function(v){ return v.id === id; }); },
+    getViaje: function(id){ return _data.viajes.find(function(v){ return v.id === id; }) || _hist.viajes.find(function(v){ return v.id === id; }); },
     addAlerta: function(a){
-      if(_data.alertas.some(function(x){ return x.id === a.id; })) return Promise.resolve(false);
+      if(_data.alertas.some(function(x){ return x.id === a.id; }) || _hist.alertaIds[a.id]) return Promise.resolve(false);
       _data.alertas.push(a); return persist();
     },
     removeAlerta: function(id){
