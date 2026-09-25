@@ -49,6 +49,13 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
   // el filtro de Estado con ese valor para que la tabla ya aparezca filtrada.
   const estadoInicial = params.estadoFiltro || "";
 
+  // Los filtros se recuerdan entre redibujos: la pantalla se vuelve a dibujar
+  // sola cada vez que llega un cambio de datos en tiempo real (otra persona
+  // guarda algo, el medidor, etc.), y antes eso dejaba los filtros vacíos.
+  const F = (window.__gdFiltrosEntidades = window.__gdFiltrosEntidades || { texto: "", tipo: "", estado: "", doc: "", falta: "" });
+  if (params.estadoFiltro && F._estadoParam !== params.estadoFiltro) { F.estado = params.estadoFiltro; F._estadoParam = params.estadoFiltro; }
+  const focoPrevio = document.activeElement && document.activeElement.id;
+
   const tiposDocumento = await GD.listarTiposDocumento();
   // Nombres de tipos de documento (sin repetir) para el filtro "Le falta…".
   const nombresTipos = [...new Set(tiposDocumento.filter((t) => t.tipoEntidad !== "Seguros" && t.activo !== false).map((t) => t.nombre))]
@@ -66,10 +73,10 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
       </select>
       <select id="gd-f-estado">
         <option value="">Estado</option>
-        <option value="vigente" ${estadoInicial === "vigente" ? "selected" : ""}>Vigente</option>
-        <option value="preaviso" ${estadoInicial === "preaviso" ? "selected" : ""}>Preaviso</option>
-        <option value="vencido" ${estadoInicial === "vencido" ? "selected" : ""}>Vencido</option>
-        <option value="faltante" ${estadoInicial === "faltante" ? "selected" : ""}>Faltante</option>
+        <option value="vigente">Vigente</option>
+        <option value="preaviso">Preaviso</option>
+        <option value="vencido">Vencido</option>
+        <option value="faltante">Faltante</option>
       </select>
       <select id="gd-f-doc" title="Control de carga de documentación">
         <option value="">Documentación</option>
@@ -165,9 +172,18 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   });
 
-  ["gd-f-texto", "gd-f-tipo", "gd-f-estado", "gd-f-doc", "gd-f-falta"].forEach((id) =>
-    document.getElementById(id).addEventListener("input", refrescar)
-  );
+  const camposFiltro = { "gd-f-texto": "texto", "gd-f-tipo": "tipo", "gd-f-estado": "estado", "gd-f-doc": "doc", "gd-f-falta": "falta" };
+  Object.entries(camposFiltro).forEach(([id, clave]) => {
+    const el = document.getElementById(id);
+    el.value = F[clave] || "";
+    el.addEventListener("input", () => { F[clave] = el.value; refrescar(); });
+  });
+  // Si se estaba escribiendo en el buscador cuando se redibujó, se devuelve el foco.
+  if (focoPrevio === "gd-f-texto") {
+    const t = document.getElementById("gd-f-texto");
+    t.focus();
+    t.setSelectionRange(t.value.length, t.value.length);
+  }
 
   refrescar();
 };
