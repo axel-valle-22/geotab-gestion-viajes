@@ -334,7 +334,10 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
   };
 
   const st = {
-    editing: !doc.id, // un documento nuevo arranca directo en modo edición
+    // Arranca directo en modo edición si es nuevo, o si todavía no tiene
+    // fechas cargadas (por ejemplo, se creó al subir el archivo primero): así
+    // no hay que buscar el botón "Editar" para completar las fechas.
+    editing: !doc.id || (!doc.sinVencimiento && !doc.fechaDesde && !doc.fechaHasta),
     guardando: false,
     subiendo: false,
     msgGuardar: "",
@@ -511,7 +514,7 @@ function abrirModalDocumento({ entidad, entidadId, doc, tipo, tiposDocumentoOpci
           ${seccionAccordion("archivos", 3, `Archivos adjuntos (${st.archivos.length})`, htmlArchivos())}
           ${seccionAccordion("extra", 4, "Datos extra", htmlExtra())}
         </div>
-        <div class="gd-modal-actions">
+        <div class="gd-modal-actions" style="position:sticky;bottom:0;background:#fff;z-index:2">
           ${st.msgGuardar ? `<span class="gd-archivos-msg ${st.msgGuardar.startsWith("Error") ? "gd-error" : "gd-ok"}" style="margin-right:auto">${st.msgGuardar}</span>` : ""}
           ${htmlAcciones()}
         </div>
