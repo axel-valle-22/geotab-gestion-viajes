@@ -357,7 +357,10 @@ GV.injectCSS = function(containerId){
 GV.GOOGLE_MAPS_API_KEY = 'AIzaSyAxnEKemi5U2aADw1y6FfEA2vuwgFovEPQ';
 
 GV.loadGoogleMaps = function(){
-  if(GV._gmapsPromise) return GV._gmapsPromise;
+  /* Arreglo 25/9: se devuelve siempre el window.google VIGENTE, no el que habia cuando se cargo
+     por primera vez -- MyGeotab puede reemplazarlo al abrir una pantalla nativa con mapa y
+     mezclar clases de dos copias distintas rompe los mapas ("setMap: not an instance of Map"). */
+  if(GV._gmapsPromise) return GV._gmapsPromise.then(function(){ return window.google; });
   GV._gmapsPromise = new Promise(function(resolve, reject){
     if(window.google && window.google.maps){ resolve(window.google); return; }
     if(!GV.GOOGLE_MAPS_API_KEY || GV.GOOGLE_MAPS_API_KEY.indexOf('TU_CLAVE') === 0){
@@ -372,7 +375,7 @@ GV.loadGoogleMaps = function(){
     script.onerror = function(){ reject(new Error('No se pudo cargar Google Maps (revisa la clave de API, la facturacion y las restricciones de dominio en Google Cloud Console).')); };
     document.head.appendChild(script);
   });
-  return GV._gmapsPromise;
+  return GV._gmapsPromise.then(function(){ return window.google; });
 };
 
 /* ---------------- Grupo de overlays (equivalente al LayerGroup de Leaflet) ---------------- */
