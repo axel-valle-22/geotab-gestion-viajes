@@ -49,6 +49,11 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
   // el filtro de Estado con ese valor para que la tabla ya aparezca filtrada.
   const estadoInicial = params.estadoFiltro || "";
 
+  const tiposDocumento = await GD.listarTiposDocumento();
+  // Nombres de tipos de documento (sin repetir) para el filtro "Le falta…".
+  const nombresTipos = [...new Set(tiposDocumento.filter((t) => t.tipoEntidad !== "Seguros" && t.activo !== false).map((t) => t.nombre))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+
   container.innerHTML = `
     <h2>Entidades</h2>
     <div class="gd-filtros">
@@ -66,12 +71,27 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
         <option value="vencido" ${estadoInicial === "vencido" ? "selected" : ""}>Vencido</option>
         <option value="faltante" ${estadoInicial === "faltante" ? "selected" : ""}>Faltante</option>
       </select>
+      <select id="gd-f-doc" title="Control de carga de documentación">
+        <option value="">Documentación</option>
+        <option value="sin">Sin ningún documento</option>
+        <option value="con">Con documentos cargados</option>
+      </select>
+      <select id="gd-f-falta" title="Entidades a las que les falta cargar este documento">
+        <option value="">Le falta…</option>
+        ${nombresTipos.map((n) => `<option value="${n}">${n}</option>`).join("")}
+      </select>
+      <button type="button" class="gd-btn gd-btn-sec" id="gd-btn-exportar" title="Descargar la lista filtrada para trabajar en Excel">Exportar a Excel</button>
     </div>
+    <p class="gd-hint" id="gd-resumen-carga"></p>
     <table class="gd-tabla">
-      <thead><tr><th>Descripción</th><th>Tipo</th><th>Detalle</th></tr></thead>
-      <tbody id="gd-tabla-body"><tr><td colspan="3">Cargando…</td></tr></tbody>
+      <thead><tr><th>Descripción</th><th>Tipo</th><th>Documentos cargados</th><th>Detalle</th></tr></thead>
+      <tbody id="gd-tabla-body"><tr><td colspan="4">Cargando…</td></tr></tbody>
     </table>
   `;
+
+  const norm = (t) => String(t || "").trim().toLowerCase();
+  const nombreTipo = (d) => d.tipoDocumentoNombre || (tiposDocumento.find((t) => t.id === d.tipoDocumentoId) || {}).nombre || "";
+  let filasActuales = [];
 
   async function refrescar() {
     const items = await GD.listarEntidades({
@@ -79,26 +99,73 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
       tipo: document.getElementById("gd-f-tipo").value || null,
       estado: document.getElementById("gd-f-estado").value || null,
     });
+    const filtroDoc = document.getElementById("gd-f-doc").value;
+    const filtroFalta = document.getElementById("gd-f-falta").value;
+
+    // Para cada entidad: qué documentos tiene cargados y cuáles de los tipos
+    // de su clase (Vehículo, Operador…) todavía no.
+    const filas = [];
+    for (const e of items) {
+      const docs = await GD.listarDocumentosDeEntidad(e.id);
+      const cargados = [...new Set(docs.map(nombreTipo).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+      const tiposDeSuClase = tiposDocumento.filter((t) => t.tipoEntidad === e.tipo && t.activo !== false).map((t) => t.nombre);
+      const faltan = tiposDeSuClase.filter((n) => !cargados.some((c) => norm(c) === norm(n)));
+      if (filtroDoc === "sin" && docs.length) continue;
+      if (filtroDoc === "con" && !docs.length) continue;
+      if (filtroFalta) {
+        const correspondeASuClase = tiposDeSuClase.some((n) => norm(n) === norm(filtroFalta));
+        if (!correspondeASuClase || cargados.some((c) => norm(c) === norm(filtroFalta))) continue;
+      }
+      filas.push({ e, cantidad: docs.length, cargados, faltan });
+    }
+    filasActuales = filas;
+
+    const sinNinguno = filas.filter((f) => !f.cantidad).length;
+    document.getElementById("gd-resumen-carga").textContent =
+      `Mostrando ${filas.length} entidad(es)` + (sinNinguno ? ` · ${sinNinguno} sin ningún documento cargado` : "");
+
     const body = document.getElementById("gd-tabla-body");
-    body.innerHTML = items.length
-      ? items
+    body.innerHTML = filas.length
+      ? filas
           .map(
-            (e) => `
+            ({ e, cantidad, cargados }) => `
         <tr>
           <td>${e.descripcion}</td>
           <td>${e.tipo}</td>
+          <td title="${cargados.join(", ")}">${
+            cantidad
+              ? `${cantidad} documento(s)`
+              : `<span style="color:#dc2626;font-weight:600">Sin documentación</span>`
+          }</td>
           <td><button class="gd-link" data-id="${e.id}">Ver</button></td>
         </tr>`
           )
           .join("")
-      : `<tr><td colspan="3">Sin resultados</td></tr>`;
+      : `<tr><td colspan="4">Sin resultados</td></tr>`;
 
     body.querySelectorAll("button[data-id]").forEach((btn) =>
       btn.addEventListener("click", () => window.gdApp.navegar("entidades", { entidadId: btn.dataset.id }))
     );
   }
 
-  ["gd-f-texto", "gd-f-tipo", "gd-f-estado"].forEach((id) =>
+  // Exporta la lista filtrada a un archivo que abre directo en Excel
+  // (CSV separado por ";" y con BOM para que respete acentos y eñes).
+  document.getElementById("gd-btn-exportar").addEventListener("click", () => {
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lineas = [["Entidad", "Tipo", "Cantidad de documentos", "Documentos cargados", "Documentos sin cargar"].map(esc).join(";")];
+    filasActuales.forEach(({ e, cantidad, cargados, faltan }) =>
+      lineas.push([e.descripcion, e.tipo, cantidad, cargados.join(", "), faltan.join(", ")].map(esc).join(";"))
+    );
+    const blob = new Blob(["\ufeff" + lineas.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `control-documentacion-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  });
+
+  ["gd-f-texto", "gd-f-tipo", "gd-f-estado", "gd-f-doc", "gd-f-falta"].forEach((id) =>
     document.getElementById(id).addEventListener("input", refrescar)
   );
 
