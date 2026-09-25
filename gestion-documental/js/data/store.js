@@ -1025,17 +1025,63 @@ const GD = (function () {
       new Promise((resolve) => _api.call("Get", { typeName: "User", search: {} }, resolve, () => resolve([]))),
     ]);
 
+    // Get/Device devuelve también los equipos dados de baja (por ejemplo el GO
+    // viejo cuando se le cambia el equipo a un vehículo): esos quedan con
+    // `activeTo` en el pasado. Antes se creaba una entidad por cada equipo, y
+    // por eso un mismo vehículo (ej. "L61 - AH423ST") aparecía DOS veces: una
+    // con el equipo viejo (con todos sus documentos) y otra con el nuevo
+    // (vacía). Ahora solo se usan los equipos activos, y si un vehículo con el
+    // mismo nombre ya existía con un equipo viejo, se reutiliza esa entidad.
+    const ahora = Date.now();
+    const esActivo = (dev) => !dev.activeTo || new Date(dev.activeTo).getTime() > ahora;
+    const activos = (devices || []).filter(esActivo);
+    const idsActivos = new Set(activos.map((d) => d.id));
+    const normNombre = (t) => String(t || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const vehiculoDe = (e) => e.tipo === "Vehiculo" && e.activo !== false;
+
     let nuevosVehiculos = 0;
-    (devices || []).forEach((dev) => {
-      const id = `veh_${dev.id}`;
-      let ent = _data.entidades.find((e) => e.id === id);
+    activos.forEach((dev) => {
+      let ent =
+        _data.entidades.find((e) => e.geotabId === dev.id) ||
+        _data.entidades.find((e) => e.id === `veh_${dev.id}`) ||
+        // Cambio de equipo: mismo nombre, pero la entidad apunta a un equipo que ya no está activo.
+        _data.entidades.find((e) => vehiculoDe(e) && !idsActivos.has(e.geotabId) && normNombre(e.descripcion) === normNombre(dev.name));
       if (!ent) {
-        ent = { id, tipo: "Vehiculo", activo: true, funciones: [] };
+        ent = { id: `veh_${dev.id}`, tipo: "Vehiculo", activo: true, funciones: [] };
         _data.entidades.push(ent);
         nuevosVehiculos++;
       }
       ent.descripcion = dev.name;
       ent.geotabId = dev.id;
+    });
+
+    // Limpieza de duplicados que ya se hubieran creado: si hay dos entidades
+    // de vehículo con el mismo nombre y una apunta a un equipo dado de baja,
+    // sus documentos pasan a la del equipo activo y la vieja se desactiva.
+    // Si las dos tienen un documento del mismo tipo, se deja todo como está
+    // en la vieja (no se pierde nada) para revisarlo a mano.
+    let fusionados = 0;
+    const vehiculos = _data.entidades.filter(vehiculoDe);
+    vehiculos.forEach((vieja) => {
+      if (!vieja.geotabId || idsActivos.has(vieja.geotabId)) return;
+      const actual = vehiculos.find(
+        (e) => e !== vieja && e.activo !== false && idsActivos.has(e.geotabId) && normNombre(e.descripcion) === normNombre(vieja.descripcion)
+      );
+      if (!actual) return;
+      const docsViejos = _data.documentos.filter((d) => d.entidadId === vieja.id && d.activo !== false);
+      const tiposActuales = new Set(_data.documentos.filter((d) => d.entidadId === actual.id && d.activo !== false).map((d) => d.tipoDocumentoId));
+      if (docsViejos.some((d) => tiposActuales.has(d.tipoDocumentoId))) {
+        console.warn(`Gestión Documental: "${vieja.descripcion}" está duplicado y ambos tienen documentos del mismo tipo; revisar a mano.`);
+        return;
+      }
+      _data.documentos.filter((d) => d.entidadId === vieja.id).forEach((d) => { d.entidadId = actual.id; });
+      vieja.activo = false;
+      vieja.fusionadoEn = actual.id;
+      registrarAuditoria(actual.id, null, "entidad_fusionada", {
+        entidadNombre: actual.descripcion,
+        detalle: `Se unificó con la entidad duplicada del equipo dado de baja (${vieja.geotabId}); ${docsViejos.length} documento(s) movidos.`,
+      });
+      fusionados++;
     });
 
     let nuevosChoferes = 0;
@@ -1065,7 +1111,7 @@ const GD = (function () {
 
     await persistir();
     notify();
-    return { vehiculos: nuevosVehiculos, choferes: nuevosChoferes, totalVehiculos: devices.length, totalChoferes: nuevosChoferes };
+    return { vehiculos: nuevosVehiculos, choferes: nuevosChoferes, totalVehiculos: activos.length, totalChoferes: nuevosChoferes, fusionados };
   }
 
   return {
