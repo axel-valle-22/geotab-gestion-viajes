@@ -79,9 +79,10 @@
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real</h2>
-<button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button>
+<div style="display:flex;gap:6px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
 </div>
-<div id="gv-track-map" style="height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
+<!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
+<div id="gv-track-map" style="display:none;height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
 <div id="gv-track-list"></div>
 </div>
 
@@ -1323,6 +1324,16 @@ abrirDetalleViaje(id);
   });
 
   document.getElementById('gv-btn-refresh-track').addEventListener('click', renderTracking);
+  /* Desplegar / minimizar el mapa de Seguimiento. Al desplegarlo se vuelve a renderizar para
+     que Google Maps tome el tamano real del contenedor (estaba oculto) y encuadre los viajes. */
+  document.getElementById('gv-btn-toggle-track-map').addEventListener('click', function(){
+    var mapBox = document.getElementById('gv-track-map');
+    var abrir = mapBox.style.display === 'none';
+    mapBox.style.display = abrir ? 'block' : 'none';
+    this.textContent = abrir ? 'Ocultar mapa' : 'Mostrar mapa';
+    this.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+    if(abrir) renderTracking();
+  });
 
   var gerList = document.getElementById('gv-gerenciamientos-list');
   if(gerList){
