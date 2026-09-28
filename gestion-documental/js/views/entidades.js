@@ -237,7 +237,10 @@ async function renderDetalle(container, entidadId) {
   };
 
   container.innerHTML = `
-    <button class="gd-link" id="gd-volver">&larr; Volver</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <button class="gd-link" id="gd-volver">&larr; Volver</button>
+      <button type="button" class="gd-btn gd-btn-sm gd-btn-danger" id="gd-btn-eliminar-entidad">Eliminar entidad</button>
+    </div>
     <h2>${entidad.descripcion} <small style="color:#8A8F9C;font-weight:500;font-size:.85rem">(${entidad.tipo})</small></h2>
 
     <h3>Requeridos</h3>
@@ -281,6 +284,18 @@ async function renderDetalle(container, entidadId) {
         abrirTarjeta(card.dataset.docId || null, card.dataset.tipoId);
       }
     });
+  });
+
+  document.getElementById("gd-btn-eliminar-entidad").addEventListener("click", async () => {
+    const n = documentos.length;
+    const aviso =
+      `¿Eliminar "${entidad.descripcion}"?\n\n` +
+      (n ? `Tiene ${n} documento(s) cargado(s): no se borran, quedan guardados junto con la entidad.\n` : "") +
+      `Deja de aparecer en todas las pantallas (también en la app del chofer) y "Sincronizar con Geotab" no la vuelve a crear.\n` +
+      `Se puede restaurar desde Eliminados.`;
+    if (!confirm(aviso)) return;
+    await GD.eliminarEntidad(entidadId);
+    window.gdApp.navegar("entidades");
   });
 
   // Alta de un documento de cualquier tipo (no solo los requeridos por una
