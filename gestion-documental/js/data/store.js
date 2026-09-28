@@ -287,6 +287,13 @@ if (typeof window !== "undefined") {
   window.gdFechaDeTs = gdFechaDeTs;
 }
 
+// Criterio único para los nombres de las entidades: todo en MAYÚSCULAS y
+// sin espacios dobles (ej. "Axel Valle" y "ALFONSO  OSCAR" → "AXEL VALLE",
+// "ALFONSO OSCAR").
+function gdNombreEntidad(t) {
+  return String(t || "").replace(/\s+/g, " ").trim().toLocaleUpperCase("es-AR");
+}
+
 function calcularEstado(doc, hoy = new Date()) {
   if (!doc || doc.activo === false) return null;
   if (doc.sinVencimiento) return ESTADOS.VIGENTE;
@@ -471,6 +478,12 @@ const GD = (function () {
         }
       });
     });
+    // Nombres de entidades: todos en mayúsculas (ver gdNombreEntidad).
+    (_data.entidades || []).forEach((e) => {
+      if (e.id === SEGUROS_ENTIDAD_ID || !e.descripcion) return;
+      const n = gdNombreEntidad(e.descripcion);
+      if (n !== e.descripcion) { e.descripcion = n; cambios++; }
+    });
     if (!cambios) return;
     _corrigiendoFechas = true;
     console.info(`Gestión Documental: se corrigieron ${cambios} fecha(s) guardadas con el formato viejo.`);
@@ -547,6 +560,7 @@ const GD = (function () {
 
   async function crearEntidad(datos) {
     const ent = { id: uid("ent"), activo: true, funciones: [], ...datos };
+    if (ent.descripcion) ent.descripcion = gdNombreEntidad(ent.descripcion);
     _data.entidades.push(ent);
     await persistir();
     return ent.id;
@@ -612,6 +626,39 @@ const GD = (function () {
       documentoNombre: doc.tipoDocumentoNombre || _nombreTipoDocumento(doc.tipoDocumentoId),
     });
     await persistir();
+  }
+
+  // Eliminar una entidad (chofer, vehículo…): se oculta de todas las
+  // pantallas pero NO se borra, así "Sincronizar con Geotab" no la vuelve a
+  // crear (la reconoce como ya existente y la deja oculta) y se puede
+  // restaurar desde Eliminados con sus documentos intactos.
+  async function eliminarEntidad(entidadId) {
+    const ent = _data.entidades.find((e) => e.id === entidadId);
+    if (!ent) return;
+    ent.activo = false;
+    ent.eliminadoManual = true;
+    ent.eliminadoPor = usuarioActual();
+    ent.eliminadoEn = Date.now();
+    registrarAuditoria(entidadId, null, "entidad_eliminada", { entidadNombre: ent.descripcion });
+    await persistir();
+    notify();
+  }
+  async function restaurarEntidad(entidadId) {
+    const ent = _data.entidades.find((e) => e.id === entidadId);
+    if (!ent) return;
+    ent.activo = true;
+    delete ent.eliminadoManual;
+    delete ent.eliminadoPor;
+    delete ent.eliminadoEn;
+    registrarAuditoria(entidadId, null, "entidad_restaurada", { entidadNombre: ent.descripcion });
+    await persistir();
+    notify();
+  }
+  async function listarEntidadesEliminadas() {
+    return _data.entidades
+      .filter((e) => e.eliminadoManual && e.activo === false)
+      .map((e) => ({ ...e, cantidadDocumentos: _data.documentos.filter((d) => d.entidadId === e.id && d.activo !== false).length }))
+      .sort((a, b) => (b.eliminadoEn || 0) - (a.eliminadoEn || 0));
   }
 
   async function restaurarDocumento(entidadId, documentoId) {
@@ -1051,7 +1098,7 @@ const GD = (function () {
         _data.entidades.push(ent);
         nuevosVehiculos++;
       }
-      ent.descripcion = dev.name;
+      ent.descripcion = gdNombreEntidad(dev.name);
       ent.geotabId = dev.id;
     });
 
@@ -1094,7 +1141,7 @@ const GD = (function () {
           ent = { id, tipo: "Operador", activo: true, funciones: [] };
           _data.entidades.push(ent);
         }
-        ent.descripcion = `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.name;
+        ent.descripcion = gdNombreEntidad(`${u.firstName || ""} ${u.lastName || ""}`.trim() || u.name);
         ent.geotabId = u.id;
 
         // Publicamos también en `choferes` para que "Mis Documentos" (en la
@@ -1135,6 +1182,9 @@ const GD = (function () {
     usoAlmacenamiento,
     ARCHIVO_MAX_BYTES,
     listarEliminados,
+    eliminarEntidad,
+    restaurarEntidad,
+    listarEntidadesEliminadas,
     listarTiposDocumento,
     crearTipoDocumento,
     eliminarTipoDocumento,
