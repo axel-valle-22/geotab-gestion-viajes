@@ -10,7 +10,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Gestión Documental</title>
-  <link rel="stylesheet" href="css/styles.css?v=16" />
+  <link rel="stylesheet" href="css/styles.css?v=17" />
 
   <!-- Firebase se carga dinámicamente desde store.js (mismo CDN/versión que
        usa Gestión de Viajes), no hace falta declararlo acá. -->
@@ -84,24 +84,24 @@
   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script src="js/firebase-config.js?v=16"></script>
+  <script src="js/firebase-config.js?v=17"></script>
   <!-- Optimizador de PDF sin pérdida (usa pdf-lib/pako de cdnjs, que se
        cargan solos recién cuando hace falta): store.js lo prueba antes de
        rasterizar un PDF pesado. -->
-  <script src="js/data/pdf-optimizador.js?v=16"></script>
-  <script src="js/data/store.js?v=16"></script>
-  <script src="js/geotab-api.js?v=16"></script>
-  <script src="js/views/indicadores.js?v=16"></script>
-  <script src="js/views/entidades.js?v=16"></script>
-  <script src="js/views/seguros.js?v=16"></script>
-  <script src="js/views/eliminados.js?v=16"></script>
-  <script src="js/views/alertas.js?v=16"></script>
-  <script src="js/views/reportes.js?v=16"></script>
-  <script src="js/views/tiposDocumento.js?v=16"></script>
-  <script src="js/views/funciones.js?v=16"></script>
-  <script src="js/views/usuarios.js?v=16"></script>
-  <script src="js/views/auditoria.js?v=16"></script>
-  <script src="js/app.js?v=16"></script>
+  <script src="js/data/pdf-optimizador.js?v=17"></script>
+  <script src="js/data/store.js?v=17"></script>
+  <script src="js/geotab-api.js?v=17"></script>
+  <script src="js/views/indicadores.js?v=17"></script>
+  <script src="js/views/entidades.js?v=17"></script>
+  <script src="js/views/seguros.js?v=17"></script>
+  <script src="js/views/eliminados.js?v=17"></script>
+  <script src="js/views/alertas.js?v=17"></script>
+  <script src="js/views/reportes.js?v=17"></script>
+  <script src="js/views/tiposDocumento.js?v=17"></script>
+  <script src="js/views/funciones.js?v=17"></script>
+  <script src="js/views/usuarios.js?v=17"></script>
+  <script src="js/views/auditoria.js?v=17"></script>
+  <script src="js/app.js?v=17"></script>
   <script>
     // Medidor de almacenamiento: se actualiza solo con cada cambio de datos.
     (function () {
@@ -110,12 +110,17 @@
         var box = document.getElementById("gd-almacenamiento");
         if (!box || !window.GD || !GD.usoAlmacenamiento) return;
         var u = GD.usoAlmacenamiento();
+        // Plan Blaze: el GB gratis se puede pasar; solo se paga el excedente.
         var pct = Math.min(100, Math.round(u.porcentaje * 100));
-        var color = pct >= 90 ? "#dc2626" : pct >= 70 ? "#f59e0b" : "#16a34a";
-        var aviso = pct >= 90 ? "Casi lleno: borrá archivos viejos o pasá a un plan pago."
-                  : pct >= 70 ? "Atención: más del 70% usado." : "";
+        var excede = u.usados > u.limite;
+        var cercaTope = u.tope && u.usados >= u.tope * 0.8;
+        var color = cercaTope ? "#dc2626" : excede ? "#2563eb" : pct >= 80 ? "#f59e0b" : "#16a34a";
+        var costo = (u.costoMensualUSD || 0) < 0.01 ? "menos de US$ 0,01" : "~US$ " + u.costoMensualUSD.toFixed(2).replace(".", ",");
+        var aviso = cercaTope ? "Cerca del tope de seguridad (" + mb(u.tope) + ")."
+                  : excede ? "Excedente del GB gratis: " + costo + " por mes."
+                  : pct >= 80 ? "Pronto se pasa del GB gratis (después se cobra el excedente)." : "";
         box.innerHTML =
-          '<div style="margin-bottom:4px">Almacenamiento: ' + mb(u.usados) + " de " + mb(u.limite) + " (" + pct + "%)</div>" +
+          '<div style="margin-bottom:4px">Almacenamiento: ' + mb(u.usados) + (excede ? "" : " de " + mb(u.limite) + " gratis (" + pct + "%)") + "</div>" +
           '<div style="height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden">' +
             '<div style="height:100%;width:' + Math.max(pct, 1) + "%;background:" + color + '"></div></div>' +
           '<div style="margin-top:4px">' + u.cantidadArchivos + " archivo(s)" + (aviso ? ' · <b style="color:' + color + '">' + aviso + "</b>" : "") + "</div>";
