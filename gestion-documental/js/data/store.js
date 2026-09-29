@@ -83,8 +83,14 @@ const MAX_ARCHIVO_PARTIDO_CHARS = 20 * 1024 * 1024; // ~15 MB de archivo real co
 // Firebase. Se usa para el medidor de almacenamiento y para frenar las
 // subidas antes de llegar al tope (si se pasa, Firebase puede cortar el
 // servicio hasta que se libere espacio o se pase a un plan pago).
-const FIRESTORE_ESPACIO_GRATIS_BYTES = 1024 * 1024 * 1024; // 1 GiB
-const USO_MAXIMO_PARA_SUBIR = 0.95; // por encima de esto no se aceptan archivos nuevos
+const FIRESTORE_ESPACIO_GRATIS_BYTES = 1024 * 1024 * 1024; // 1 GiB gratis
+// Desde el 29/09/2026 el proyecto está en el plan Blaze (pago por uso): se
+// puede pasar del GB gratis y solo se paga el excedente (~US$ 0,15 por GB
+// por mes según la página de precios de Google Cloud). El tope de seguridad
+// evita que un error suba gigas sin que nadie se entere: al llegar ahí se
+// frenan las subidas nuevas hasta revisarlo.
+const PRECIO_GB_MES_USD = 0.15;
+const TOPE_SEGURIDAD_BYTES = 20 * 1024 * 1024 * 1024; // 20 GiB ≈ US$ 3 por mes
 
 function leerArchivoComoDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -740,9 +746,9 @@ const GD = (function () {
     // guardado, así nunca se pierde el viejo si la subida falla).
     const reemplazarIds = (opciones.reemplazarIds || []).filter(Boolean);
     const uso = usoAlmacenamiento();
-    if (uso.porcentaje >= USO_MAXIMO_PARA_SUBIR && !reemplazarIds.length) {
+    if (uso.usados >= TOPE_SEGURIDAD_BYTES && !reemplazarIds.length) {
       throw new Error(
-        `El almacenamiento está casi lleno (${Math.round(uso.porcentaje * 100)}%). Borrá archivos que ya no se usen o pasá Firebase a un plan pago antes de subir más.`
+        "Se llegó al tope de seguridad de almacenamiento (20 GB). Revisá si hay archivos repetidos o que ya no se usen, o subí el tope en store.js, antes de cargar más."
       );
     }
 
@@ -883,6 +889,8 @@ const GD = (function () {
       usados,
       limite: FIRESTORE_ESPACIO_GRATIS_BYTES,
       porcentaje: usados / FIRESTORE_ESPACIO_GRATIS_BYTES,
+      tope: TOPE_SEGURIDAD_BYTES,
+      costoMensualUSD: Math.max(0, (usados - FIRESTORE_ESPACIO_GRATIS_BYTES) / (1024 * 1024 * 1024)) * PRECIO_GB_MES_USD,
       cantidadArchivos,
     };
   }
