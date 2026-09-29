@@ -1282,6 +1282,23 @@ GV.loadGvpPlayer = function(){
 
 /* ---------------- Almacenamiento compartido (AddInData + respaldo localStorage) ---------------- */
 /* ---------------- Ruteo real por calles (OSRM) ---------------- */
+/* Tiempos de manejo de CAMION (arreglo 29/9): OSRM calcula los tiempos para un auto, y los camiones
+   de la flota (casi siempre cargados, con restriccion de velocidad y trafico) tardan bastante mas.
+   Caso real que motivo el ajuste: T289 - Vera Luis Miguel, SIDERCA Senillosa -> Aguila Mora 2302
+   (222 km): OSRM estimaba 3h02 y el camion tardo 3h46 (~59 km/h de promedio).
+   La duracion de cada tramo es la MAYOR entre:
+     - la de OSRM multiplicada por GV.FACTOR_TIEMPO_CAMION, y
+     - la distancia recorrida a GV.VEL_PROMEDIO_MAX_CAMION_KMH (un camion no promedia mas que eso
+       en ruta aunque OSRM diga que la ruta es rapida).
+   Son valores de arranque: si los viajes siguen llegando antes o despues de lo estimado, se
+   ajustan solo estos dos numeros y se recalculan todos los horarios estimados. */
+GV.FACTOR_TIEMPO_CAMION = 1.3;
+GV.VEL_PROMEDIO_MAX_CAMION_KMH = 60;
+GV.duracionCamionSeg = function(distanciaM, duracionAutoSeg){
+  var porFactor = (duracionAutoSeg || 0) * (GV.FACTOR_TIEMPO_CAMION || 1);
+  var porVelocidad = (distanciaM || 0) / 1000 / (GV.VEL_PROMEDIO_MAX_CAMION_KMH || 60) * 3600;
+  return Math.max(porFactor, porVelocidad);
+};
 GV.getRoute = function(points){
 return new Promise(function(resolve){
 try{
@@ -1292,8 +1309,9 @@ fetch(url).then(function(r){ return r.json(); }).then(function(data){
 if(data && data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].geometry && data.routes[0].geometry.coordinates){
 var route = data.routes[0];
 var coords = route.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
-var legs = (route.legs || []).map(function(lg){ return { distance: lg.distance, duration: lg.duration }; });
-resolve({ coords: coords, distance: route.distance, duration: route.duration, legs: legs });
+var legs = (route.legs || []).map(function(lg){ return { distance: lg.distance, duration: GV.duracionCamionSeg(lg.distance, lg.duration), durationAuto: lg.duration }; });
+var durTotal = legs.reduce(function(acc, lg){ return acc + (lg.duration || 0); }, 0);
+resolve({ coords: coords, distance: route.distance, duration: legs.length ? durTotal : GV.duracionCamionSeg(route.distance, route.duration), durationAuto: route.duration, legs: legs });
 } else { resolve(null); }
 }).catch(function(){ resolve(null); });
 }catch(e){ resolve(null); }
