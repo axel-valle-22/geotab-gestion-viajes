@@ -657,6 +657,80 @@ cerrarOAvisarLlegadaDestino(vv, hitISO, GV.siteNameFor(vv.destino) || 'Destino')
 });
 });
 }
+/* ---------------- Cierre automatico de viajes SIN destino programado (barrido de historial) ----------------
+   Arreglo 30/9 (bug real: T313 - Bittar Elvis Ivan, viaje del 29/9, termino la descarga en Aguila Mora
+   2302 a las 17:56 y al dia siguiente seguia figurando "Demorado"). Un viaje sin destino se cierra
+   cuando la unidad SALE del ultimo sitio, pero eso solo se detectaba en vivo (checkDwellAlerts), si
+   el panel estaba abierto justo mientras la unidad estaba en ese sitio y cuando se iba. Si nadie
+   tenia el panel abierto en ese momento, el estado guardado del viaje se quedaba en un sitio anterior
+   y cuando se volvia a abrir la unidad ya estaba en otro lado: nunca se cerraba. checkDestinoLlegadas
+   resuelve ese caso para los viajes CON destino; esta funcion hace lo mismo para los que no tienen:
+   recorre el historial de GPS desde el inicio del viaje, sitio por sitio y en orden, exigiendo
+   GV.MIN_DWELL_MIN minutos seguidos adentro para contar un ingreso y afuera para contar un egreso, y
+   si el ultimo sitio ya tiene egreso cierra el viaje con ESE horario. */
+var gSinDestinoScan = {};
+function checkCierreSinDestino(){
+if(!gApi) return;
+var ahora = Date.now();
+GV.Storage.getViajes().filter(function(v){
+return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId && !(v.destino && typeof v.destino.lat === 'number');
+}).forEach(function(v){
+if(gSinDestinoScan[v.id] && (ahora - gSinDestinoScan[v.id]) < 240000) return;
+gSinDestinoScan[v.id] = ahora;
+var sites = siteListFor(v).filter(function(s){ return typeof s.lat === 'number'; });
+if(!sites.length) return;
+var desde = new Date(v.iniciadoEn || v.fechaSalida).getTime();
+if(isNaN(desde)) return;
+var tope = ahora - 72 * 3600000;
+if(desde < tope) desde = tope;
+if(desde >= ahora) return;
+fetchHistoryForViaje(v, new Date(desde), new Date(ahora)).then(function(hist){
+if(!hist || !hist.length) return;
+var minMs = (GV.MIN_DWELL_MIN || 3) * 60000;
+var idx = 0, adentroDesde = null, confirmado = false, ingreso = null, afueraDesde = null;
+var hallados = {};
+for(var i = 0; i < hist.length && idx < sites.length; i++){
+var rec = hist[i];
+if(rec.latitude == null) continue;
+var t = new Date(rec.dateTime).getTime();
+var site = sites[idx];
+var adentro = GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, site, sites, confirmado ? (GV.SITE_EXIT_HYSTERESIS_M || 0) : 0);
+if(!confirmado){
+if(adentro){
+if(adentroDesde == null) adentroDesde = t;
+if(t - adentroDesde >= minMs){ confirmado = true; ingreso = adentroDesde; afueraDesde = null; }
+} else { adentroDesde = null; }
+} else {
+if(!adentro){
+if(afueraDesde == null) afueraDesde = t;
+if(t - afueraDesde >= minMs){
+hallados[site.id] = { ingreso: new Date(ingreso).toISOString(), egreso: new Date(afueraDesde).toISOString() };
+idx++; adentroDesde = null; confirmado = false; ingreso = null; afueraDesde = null;
+}
+} else { afueraDesde = null; }
+}
+}
+if(idx < sites.length) return; /* todavia no salio del ultimo sitio */
+var vv = GV.Storage.getViaje(v.id) || v;
+if(vv.estado !== 'en_curso' && vv.estado !== 'demorado') return;
+if(vv.destino && typeof vv.destino.lat === 'number') return;
+var sr = Object.assign({}, vv.sitiosReal || {});
+Object.keys(hallados).forEach(function(k){
+var prev = Object.assign({}, sr[k] || {});
+if(!prev.ingreso) prev.ingreso = hallados[k].ingreso;
+if(!prev.egreso) prev.egreso = hallados[k].egreso;
+sr[k] = prev;
+});
+var ultimo = sites[sites.length - 1];
+var cierreISO = hallados[ultimo.id].egreso;
+GV.Storage.updateViaje(vv.id, { estado: 'completado', completadoEn: cierreISO, sitiosReal: sr, dwellState: null });
+GV.Storage.addAlerta({ id: 'al_' + vv.id + '_autocompletado', tipo: 'info', mensaje: vv.conductor + ' - ' + vv.vehiculo + ': el viaje FINALIZO. La unidad salio de ' + ultimo.label + ' el ' + GV.fmtDate(cierreISO) + ' (el viaje no tiene destino programado; se cerro automaticamente revisando el historial de GPS).', fecha: new Date().toISOString(), viajeId: vv.id });
+renderStats(); renderAlertas(); renderEventsWidget();
+if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
+if(typeof renderTracking === 'function') renderTracking();
+});
+});
+}
 /* Confirma que la unidad realmente se alejo del origen, exigiendo que la lectura "afuera" se
    sostenga al menos GV.MIN_DWELL_MIN minutos seguidos -- en vez de creerle a una sola lectura de
    GPS -- antes de dar por hecho que salio. Sin esto, en un predio grande (el circulo automatico
@@ -3615,7 +3689,7 @@ function doInit(api){
   setupEvents();
 
   GV.Storage.init(api).then(function(){
-    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkJornadas();
+    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
@@ -3632,7 +3706,7 @@ function doInit(api){
   if(api){
     loadMasterData(api);
     setInterval(function(){
-      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkJornadas();
+      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
       GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
   } else {
