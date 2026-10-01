@@ -824,14 +824,25 @@ function gvEsVehiculo24hs(v){
   var interno = String((v && v.vehiculo) || '').split(' - ')[0].trim().toUpperCase();
   return interno && GV.VEHICULOS_24HS.map(function(x){ return String(x).toUpperCase(); }).indexOf(interno) >= 0;
 }
+/* Ajuste 1/10: en estos camiones el turno DIURNO arranca a las GV.HORA_JORNADA_DEFECTO (08:00) y el
+   NOCTURNO desde las GV.HORA_TURNO_NOCHE (20:00). Si el viaje sale dentro del horario diurno, la jornada
+   cuenta desde las 08:00 (no desde la salida); si sale antes de las 08:00 o a partir de las 20:00, desde
+   la salida. Si el viaje se le reasigno al chofer en el dia, cuenta desde la reasignacion. */
+GV.HORA_TURNO_NOCHE = GV.HORA_TURNO_NOCHE || 20;
 function gvInicioPorSalida(v, diaInicio, fechaBaseStr){
-  var cand = [];
-  if(v && v.fechaSalida) cand.push(new Date(v.fechaSalida));
-  (v && v.tramos || []).forEach(function(tr){ if(tr && tr.desde && tr.conductorId === v.conductorId) cand.push(new Date(tr.desde)); });
-  cand = cand.filter(function(d){ return !isNaN(d.getTime()) && GV.dateStr(d) === fechaBaseStr; });
-  if(!cand.length) return null;
-  cand.sort(function(a,b){ return b - a; }); /* la mas reciente del dia: si se reasigno hoy, cuenta desde la reasignacion */
-  return { inicio: cand[0].toISOString(), fuente: 'salida', confirmado: true };
+  if(!v) return null;
+  var salida = v.fechaSalida ? new Date(v.fechaSalida) : null;
+  var reasig = null;
+  (v.tramos || []).forEach(function(tr, i){
+    if(i === 0 || !tr || !tr.desde || tr.conductorId !== v.conductorId) return;
+    var d = new Date(tr.desde);
+    if(!isNaN(d.getTime()) && GV.dateStr(d) === fechaBaseStr && (!reasig || d > reasig)) reasig = d;
+  });
+  if(reasig && (!salida || reasig > salida)) return { inicio: reasig.toISOString(), fuente: 'salida', confirmado: true };
+  if(!salida || isNaN(salida.getTime()) || GV.dateStr(salida) !== fechaBaseStr) return null;
+  var ocho = GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8);
+  if(salida < ocho || salida.getHours() >= (GV.HORA_TURNO_NOCHE || 20)) return { inicio: salida.toISOString(), fuente: 'salida', confirmado: true };
+  return { inicio: ocho.toISOString(), fuente: 'turno', confirmado: true };
 }
 function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
   var estimado = { inicio: GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8).toISOString(), fuente: 'estimado', confirmado: false };
@@ -962,8 +973,16 @@ function checkJornadas(){
        24 hs que no quedaron calculadas desde la salida: se borran para que se recalculen con la regla
        nueva en el proximo ciclo. Las ediciones manuales no se tocan. */
     var __enBorde = (hoy.fuente === 'motor' || hoy.fuente === 'movimiento') && (new Date(hoy.inicio).getTime() - GV.dateFromDateStr(hoyStr).getTime()) < 60000;
-    var __24hsSinSalida = gvEsVehiculo24hs(v) && hoy.fuente !== 'manual' && hoy.fuente !== 'salida' && !!gvInicioPorSalida(v, null, hoyStr);
-    if(__enBorde || __24hsSinSalida){
+    /* Camion de 24 hs: la jornada sigue siempre a la regla de turno/salida (si se cambia la hora de
+       salida del viaje o se reasigna, se actualiza sola). Las ediciones manuales no se tocan. */
+    var __desea24 = (gvEsVehiculo24hs(v) && hoy.fuente !== 'manual') ? gvInicioPorSalida(v, null, hoyStr) : null;
+    if(__desea24 && (__desea24.inicio !== hoy.inicio || __desea24.fuente !== hoy.fuente)){
+      var jj6 = Object.assign({}, jornadas);
+      jj6[hoyStr] = Object.assign({}, hoy, __desea24);
+      GV.Storage.updateViaje(v.id, { jornadas: jj6 });
+      return;
+    }
+    if(__enBorde){
       var jj5 = Object.assign({}, jornadas); delete jj5[hoyStr];
       GV.Storage.updateViaje(v.id, { jornadas: jj5 });
       return;
@@ -1764,6 +1783,9 @@ function gvJornadaTextoInfo(v){
   if(jn.fuente === 'horario'){
     return { texto: horaTxt + ' — horario de ingreso (no hubo arranque de motor antes de esa hora). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
   }
+  if(jn.fuente === 'turno'){
+    return { texto: horaTxt + ' — inicio del turno diurno (camion de 24 hs con chofer de turno). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
+  }
   if(jn.fuente === 'salida'){
     return { texto: horaTxt + ' — desde la salida del viaje (camion de 24 hs con chofer de turno). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
   }
@@ -1808,7 +1830,7 @@ function gvHsChoferHtml(v, hoyStr){
     };
   }
   var esAlerta = (ms / 60000) >= (GV.HS_CHOFER_ALERTA_MIN || 720);
-  var fuenteTxt = jn.fuente === 'motor' ? 'detectado por motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : (jn.fuente === 'horario' ? 'horario de ingreso, sin arranque de motor antes' : (jn.fuente === 'salida' ? 'desde la salida del viaje, camion de 24 hs' : 'detectado por movimiento del vehiculo')));
+  var fuenteTxt = jn.fuente === 'motor' ? 'detectado por motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : (jn.fuente === 'horario' ? 'horario de ingreso, sin arranque de motor antes' : (jn.fuente === 'salida' ? 'desde la salida del viaje, camion de 24 hs' : (jn.fuente === 'turno' ? 'inicio del turno diurno, camion de 24 hs' : 'detectado por movimiento del vehiculo'))));
   return {
     html: '<span class="gv-trk-hs' + (esAlerta ? ' gv-trk-hs-alerta' : '') + '">' + durTxt + (esAlerta ? ' &#9888;' : '') + '</span>',
     title: 'Inicio de jornada: ' + horaTxt + ' (' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
