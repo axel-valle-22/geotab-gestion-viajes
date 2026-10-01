@@ -338,7 +338,7 @@ function renderAlertas(){
     var extra = isAuth
       ? '<div style="display:flex;gap:8px"><button class="gv-btn gv-btn-suc gv-btn-sm" data-action="aprobar" data-id="' + a.id + '">Aprobar</button><button class="gv-btn gv-btn-danger gv-btn-sm" data-action="rechazar" data-id="' + a.id + '">Rechazar</button></div>'
       : isDemora
-      ? '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gv-btn gv-btn-primary gv-btn-sm" data-action="justificar_demora" data-id="' + a.id + '">Modificar horario / justificar</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button></div>'
+      ? '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gv-btn gv-btn-primary gv-btn-sm" data-action="justificar_demora" data-id="' + a.id + '">Justificar demora</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button></div>'
       : isDestinoPendiente
       ? '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gv-btn gv-btn-primary gv-btn-sm" data-action="ver_viaje" data-id="' + a.id + '">Ver viaje</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button></div>'
       : '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button>';
@@ -451,7 +451,7 @@ function checkDelays(){
   GV.Storage.getViajes().forEach(function(v){
     /* Ajuste 1/10: la alerta de demora de salida se repite cada 20 min mientras la unidad siga sin
        salir del origen (antes solo se generaba la primera, al pasar de planificado a demorado). */
-    if(v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn)){
+    if(v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn && !v.demoraJustificada)){
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
         if(v.estado !== 'demorado'){ v.estado = 'demorado'; v.demoradoOrigen = true; changed = true; GV.Storage.markDirtyViaje(v.id); }
@@ -474,25 +474,26 @@ function checkDelays(){
     if(changed){ GV.Storage.updateViaje(null, {}); }
 }
 
+/* Ajuste 1/10 (pedido de la empresa): justificar una demora de salida YA NO cambia el horario
+   programado. Solo se registra el motivo; la salida original queda como estaba, la demora se sigue
+   midiendo contra ella y, cuando la unidad sale, el detalle del viaje muestra cuanto se demoro y por
+   que. Las justificaciones quedan en v.justificacionesDemora (historial) y como evento. Despues de
+   justificar se dejan de repetir las alertas de demora de ese viaje (ya fue atendida). */
 function abrirJustificarDemora(viajeId, onDone){
   var v = GV.Storage.getViaje(viajeId);
   if(!v) return;
-  var fs = new Date(v.fechaSalida);
-  var fechaVal = isNaN(fs.getTime()) ? '' : gvFechaHoraLocal(fs).fecha;
-  var horaVal = isNaN(fs.getTime()) ? '' : (fs.getHours().toString().padStart(2,'0') + ':' + fs.getMinutes().toString().padStart(2,'0'));
+  var demoraMs = Math.max(0, Date.now() - new Date(v.fechaSalida).getTime());
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay';
   /* Este popup se abre encima del modal de detalle del viaje (tambien gv-modal-overlay, z-index
-     100000), asi que necesita quedar por encima de ese valor y no del 10000 viejo (de antes de
-     que el z-index base subiera a 100000 para no quedar detras del menu lateral de MyGeotab). */
+     100000), asi que necesita quedar por encima de ese valor. */
   ov.style.zIndex = '100001';
   ov.innerHTML =
     '<div class="gv-modal" style="max-width:420px">' +
-      '<h3 style="margin:0 0 6px">Modificar horario y justificar demora</h3>' +
-      '<div style="font-size:.8rem;color:#6b7280;margin-bottom:14px">' + GV.escapeHtml(v.conductor||'') + ' - ' + GV.escapeHtml(v.vehiculo||'') + '</div>' +
-      '<div class="gv-form-row"><label>Nueva fecha de salida<span class="gv-req">*</span></label><input type="date" id="gv-jd-fecha" value="' + fechaVal + '"></div>' +
-      '<div class="gv-form-row" style="margin-top:8px"><label>Nueva hora de salida<span class="gv-req">*</span></label><input type="time" id="gv-jd-hora" value="' + horaVal + '"></div>' +
-      '<div class="gv-form-row" style="margin-top:8px"><label>Motivo del retraso<span class="gv-req">*</span></label><textarea id="gv-jd-motivo" rows="3" placeholder="Detalla el motivo del retraso..."></textarea></div>' +
+      '<h3 style="margin:0 0 6px">Justificar demora de salida</h3>' +
+      '<div style="font-size:.8rem;color:#6b7280;margin-bottom:6px">' + GV.escapeHtml(v.conductor||'') + ' - ' + GV.escapeHtml(v.vehiculo||'') + '</div>' +
+      '<div style="font-size:.8rem;color:#374151;margin-bottom:12px">Salida programada: <b>' + GV.fmtDate(v.fechaSalida) + '</b> (no se modifica) &middot; lleva <b>' + GV.fmtDurMin(demoraMs) + '</b> de demora.</div>' +
+      '<div class="gv-form-row"><label>Motivo de la demora<span class="gv-req">*</span></label><textarea id="gv-jd-motivo" rows="3" placeholder="Detalla el motivo de la demora..."></textarea></div>' +
       '<div id="gv-jd-msg" style="display:none;font-size:.8rem;padding:8px 10px;border-radius:6px;margin-top:10px;background:#fee2e2;color:#991b1b"></div>' +
       '<div class="gv-modal-actions">' +
         '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-jd-cancel">Cancelar</button>' +
@@ -504,25 +505,24 @@ function abrirJustificarDemora(viajeId, onDone){
   document.getElementById('gv-jd-cancel').addEventListener('click', close);
   ov.addEventListener('click', function(e){ if(e.target === ov) close(); });
   document.getElementById('gv-jd-save').addEventListener('click', function(){
-    var fEl = document.getElementById('gv-jd-fecha'), hEl = document.getElementById('gv-jd-hora'), mEl = document.getElementById('gv-jd-motivo');
+    var mEl = document.getElementById('gv-jd-motivo');
     var msgEl = document.getElementById('gv-jd-msg');
     var motivo = (mEl.value || '').trim();
-    if(!fEl.value || !hEl.value || !motivo){
+    if(!motivo){
       msgEl.style.display = 'block';
-      msgEl.textContent = 'Completa la nueva fecha, hora y el motivo del retraso.';
+      msgEl.textContent = 'Escribi el motivo de la demora.';
       return;
     }
-    var nuevaFecha = fEl.value + 'T' + hEl.value + ':00';
+    var vAct = GV.Storage.getViaje(v.id) || v;
     var ahora = new Date().toISOString();
-    var retrasos = (v.retrasosSalida || []).concat([{ fechaAnterior: v.fechaSalida, fechaNueva: nuevaFecha, motivo: motivo, registradoEn: ahora }]);
-    GV.Storage.updateViaje(v.id, { fechaSalida: nuevaFecha, estado: 'planificado', demoraSalida: null, retrasosSalida: retrasos }).then(function(){
+    var demoraMin = Math.max(0, Math.round((Date.now() - new Date(vAct.fechaSalida).getTime()) / 60000));
+    var justifs = (vAct.justificacionesDemora || []).concat([{ motivo: motivo, registradoEn: ahora, demoraMin: demoraMin }]);
+    GV.Storage.updateViaje(v.id, { justificacionesDemora: justifs, demoraJustificada: true }).then(function(){
       var alertasDemora = GV.Storage.getAlertas().filter(function(a){ return a.tipo === 'demora' && a.viajeId === v.id; });
       return Promise.all(alertasDemora.map(function(a){ return GV.Storage.removeAlerta(a.id); }));
     }).then(function(){
-      /* Ajuste 1/10: el motivo de la demora queda visible como evento (Ultimos eventos / Alertas). */
-      var __nf = new Date(nuevaFecha);
-      return GV.Storage.addAlerta({ id: 'al_' + v.id + '_justif_' + Date.now(), tipo: 'info', viajeId: v.id, fecha: new Date().toISOString(),
-        mensaje: (v.conductor || '') + ' - ' + (v.vehiculo || '') + ': demora de salida justificada. Motivo: ' + motivo + '. Nueva salida: ' + GV.fmtDate(__nf) + '.' });
+      return GV.Storage.addAlerta({ id: 'al_' + v.id + '_justif_' + Date.now(), tipo: 'info', viajeId: v.id, fecha: ahora,
+        mensaje: (vAct.conductor || '') + ' - ' + (vAct.vehiculo || '') + ': demora de salida justificada (salida programada ' + GV.fmtDate(vAct.fechaSalida) + ', lleva ' + GV.fmtDurMin(demoraMin * 60000) + ' de demora). Motivo: ' + motivo });
     }).then(function(){
       close();
       renderAlertas(); renderEventsWidget(); renderStats(); renderTrips();
@@ -2212,8 +2212,19 @@ return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px da
 '</div>';
 }
 var retrasosHtml = '';
+if(v.justificacionesDemora && v.justificacionesDemora.length){
+retrasosHtml += '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+'<div style="font-size:.78rem;font-weight:700;color:#78350f;margin-bottom:6px">Demora de salida justificada (salida programada ' + GV.fmtDate(v.fechaSalida) + ')</div>' +
+v.justificacionesDemora.map(function(jd, i){
+return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px dashed #fcd34d' : '') + '">' +
+'<span style="color:#78350f">' + GV.fmtDate(jd.registradoEn) + ' &middot; llevaba ' + GV.fmtDurMin((jd.demoraMin||0) * 60000) + ' de demora</span>' +
+'<br><span style="color:#92400e">Motivo: ' + GV.escapeHtml(jd.motivo) + '</span>' +
+'</div>';
+}).join('') +
+'</div>';
+}
 if(v.retrasosSalida && v.retrasosSalida.length){
-retrasosHtml = '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+retrasosHtml += '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
 '<div style="font-size:.78rem;font-weight:700;color:#78350f;margin-bottom:6px">Historial de demoras justificadas</div>' +
 v.retrasosSalida.map(function(rt, i){
 return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px dashed #fcd34d' : '') + '">' +
@@ -2230,7 +2241,7 @@ overlay.innerHTML =
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo del retraso y la nueva hora de salida">Justificar demora / cambiar horario</button>' : '') +
+((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
 ((v.estado==='planificado'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
