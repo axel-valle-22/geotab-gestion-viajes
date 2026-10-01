@@ -208,6 +208,15 @@ GV.CSS = ""
     + '.gv-events-mini-item{font-size:.74rem;color:#374151;padding:5px 0;border-bottom:1px solid #f3f4f6;line-height:1.35}'
   + '.gv-events-mini-item:last-child{border-bottom:none}'
   + '.gv-events-mini-time{color:#9ca3af;font-size:.66rem;display:block;margin-top:1px}'
+  + '.gv-events-group:last-child > .gv-events-mini-item{border-bottom:none}'
+  + '.gv-events-group-head{cursor:pointer}'
+  + '.gv-events-head-main{display:flex;align-items:flex-start;gap:8px}'
+  + '.gv-events-head-main .gv-events-head-msg{flex:1 1 auto}'
+  + '.gv-events-count{flex:0 0 auto;background:var(--gv-accent-light);color:var(--gv-accent-dark);font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:var(--gv-radius-pill);white-space:nowrap;margin-top:1px}'
+  + '.gv-events-stacked:not(.gv-events-open) .gv-events-group-head{position:relative;box-shadow:0 3px 0 -1px #f4f5f7,0 6px 0 -2px #e9ecf1;border-radius:6px;margin-bottom:3px}'
+  + '.gv-events-stacked.gv-events-open .gv-events-group-head{border-bottom-color:#e5e7eb}'
+  + '.gv-events-sub{margin:2px 0 4px 4px;padding-left:9px;border-left:2px solid #eef0f3}'
+  + '.gv-events-sub .gv-events-mini-item{font-size:.7rem;color:#6b7280;padding:4px 0}'
 + '#gv-header h1{margin:0 0 4px;font-size:1.5rem;font-weight:700;color:#20232B}#gv-header p{margin:0;opacity:1;font-size:.88rem;color:#8A8F9C}'
 + '#gv-tabs{display:flex;gap:4px;margin-bottom:18px;background:#fff;border-radius:var(--gv-radius-pill);padding:6px;box-shadow:var(--gv-shadow);border:1px solid var(--gv-border);flex-wrap:wrap}'
 + '.gv-tab-btn{background:none;border:none;padding:10px 18px;cursor:pointer;font-size:.88rem;font-weight:600;color:#8A8F9C;border-radius:var(--gv-radius-pill);transition:all .2s;font-family:inherit}'
@@ -1459,6 +1468,7 @@ GV.Storage = (function(){
      siguen devolviendo, asi el calendario, la lista y las estadisticas muestran todo igual.
      Si alguien edita un viaje ya archivado, vuelve solo al documento principal. */
   var DIAS_HISTORICO = 90;
+  var DIAS_HISTORICO_ALERTAS = 3; // las alertas se archivan mucho antes que los viajes: son ruido operativo del dia a dia, no un registro que haga falta conservar a mano en el Panel
   var MAX_POR_CORRIDA = 300; // tope de viajes/alertas movidos por vez (el resto en la proxima)
   var MAX_BYTES_MES = 800 * 1024; // margen bajo el limite de 1 MiB por documento
   var _hist = { viajes: [], alertaIds: {}, docDeViaje: {}, cargado: false };
@@ -1499,9 +1509,10 @@ GV.Storage = (function(){
   // documento principal y se agregue al mes al mismo tiempo (o nada, si algo falla).
   function archivarAntiguos(){
     if(_archivadoCorrido || !_fbDb || !_fbDocRef) return Promise.resolve(0);
-    var limite = Date.now() - DIAS_HISTORICO * 24 * 3600 * 1000;
-    var hayAlgo = _data.viajes.some(function(v){ return viajeArchivable(v, limite); }) ||
-                  _data.alertas.some(function(a){ return alertaArchivable(a, limite); });
+    var limiteViajes = Date.now() - DIAS_HISTORICO * 24 * 3600 * 1000;
+    var limiteAlertas = Date.now() - DIAS_HISTORICO_ALERTAS * 24 * 3600 * 1000;
+    var hayAlgo = _data.viajes.some(function(v){ return viajeArchivable(v, limiteViajes); }) ||
+                  _data.alertas.some(function(a){ return alertaArchivable(a, limiteAlertas); });
     if(!hayAlgo) return Promise.resolve(0);
     _archivadoCorrido = true;
     var movidos = 0;
@@ -1510,8 +1521,8 @@ GV.Storage = (function(){
       return tx.get(_fbDocRef).then(function(snap){
         var d = snap.exists ? snap.data() : {};
         var viajes = (d.viajes || []).slice(), alertas = (d.alertas || []).slice();
-        var aMover = viajes.filter(function(v){ return viajeArchivable(v, limite); }).slice(0, MAX_POR_CORRIDA);
-        var alMover = alertas.filter(function(a){ return alertaArchivable(a, limite); }).slice(0, MAX_POR_CORRIDA);
+        var aMover = viajes.filter(function(v){ return viajeArchivable(v, limiteViajes); }).slice(0, MAX_POR_CORRIDA);
+        var alMover = alertas.filter(function(a){ return alertaArchivable(a, limiteAlertas); }).slice(0, MAX_POR_CORRIDA);
         if(!aMover.length && !alMover.length) return null;
         var porMes = {};
         aMover.forEach(function(v){ var k = claveMes(v); (porMes[k] = porMes[k] || { viajes: [], alertas: [] }).viajes.push(v); });
