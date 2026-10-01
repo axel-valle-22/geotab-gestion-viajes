@@ -439,10 +439,38 @@ function renderEventsWidget(){
                   miniList.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:8px 0;font-size:.74rem;margin:0">Sin eventos recientes</p>';
                   return;
         }
+        /* Ajuste 1/10: agrupado estilo "notificaciones apiladas" (iOS) por unidad. Adelante
+           solo va la alerta mas reciente de cada camion; el resto queda apilado detras y
+           se despliega al hacer click sobre esa fila. La unidad se identifica a traves del
+           viaje (v.vehiculo, via a.viajeId), que es mas confiable que leer el texto armado;
+           si ese viaje ya no esta disponible se cae al patron fijo "Conductor - Unidad: ..."
+           que usan todos los mensajes de alerta. */
+        function unidadDe(a){
+                  var v = a.viajeId ? GV.Storage.getViaje(a.viajeId) : null;
+                  if(v && v.vehiculo) return v.vehiculo;
+                  var m = /-\s*([^:]+):/.exec(a.mensaje || '');
+                  return (m && m[1].trim()) || 'Otros';
+        }
+        var grupos = {}, orden = [];
+        alertas.forEach(function(a){
+                  var u = unidadDe(a);
+                  if(!grupos[u]){ grupos[u] = []; orden.push(u); }
+                  grupos[u].push(a);
+        });
         function itemHtml(a){
                   return '<div class="gv-events-mini-item">' + GV.escapeHtml(a.mensaje) + '<span class="gv-events-mini-time">' + GV.fmtDate(a.fecha) + '</span></div>';
         }
-        miniList.innerHTML = alertas.map(itemHtml).join('');
+        miniList.innerHTML = orden.map(function(u){
+                  var items = grupos[u], top = items[0], resto = items.slice(1);
+                  if(!resto.length) return '<div class="gv-events-group">' + itemHtml(top) + '</div>';
+                  return '<div class="gv-events-group gv-events-stacked">' +
+                      '<div class="gv-events-mini-item gv-events-group-head">' +
+                        '<div class="gv-events-head-main"><span class="gv-events-head-msg">' + GV.escapeHtml(top.mensaje) + '</span><span class="gv-events-count">+' + resto.length + '</span></div>' +
+                        '<span class="gv-events-mini-time">' + GV.fmtDate(top.fecha) + '</span>' +
+                      '</div>' +
+                      '<div class="gv-events-sub" style="display:none">' + resto.map(itemHtml).join('') + '</div>' +
+                    '</div>';
+        }).join('');
 }
   
 function checkDelays(){
@@ -1529,6 +1557,20 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
  else if(action === 'detalle'){
 abrirDetalleViaje(id);
 }  });
+
+  var __gvEventsMiniList = document.getElementById('gv-events-mini-list');
+  if(__gvEventsMiniList){
+    __gvEventsMiniList.addEventListener('click', function(e){
+      var head = e.target.closest('.gv-events-group-head');
+      if(!head) return;
+      var grupo = head.closest('.gv-events-group');
+      if(!grupo) return;
+      var sub = grupo.querySelector('.gv-events-sub');
+      if(!sub) return;
+      var abierto = grupo.classList.toggle('gv-events-open');
+      sub.style.display = abierto ? 'block' : 'none';
+    });
+  }
 
   document.getElementById('gv-alertas-list').addEventListener('click', function(e){
     var btn = e.target.closest('[data-action]');
