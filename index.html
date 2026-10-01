@@ -1,5 +1,5 @@
 <!-- v7: mapas Leaflet, AddInData compartido, seguimiento en tiempo real, gerenciamiento -->
-<!-- redeploy trigger --> 3
+<!-- redeploy trigger --> 2
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -79,10 +79,9 @@
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real</h2>
-<div style="display:flex;gap:6px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
+<button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button>
 </div>
-<!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
-<div id="gv-track-map" style="display:none;height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
+<div id="gv-track-map" style="height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
 <div id="gv-track-list"></div>
 </div>
 
@@ -110,7 +109,7 @@ estilos del add-in (el mismo que usa common.js). */
 if(document.getElementById('gv-trk-styles')) return;
 var st = document.createElement('style');
 st.id = 'gv-trk-styles';
-st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:150px minmax(140px,1.2fr) 112px minmax(150px,1.6fr) 104px minmax(120px,1fr) 64px minmax(140px,1.6fr) 70px 70px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n/* Ajuste 1/10: todas las columnas centradas (titulo y contenido alineados al centro de la columna). */\n#gv-track-list .gv-trk-row > *{text-align:center !important}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-24hs{display:inline-block;font-size:.6rem;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:4px;padding:1px 4px;margin-left:2px;vertical-align:1px}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-porsalir{color:#6b7280}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151;font-size:.7rem}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n.gv-trk-hs-head{font-size:.56rem}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:140px 1fr minmax(110px,1.4fr) 92px 62px minmax(140px,1.8fr) 58px 58px}.gv-trk-hide-sm{display:none}}";
+st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:118px minmax(140px,1.2fr) 152px minmax(150px,1.6fr) minmax(120px,1fr) 64px minmax(140px,1.6fr) 128px 70px 70px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151;font-size:.7rem}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n.gv-trk-hs-head{font-size:.56rem}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:110px 1fr minmax(110px,1.4fr) 62px minmax(140px,1.8fr) 92px 58px 58px}.gv-trk-hide-sm{display:none}}";
 /* No se usa #gv-style-container: common.js (GV.injectCSS) omite inyectar el CSS base
        del add-in si ese contenedor ya tiene un <style>, y la vista quedaba sin estilos. */
     (document.head || document.documentElement || document.body).appendChild(st);
@@ -128,25 +127,6 @@ var gCalMonth = new Date(); gCalMonth.setDate(1);
 var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLiveStatusCache = {};
 var gTrackSelectedId = null;
 
-function gvFechaHoraLocal(d){
-  return { fecha: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'),
-           hora: String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') };
-}
-/* Arreglo 1/10 (bug real: viaje de Fernandez Mario Jose cargado a las 09:47 que aparecio con 40 min
-   de demora): la fecha/hora de salida del formulario "Nuevo Viaje" se completaba con la hora en que
-   se ABRIO la pagina y no se actualizaba nunca, asi que si el panel estaba abierto desde temprano el
-   viaje quedaba programado para una hora que ya habia pasado. Ahora, cada vez que se entra a la
-   pestana "Nuevo Viaje", si el coordinador no toco esos campos se ponen en la hora actual. Ademas se
-   usaba la fecha UTC (despues de las 21:00 ponia la fecha de manana); ahora es la fecha local. */
-var gNvFechaTocada = false;
-function gvRefrescarFechaNuevoViaje(forzar){
-  if(gNvFechaTocada && !forzar) return;
-  var fEl = document.getElementById('gv-fecha'), hEl = document.getElementById('gv-hora');
-  var fh = gvFechaHoraLocal(new Date());
-  if(fEl) fEl.value = fh.fecha;
-  if(hEl) hEl.value = fh.hora;
-  if(forzar) gNvFechaTocada = false;
-}
 function showTab(name){
   document.querySelectorAll('.gv-tab-btn').forEach(function(b){
     b.classList.toggle('gv-active', b.getAttribute('data-tab') === name);
@@ -154,7 +134,6 @@ function showTab(name){
   document.querySelectorAll('.gv-tab-content').forEach(function(c){
     c.classList.toggle('gv-show', c.id === 'gv-tab-' + name);
   });
-  if(name === 'nuevo'){ gvRefrescarFechaNuevoViaje(false); }
   if(name === 'seguimiento'){ gTrackSelectedId = null; renderTracking(); if(!gTrackInterval){ gTrackInterval = setInterval(renderTracking, 15000); } } else { if(gTrackInterval){ clearInterval(gTrackInterval); gTrackInterval = null; } }
 }
 
@@ -338,7 +317,7 @@ function renderAlertas(){
     var extra = isAuth
       ? '<div style="display:flex;gap:8px"><button class="gv-btn gv-btn-suc gv-btn-sm" data-action="aprobar" data-id="' + a.id + '">Aprobar</button><button class="gv-btn gv-btn-danger gv-btn-sm" data-action="rechazar" data-id="' + a.id + '">Rechazar</button></div>'
       : isDemora
-      ? '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gv-btn gv-btn-primary gv-btn-sm" data-action="justificar_demora" data-id="' + a.id + '">Justificar demora</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button></div>'
+      ? '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gv-btn gv-btn-primary gv-btn-sm" data-action="justificar_demora" data-id="' + a.id + '">Modificar horario / justificar</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button></div>'
       : isDestinoPendiente
       ? '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gv-btn gv-btn-primary gv-btn-sm" data-action="ver_viaje" data-id="' + a.id + '">Ver viaje</button><button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button></div>'
       : '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="dismiss" data-id="' + a.id + '">Descartar</button>';
@@ -449,9 +428,7 @@ function checkDelays(){
   var now = new Date(), DELAY = 20*60*1000;
   var changed = false;
   GV.Storage.getViajes().forEach(function(v){
-    /* Ajuste 1/10: la alerta de demora de salida se repite cada 20 min mientras la unidad siga sin
-       salir del origen (antes solo se generaba la primera, al pasar de planificado a demorado). */
-    if(v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn && !v.demoraJustificada)){
+    if(v.estado === 'planificado'){
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
         if(v.estado !== 'demorado'){ v.estado = 'demorado'; v.demoradoOrigen = true; changed = true; GV.Storage.markDirtyViaje(v.id); }
@@ -474,26 +451,25 @@ function checkDelays(){
     if(changed){ GV.Storage.updateViaje(null, {}); }
 }
 
-/* Ajuste 1/10 (pedido de la empresa): justificar una demora de salida YA NO cambia el horario
-   programado. Solo se registra el motivo; la salida original queda como estaba, la demora se sigue
-   midiendo contra ella y, cuando la unidad sale, el detalle del viaje muestra cuanto se demoro y por
-   que. Las justificaciones quedan en v.justificacionesDemora (historial) y como evento. Despues de
-   justificar se dejan de repetir las alertas de demora de ese viaje (ya fue atendida). */
-function abrirJustificarDemora(viajeId, onDone){
+function abrirJustificarDemora(viajeId){
   var v = GV.Storage.getViaje(viajeId);
   if(!v) return;
-  var demoraMs = Math.max(0, Date.now() - new Date(v.fechaSalida).getTime());
+  var fs = new Date(v.fechaSalida);
+  var fechaVal = isNaN(fs.getTime()) ? '' : fs.toISOString().substring(0,10);
+  var horaVal = isNaN(fs.getTime()) ? '' : (fs.getHours().toString().padStart(2,'0') + ':' + fs.getMinutes().toString().padStart(2,'0'));
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay';
   /* Este popup se abre encima del modal de detalle del viaje (tambien gv-modal-overlay, z-index
-     100000), asi que necesita quedar por encima de ese valor. */
+     100000), asi que necesita quedar por encima de ese valor y no del 10000 viejo (de antes de
+     que el z-index base subiera a 100000 para no quedar detras del menu lateral de MyGeotab). */
   ov.style.zIndex = '100001';
   ov.innerHTML =
     '<div class="gv-modal" style="max-width:420px">' +
-      '<h3 style="margin:0 0 6px">Justificar demora de salida</h3>' +
-      '<div style="font-size:.8rem;color:#6b7280;margin-bottom:6px">' + GV.escapeHtml(v.conductor||'') + ' - ' + GV.escapeHtml(v.vehiculo||'') + '</div>' +
-      '<div style="font-size:.8rem;color:#374151;margin-bottom:12px">Salida programada: <b>' + GV.fmtDate(v.fechaSalida) + '</b> (no se modifica) &middot; lleva <b>' + GV.fmtDurMin(demoraMs) + '</b> de demora.</div>' +
-      '<div class="gv-form-row"><label>Motivo de la demora<span class="gv-req">*</span></label><textarea id="gv-jd-motivo" rows="3" placeholder="Detalla el motivo de la demora..."></textarea></div>' +
+      '<h3 style="margin:0 0 6px">Modificar horario y justificar demora</h3>' +
+      '<div style="font-size:.8rem;color:#6b7280;margin-bottom:14px">' + GV.escapeHtml(v.conductor||'') + ' - ' + GV.escapeHtml(v.vehiculo||'') + '</div>' +
+      '<div class="gv-form-row"><label>Nueva fecha de salida<span class="gv-req">*</span></label><input type="date" id="gv-jd-fecha" value="' + fechaVal + '"></div>' +
+      '<div class="gv-form-row" style="margin-top:8px"><label>Nueva hora de salida<span class="gv-req">*</span></label><input type="time" id="gv-jd-hora" value="' + horaVal + '"></div>' +
+      '<div class="gv-form-row" style="margin-top:8px"><label>Motivo del retraso<span class="gv-req">*</span></label><textarea id="gv-jd-motivo" rows="3" placeholder="Detalla el motivo del retraso..."></textarea></div>' +
       '<div id="gv-jd-msg" style="display:none;font-size:.8rem;padding:8px 10px;border-radius:6px;margin-top:10px;background:#fee2e2;color:#991b1b"></div>' +
       '<div class="gv-modal-actions">' +
         '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-jd-cancel">Cancelar</button>' +
@@ -505,28 +481,23 @@ function abrirJustificarDemora(viajeId, onDone){
   document.getElementById('gv-jd-cancel').addEventListener('click', close);
   ov.addEventListener('click', function(e){ if(e.target === ov) close(); });
   document.getElementById('gv-jd-save').addEventListener('click', function(){
-    var mEl = document.getElementById('gv-jd-motivo');
+    var fEl = document.getElementById('gv-jd-fecha'), hEl = document.getElementById('gv-jd-hora'), mEl = document.getElementById('gv-jd-motivo');
     var msgEl = document.getElementById('gv-jd-msg');
     var motivo = (mEl.value || '').trim();
-    if(!motivo){
+    if(!fEl.value || !hEl.value || !motivo){
       msgEl.style.display = 'block';
-      msgEl.textContent = 'Escribi el motivo de la demora.';
+      msgEl.textContent = 'Completa la nueva fecha, hora y el motivo del retraso.';
       return;
     }
-    var vAct = GV.Storage.getViaje(v.id) || v;
+    var nuevaFecha = fEl.value + 'T' + hEl.value + ':00';
     var ahora = new Date().toISOString();
-    var demoraMin = Math.max(0, Math.round((Date.now() - new Date(vAct.fechaSalida).getTime()) / 60000));
-    var justifs = (vAct.justificacionesDemora || []).concat([{ motivo: motivo, registradoEn: ahora, demoraMin: demoraMin }]);
-    GV.Storage.updateViaje(v.id, { justificacionesDemora: justifs, demoraJustificada: true }).then(function(){
+    var retrasos = (v.retrasosSalida || []).concat([{ fechaAnterior: v.fechaSalida, fechaNueva: nuevaFecha, motivo: motivo, registradoEn: ahora }]);
+    GV.Storage.updateViaje(v.id, { fechaSalida: nuevaFecha, estado: 'planificado', demoraSalida: null, retrasosSalida: retrasos }).then(function(){
       var alertasDemora = GV.Storage.getAlertas().filter(function(a){ return a.tipo === 'demora' && a.viajeId === v.id; });
       return Promise.all(alertasDemora.map(function(a){ return GV.Storage.removeAlerta(a.id); }));
     }).then(function(){
-      return GV.Storage.addAlerta({ id: 'al_' + v.id + '_justif_' + Date.now(), tipo: 'info', viajeId: v.id, fecha: ahora,
-        mensaje: (vAct.conductor || '') + ' - ' + (vAct.vehiculo || '') + ': demora de salida justificada (salida programada ' + GV.fmtDate(vAct.fechaSalida) + ', lleva ' + GV.fmtDurMin(demoraMin * 60000) + ' de demora). Motivo: ' + motivo });
-    }).then(function(){
       close();
       renderAlertas(); renderEventsWidget(); renderStats(); renderTrips();
-      if(typeof onDone === 'function') onDone();
     });
   });
 }
@@ -662,118 +633,26 @@ if(doneIds.indexOf(s.id) < 0) return;
 var dKm = GV.distKm(s, __sDest);
 if(dKm !== null && dKm * 1000 > __rDest) __salio = true;
 });
-/* Arreglo 1/10 (bug real: 278 - Torres Pablo Andres, viaje de ida y vuelta a Base TDP Plottier):
-   la unidad estuvo estacionada en el borde de la base, salio, y al pasar de nuevo por la ruta frente
-   a la base UN solo punto de GPS adentro alcanzo para marcar "ingreso a destino" con las 2 paradas
-   todavia pendientes (y desde ahi el viaje quedaba trabado sin cerrarse nunca solo). Dos reglas:
-   1) la llegada exige permanencia: GV.MIN_DWELL_MIN minutos seguidos adentro del destino (una pasada
-      por al lado no cuenta), y se toma como horario de llegada el primer punto de esa permanencia;
-   2) si origen y destino son el mismo predio y el viaje tiene paradas de carga/descarga, mientras no
-      se haya completado ninguna, volver a la base no se toma como fin del viaje. */
-var __mismoPredio = vv.origen && typeof vv.origen.lat === 'number' && (GV.distKm(vv.origen, __sDest) * 1000) <= __rDest;
-var __paradasOp = (vv.paradas || []).filter(function(p){ return p.tipo; }).length;
-var __paradasHechas = doneIds.filter(function(id){ return id.indexOf('parada') === 0; }).length;
-if(__mismoPredio && __paradasOp > 0 && __paradasHechas === 0) return;
 var hit = null;
 var __fueraDesde = null;
-var __adentroDesde = null;
 var __minSalidaMs = (GV.MIN_DWELL_MIN || 3) * 60000;
 for(var i = 0; i < hist.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
 var __fueraDestino = !GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, __sDest, sitesN, 0);
 if(__fueraDestino){
-__adentroDesde = null; /* si estaba entrando, era solo una pasada: se descarta */
 if(!__salio){
 if(!__fueraDesde) __fueraDesde = rec.dateTime;
 if(new Date(rec.dateTime).getTime() - new Date(__fueraDesde).getTime() >= __minSalidaMs) __salio = true;
 }
 continue;
 }
-if(__salio){
-if(!__adentroDesde) __adentroDesde = rec;
-if(new Date(rec.dateTime).getTime() - new Date(__adentroDesde.dateTime).getTime() >= __minSalidaMs){ hit = __adentroDesde; break; }
-continue;
-}
+if(__salio){ hit = rec; break; }
 __fueraDesde = null; /* volvio a entrar sin llegar al minimo: fue ruido, no una salida real */
 }
 if(!hit) return;
 var hitISO = new Date(hit.dateTime).toISOString();
 cerrarOAvisarLlegadaDestino(vv, hitISO, GV.siteNameFor(vv.destino) || 'Destino');
-});
-});
-}
-/* ---------------- Cierre automatico de viajes SIN destino programado (barrido de historial) ----------------
-   Arreglo 30/9 (bug real: T313 - Bittar Elvis Ivan, viaje del 29/9, termino la descarga en Aguila Mora
-   2302 a las 17:56 y al dia siguiente seguia figurando "Demorado"). Un viaje sin destino se cierra
-   cuando la unidad SALE del ultimo sitio, pero eso solo se detectaba en vivo (checkDwellAlerts), si
-   el panel estaba abierto justo mientras la unidad estaba en ese sitio y cuando se iba. Si nadie
-   tenia el panel abierto en ese momento, el estado guardado del viaje se quedaba en un sitio anterior
-   y cuando se volvia a abrir la unidad ya estaba en otro lado: nunca se cerraba. checkDestinoLlegadas
-   resuelve ese caso para los viajes CON destino; esta funcion hace lo mismo para los que no tienen:
-   recorre el historial de GPS desde el inicio del viaje, sitio por sitio y en orden, exigiendo
-   GV.MIN_DWELL_MIN minutos seguidos adentro para contar un ingreso y afuera para contar un egreso, y
-   si el ultimo sitio ya tiene egreso cierra el viaje con ESE horario. */
-var gSinDestinoScan = {};
-function checkCierreSinDestino(){
-if(!gApi) return;
-var ahora = Date.now();
-GV.Storage.getViajes().filter(function(v){
-return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId && !(v.destino && typeof v.destino.lat === 'number');
-}).forEach(function(v){
-if(gSinDestinoScan[v.id] && (ahora - gSinDestinoScan[v.id]) < 240000) return;
-gSinDestinoScan[v.id] = ahora;
-var sites = siteListFor(v).filter(function(s){ return typeof s.lat === 'number'; });
-if(!sites.length) return;
-var desde = new Date(v.iniciadoEn || v.fechaSalida).getTime();
-if(isNaN(desde)) return;
-var tope = ahora - 72 * 3600000;
-if(desde < tope) desde = tope;
-if(desde >= ahora) return;
-fetchHistoryForViaje(v, new Date(desde), new Date(ahora)).then(function(hist){
-if(!hist || !hist.length) return;
-var minMs = (GV.MIN_DWELL_MIN || 3) * 60000;
-var idx = 0, adentroDesde = null, confirmado = false, ingreso = null, afueraDesde = null;
-var hallados = {};
-for(var i = 0; i < hist.length && idx < sites.length; i++){
-var rec = hist[i];
-if(rec.latitude == null) continue;
-var t = new Date(rec.dateTime).getTime();
-var site = sites[idx];
-var adentro = GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, site, sites, confirmado ? (GV.SITE_EXIT_HYSTERESIS_M || 0) : 0);
-if(!confirmado){
-if(adentro){
-if(adentroDesde == null) adentroDesde = t;
-if(t - adentroDesde >= minMs){ confirmado = true; ingreso = adentroDesde; afueraDesde = null; }
-} else { adentroDesde = null; }
-} else {
-if(!adentro){
-if(afueraDesde == null) afueraDesde = t;
-if(t - afueraDesde >= minMs){
-hallados[site.id] = { ingreso: new Date(ingreso).toISOString(), egreso: new Date(afueraDesde).toISOString() };
-idx++; adentroDesde = null; confirmado = false; ingreso = null; afueraDesde = null;
-}
-} else { afueraDesde = null; }
-}
-}
-if(idx < sites.length) return; /* todavia no salio del ultimo sitio */
-var vv = GV.Storage.getViaje(v.id) || v;
-if(vv.estado !== 'en_curso' && vv.estado !== 'demorado') return;
-if(vv.destino && typeof vv.destino.lat === 'number') return;
-var sr = Object.assign({}, vv.sitiosReal || {});
-Object.keys(hallados).forEach(function(k){
-var prev = Object.assign({}, sr[k] || {});
-if(!prev.ingreso) prev.ingreso = hallados[k].ingreso;
-if(!prev.egreso) prev.egreso = hallados[k].egreso;
-sr[k] = prev;
-});
-var ultimo = sites[sites.length - 1];
-var cierreISO = hallados[ultimo.id].egreso;
-GV.Storage.updateViaje(vv.id, { estado: 'completado', completadoEn: cierreISO, sitiosReal: sr, dwellState: null });
-GV.Storage.addAlerta({ id: 'al_' + vv.id + '_autocompletado', tipo: 'info', mensaje: vv.conductor + ' - ' + vv.vehiculo + ': el viaje FINALIZO. La unidad salio de ' + ultimo.label + ' el ' + GV.fmtDate(cierreISO) + ' (el viaje no tiene destino programado; se cerro automaticamente revisando el historial de GPS).', fecha: new Date().toISOString(), viajeId: vv.id });
-renderStats(); renderAlertas(); renderEventsWidget();
-if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
-if(typeof renderTracking === 'function') renderTracking();
 });
 });
 }
@@ -821,43 +700,7 @@ function confirmarSalidaDeOrigen(v, r){
    verdad, para no repetir el mismo problema de fondo que motivo los arreglos de hoy (mostrar como
    certeza algo que en realidad es un invento). El coordinador puede corregirlo a mano desde el
    detalle del viaje (fuente pasa a 'manual', confirmado a true). */
-/* Camiones de 24 hs con chofer de turno (arreglo 1/10, caso H295: chofer nocturno + chofer de dia).
-   La jornada se calcula con el motor/GPS del CAMION, asi que en estos camiones el arranque del chofer
-   nocturno se le asignaba al de dia. Decision de la empresa: en estos camiones la jornada del chofer
-   arranca a la hora de SALIDA programada del viaje (o a la hora en que se le reasigno el viaje, si fue
-   hoy). Un camion se trata como de 24 hs si esta en el grupo de MyGeotab GV.GRUPO_24HS_NOMBRE
-   ("Camiones 24 hs": lo administra la empresa agregando o sacando vehiculos de ese grupo desde
-   MyGeotab, se lee al abrir el panel), si esta en la lista fija GV.VEHICULOS_24HS (respaldo, numero de
-   interno) o, automaticamente, si ese dia el motor estaba encendido a las 00:00. */
-GV.GRUPO_24HS_NOMBRE = GV.GRUPO_24HS_NOMBRE || 'Camiones 24 hs';
-GV.VEHICULOS_24HS = GV.VEHICULOS_24HS || [];
-GV.__veh24Ids = GV.__veh24Ids || {};
-function gvEsVehiculo24hs(v){
-  if(v && v.vehiculoId && GV.__veh24Ids[v.vehiculoId]) return true;
-  var interno = String((v && v.vehiculo) || '').split(' - ')[0].trim().toUpperCase();
-  return !!interno && GV.VEHICULOS_24HS.map(function(x){ return String(x).toUpperCase(); }).indexOf(interno) >= 0;
-}
-/* Ajuste 1/10: en estos camiones el turno DIURNO arranca a las GV.HORA_JORNADA_DEFECTO (08:00) y el
-   NOCTURNO desde las GV.HORA_TURNO_NOCHE (20:00). Si el viaje sale dentro del horario diurno, la jornada
-   cuenta desde las 08:00 (no desde la salida); si sale antes de las 08:00 o a partir de las 20:00, desde
-   la salida. Si el viaje se le reasigno al chofer en el dia, cuenta desde la reasignacion. */
-GV.HORA_TURNO_NOCHE = GV.HORA_TURNO_NOCHE || 20;
-function gvInicioPorSalida(v, diaInicio, fechaBaseStr){
-  if(!v) return null;
-  var salida = v.fechaSalida ? new Date(v.fechaSalida) : null;
-  var reasig = null;
-  (v.tramos || []).forEach(function(tr, i){
-    if(i === 0 || !tr || !tr.desde || tr.conductorId !== v.conductorId) return;
-    var d = new Date(tr.desde);
-    if(!isNaN(d.getTime()) && GV.dateStr(d) === fechaBaseStr && (!reasig || d > reasig)) reasig = d;
-  });
-  if(reasig && (!salida || reasig > salida)) return { inicio: reasig.toISOString(), fuente: 'salida', confirmado: true };
-  if(!salida || isNaN(salida.getTime()) || GV.dateStr(salida) !== fechaBaseStr) return null;
-  var ocho = GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8);
-  if(salida < ocho || salida.getHours() >= (GV.HORA_TURNO_NOCHE || 20)) return { inicio: salida.toISOString(), fuente: 'salida', confirmado: true };
-  return { inicio: ocho.toISOString(), fuente: 'turno', confirmado: true };
-}
-function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
+function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr){
   var estimado = { inicio: GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8).toISOString(), fuente: 'estimado', confirmado: false };
   if(!gApi || !vehiculoId) return Promise.resolve(estimado);
   var diaInicio = GV.dateFromDateStr(fechaBaseStr);
@@ -871,26 +714,13 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
     GV.getIgnitionHistory(gApi, vehiculoId, desdeISO, hastaISO)
   ]).then(function(res){
     var hist = res[0] || [], ign = res[1] || [];
-    var __diaIni = GV.dateFromDateStr(fechaBaseStr).getTime();
-    var __motorAMedianoche = ign.some(function(st){ return (new Date(st.dateTime).getTime() - __diaIni) < 60000 && (st.data === 1 || st.data === true); });
-    if(viaje && (gvEsVehiculo24hs(viaje) || __motorAMedianoche)){
-      var __porSalida = gvInicioPorSalida(viaje, diaInicio, fechaBaseStr);
-      if(__porSalida) return __porSalida;
-    }
     var tsMovimiento = null;
     if(origenSite && typeof origenSite.lat === 'number'){
       var minSalidaMs = (GV.MIN_DWELL_MIN || 3) * 60000;
       var fueraDesde = null;
-      /* Arreglo 25/9 (T346 - Leiva Victor marcando 10hs desde las 00:00): Geotab devuelve un
-         LogRecord "de borde" justo en fromDate (00:00) con la ultima posicion conocida. Si la
-         unidad paso la noche estacionada FUERA del origen (ej. en Base Plottier), ese registro
-         quieto contaba como "salida sostenida" y la jornada arrancaba a medianoche. Ahora solo se
-         empieza a contar la salida a partir del primer registro con la unidad en movimiento. */
-      var seMovio = false;
       for(var i = 0; i < hist.length; i++){
         var rec = hist[i];
         if(rec.latitude == null) continue;
-        if(!seMovio){ if((rec.speed || 0) > 5){ seMovio = true; } else { continue; } }
         var afuera = !GV.isWithinSite({ lat: rec.latitude, lng: rec.longitude }, origenSite);
         if(afuera){
           if(!fueraDesde) fueraDesde = rec.dateTime;
@@ -903,12 +733,6 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
     var encendidoDesde = null;
     for(var j = 0; j < ign.length; j++){
       var st = ign[j];
-      /* Arreglo 1/10 (bug real: H295 - Fernandez Mario Jose con jornada desde las 00:00): igual que con
-         las posiciones, Geotab devuelve un registro "de borde" de encendido justo en fromDate (00:00)
-         con el ULTIMO estado conocido. Si la unidad habia quedado reportando "encendido", ese registro
-         se tomaba como un arranque a medianoche. Se ignora todo registro del primer minuto del dia: el
-         arranque tiene que ser un cambio real de estado ocurrido despues. */
-      if(new Date(st.dateTime).getTime() - diaInicio.getTime() < 60000) continue;
       var prendido = (st.data === 1 || st.data === true);
       if(prendido){
         if(!encendidoDesde) encendidoDesde = st.dateTime;
@@ -921,30 +745,9 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
     var candidatos = [];
     if(tsMovimiento) candidatos.push({ ts: tsMovimiento, fuente: 'movimiento' });
     if(tsMotor) candidatos.push({ ts: tsMotor, fuente: 'motor' });
-    /* Resguardo (bug real del 21/9: viaje de Chavez Nicolas Emanuel marcando 19hs en servicio
-       para un viaje que ni habia arrancado): a veces el historial de encendido/movimiento trae
-       (o esta funcion deriva de el) un timestamp de FUERA del rango [diaInicio, tope] que se
-       pidio -- por ejemplo un registro de encendido de la unidad de UN DIA ANTERIOR (otro viaje,
-       otro chofer, la unidad quedo encendida de la noche a la mañana, etc.). Sin este filtro ese
-       timestamp viejo se cuela como si fuera el inicio de la jornada de HOY y las "HS Chofer"
-       quedan infladas con horas que en realidad son de otro dia (y hasta disparan la alerta de
-       12hs en falso). Se descarta cualquier candidato que no caiga dentro de la ventana pedida
-       antes de elegir el mas temprano. */
-    candidatos = candidatos.filter(function(c){
-      var t = new Date(c.ts).getTime();
-      return t >= diaInicio.getTime() && t <= tope.getTime();
-    });
-    /* Regla de la empresa (arreglo 1/10, caso 278 - Torres Pablo Andres marcando desde las 08:20):
-       la jornada arranca a las GV.HORA_JORNADA_DEFECTO (08:00) salvo que el motor (o una salida
-       sostenida) haya arrancado ANTES de esa hora, en cuyo caso se toma ese horario mas temprano.
-       Antes se tomaba siempre el primer arranque detectado aunque fuera despues de las 08:00. */
+    if(!candidatos.length) return estimado;
     candidatos.sort(function(a,b){ return new Date(a.ts) - new Date(b.ts); });
-    var horaIngreso = GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8);
-    if(candidatos.length && new Date(candidatos[0].ts) < horaIngreso){
-      return { inicio: new Date(candidatos[0].ts).toISOString(), fuente: candidatos[0].fuente, confirmado: true };
-    }
-    if(horaIngreso <= tope) return { inicio: horaIngreso.toISOString(), fuente: 'horario', confirmado: true };
-    return estimado; /* todavia no son las 08:00 y no hubo arranque: se vuelve a revisar mas tarde */
+    return { inicio: new Date(candidatos[0].ts).toISOString(), fuente: candidatos[0].fuente, confirmado: true };
   })['catch'](function(){ return estimado; });
 }
 
@@ -954,7 +757,6 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
    sola vez. jornadas queda guardado por dia (v.jornadas['2026-09-18'] = {...}) para que un viaje
    que sigue varios dias (pernocte en el campo) tenga un inicio de jornada propio cada dia, en vez
    de arrastrar siempre el del primer dia. */
-var gJornadaRedetect = {};
 function checkJornadas(){
   if(!gApi) return;
   var hoyStr = GV.dateStr(new Date());
@@ -968,7 +770,7 @@ function checkJornadas(){
   activos.forEach(function(v){
     var jornadas = v.jornadas || {};
     if(!jornadas[hoyStr]){
-      detectarInicioJornada(v.vehiculoId, v.origen, hoyStr, v).then(function(res){
+      detectarInicioJornada(v.vehiculoId, v.origen, hoyStr).then(function(res){
         var vv = GV.Storage.getViaje(v.id);
         if(!vv) return;
         var jj = Object.assign({}, vv.jornadas || {});
@@ -979,48 +781,6 @@ function checkJornadas(){
       return;
     }
     var hoy = jornadas[hoyStr];
-    /* Misma regla de las 08:00 aplicada a jornadas ya guardadas (arreglo 1/10): si quedo un arranque
-       detectado DESPUES de las 08:00, se corrige a las 08:00. Las ediciones manuales no se tocan. */
-    var __horaIngreso = GV.dateFromDateStr(hoyStr, GV.HORA_JORNADA_DEFECTO || 8);
-    /* Jornadas guardadas con el arranque "de borde" de las 00:00 (bug ya corregido) o de un camion de
-       24 hs que no quedaron calculadas desde la salida: se borran para que se recalculen con la regla
-       nueva en el proximo ciclo. Las ediciones manuales no se tocan. */
-    var __enBorde = (hoy.fuente === 'motor' || hoy.fuente === 'movimiento') && (new Date(hoy.inicio).getTime() - GV.dateFromDateStr(hoyStr).getTime()) < 60000;
-    /* Camion de 24 hs: la jornada sigue siempre a la regla de turno/salida (si se cambia la hora de
-       salida del viaje o se reasigna, se actualiza sola). Las ediciones manuales no se tocan. */
-    var __desea24 = (gvEsVehiculo24hs(v) && hoy.fuente !== 'manual') ? gvInicioPorSalida(v, null, hoyStr) : null;
-    if(__desea24 && (__desea24.inicio !== hoy.inicio || __desea24.fuente !== hoy.fuente)){
-      var jj6 = Object.assign({}, jornadas);
-      jj6[hoyStr] = Object.assign({}, hoy, __desea24);
-      GV.Storage.updateViaje(v.id, { jornadas: jj6 });
-      return;
-    }
-    if(__enBorde){
-      var jj5 = Object.assign({}, jornadas); delete jj5[hoyStr];
-      GV.Storage.updateViaje(v.id, { jornadas: jj5 });
-      return;
-    }
-    if((hoy.fuente === 'motor' || hoy.fuente === 'movimiento') && new Date(hoy.inicio) > __horaIngreso){
-      var jj3 = Object.assign({}, jornadas);
-      jj3[hoyStr] = Object.assign({}, hoy, { inicio: __horaIngreso.toISOString(), fuente: 'horario', confirmado: true });
-      GV.Storage.updateViaje(v.id, { jornadas: jj3 });
-      return;
-    }
-    /* Si quedo como 'estimado' (por ejemplo se calculo antes de las 08:00 sin arranque de motor), se
-       vuelve a revisar cada 10 minutos: asi toma un arranque temprano posterior o, pasadas las 08:00,
-       queda confirmado con la hora de ingreso. */
-    if(hoy.fuente === 'estimado' && (!gJornadaRedetect[v.id] || (Date.now() - gJornadaRedetect[v.id]) > 600000)){
-      gJornadaRedetect[v.id] = Date.now();
-      detectarInicioJornada(v.vehiculoId, v.origen, hoyStr, v).then(function(res){
-        if(!res || res.fuente === 'estimado') return;
-        var vv2 = GV.Storage.getViaje(v.id);
-        if(!vv2) return;
-        var jj4 = Object.assign({}, vv2.jornadas || {});
-        if(!jj4[hoyStr] || jj4[hoyStr].fuente !== 'estimado') return;
-        jj4[hoyStr] = Object.assign({}, jj4[hoyStr], { inicio: res.inicio, fuente: res.fuente, confirmado: res.confirmado });
-        GV.Storage.updateViaje(v.id, { jornadas: jj4 });
-      });
-    }
     if(!hoy.alertado12hs){
       var minutosChofer = (Date.now() - new Date(hoy.inicio).getTime()) / 60000;
       if(minutosChofer >= (GV.HS_CHOFER_ALERTA_MIN || 720)){
@@ -1031,8 +791,8 @@ function checkJornadas(){
           id: 'al_' + v.id + '_12hs_' + hoyStr,
           tipo: 'chofer_12hs',
           viajeId: v.id,
-          fecha: new Date().toISOString(),
-          mensaje: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').'
+          creadoEn: new Date().toISOString(),
+          texto: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').'
         });
       }
     }
@@ -1072,17 +832,6 @@ function checkDwellAlerts(){
           var __salioTarde = __demoraMsAuto > 20*60*1000;
           var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true };
           if(__salioTarde){ __updatesAuto.salioConDemora = true; __updatesAuto.demoraSalidaMin = Math.round(__demoraMsAuto/60000); }
-          /* Bug real (21/9, viaje de Chavez Nicolas Emanuel): al auto-iniciar por GPS nunca se dejaba
-             sellado el horario real de salida del ORIGEN (sitiosReal.origen.egreso) -- esa fila quedaba
-             con "Egreso real" en blanco para siempre, aunque la unidad ya hubiera salido: el recalculo
-             por historial del detalle del viaje tampoco puede reconstruirlo despues, porque arranca a
-             mirar el historial recien desde iniciadoEn, cuando la unidad ya esta afuera del origen. Se
-             sella aca con el mismo horario ya usado para confirmar la salida (salidaOrigenTentativaDesde). */
-          if(!(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
-            var __srAuto = Object.assign({}, v.sitiosReal || {});
-            __srAuto.origen = Object.assign({}, __srAuto.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
-            __updatesAuto.sitiosReal = __srAuto;
-          }
           GV.Storage.updateViaje(v.id, __updatesAuto);
           v.estado = 'en_curso';
           if(__salioTarde){ v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto.demoraSalidaMin; }
@@ -1106,13 +855,6 @@ function checkDwellAlerts(){
         if(__awayFromOrigin2){
           var __demoraMsAuto2 = Date.now() - new Date(v.fechaSalida).getTime();
           var __updatesAuto2 = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true, salioConDemora: true, demoraSalidaMin: Math.round(__demoraMsAuto2/60000) };
-          /* Mismo resguardo que en la rama de arriba (planificado -> en_curso): sellar sitiosReal.origen.egreso
-             al auto-iniciar por GPS, para que "Egreso real" del origen no quede en blanco para siempre. */
-          if(!(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
-            var __srAuto2 = Object.assign({}, v.sitiosReal || {});
-            __srAuto2.origen = Object.assign({}, __srAuto2.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
-            __updatesAuto2.sitiosReal = __srAuto2;
-          }
           GV.Storage.updateViaje(v.id, __updatesAuto2);
           v.estado = 'en_curso'; v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto2.demoraSalidaMin;
           GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad ya salio de ' + (v.origen ? GV.siteNameFor(v.origen) : 'origen') + ' (' + GV.fmtDurMin(__demoraMsAuto2) + ' de demora sobre lo programado) y deja de figurar como demorada.', fecha: new Date().toISOString(), viajeId: v.id });
@@ -1352,17 +1094,6 @@ function checkDwellAlerts(){
 
   api.call('Get', {typeName:'Device', search:{}}, function(res){
     gState.vehiculos = (res||[]).map(function(d){ return {id:d.id, nombre:d.name||d.id}; });
-    /* Camiones de 24 hs: los que estan en el grupo de MyGeotab "Camiones 24 hs" (ver gvEsVehiculo24hs). */
-    (function(devs){
-      api.call('Get', {typeName:'Group'}, function(grupos){
-        var nombre = String(GV.GRUPO_24HS_NOMBRE || '').trim().toLowerCase();
-        var g = (grupos || []).filter(function(x){ return String(x.name || '').trim().toLowerCase() === nombre; })[0];
-        var ids = {};
-        if(g){ devs.forEach(function(d){ if((d.groups || []).some(function(x){ return x.id === g.id; })) ids[d.id] = true; }); }
-        GV.__veh24Ids = ids;
-        try{ if(document.getElementById('gv-track-list')) renderTracking(); }catch(e){}
-      }, function(){});
-    })(res || []);
     var sel = document.getElementById('gv-vehiculo');
     if(sel && gState.vehiculos.length){
       sel.innerHTML = '<option value="">Seleccionar vehiculo...</option>' +
@@ -1413,7 +1144,10 @@ function resetForm(){
   var cSel=document.getElementById('gv-conductor'), vSel=document.getElementById('gv-vehiculo');
   var oEl=document.getElementById('gv-obs');
   if(cSel) cSel.value=''; if(vSel) vSel.value=''; if(oEl) oEl.value='';
-  gvRefrescarFechaNuevoViaje(true);
+  var now = new Date();
+  var fEl=document.getElementById('gv-fecha'), hEl=document.getElementById('gv-hora');
+  if(fEl) fEl.value = now.toISOString().substring(0,10);
+  if(hEl) hEl.value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
 }
 
 function setupEvents(){
@@ -1477,8 +1211,6 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
     }
 
     var __fechaSalidaNv = fEl.value + 'T' + hEl.value + ':00';
-    var __atrasoMin = Math.round((Date.now() - new Date(__fechaSalidaNv).getTime()) / 60000);
-    if(__atrasoMin > 20 && !window.confirm('La hora de salida cargada (' + hEl.value + ' del ' + fEl.value.split('-').reverse().join('/') + ') ya paso hace ' + GV.fmtDurMin(__atrasoMin * 60000) + ', asi que el viaje va a aparecer DEMORADO apenas se guarde.\n\nAceptar = guardarlo igual con esa hora.\nCancelar = volver y corregir la hora.')){ return; }
     var viaje = {
       id: GV.genId(),
       conductorId: cSel.value, conductor: cSel.options[cSel.selectedIndex].text,
@@ -1553,16 +1285,6 @@ abrirDetalleViaje(id);
   });
 
   document.getElementById('gv-btn-refresh-track').addEventListener('click', renderTracking);
-  /* Desplegar / minimizar el mapa de Seguimiento. Al desplegarlo se vuelve a renderizar para
-     que Google Maps tome el tamano real del contenedor (estaba oculto) y encuadre los viajes. */
-  document.getElementById('gv-btn-toggle-track-map').addEventListener('click', function(){
-    var mapBox = document.getElementById('gv-track-map');
-    var abrir = mapBox.style.display === 'none';
-    mapBox.style.display = abrir ? 'block' : 'none';
-    this.textContent = abrir ? 'Ocultar mapa' : 'Mostrar mapa';
-    this.setAttribute('aria-expanded', abrir ? 'true' : 'false');
-    if(abrir) renderTracking();
-  });
 
   var gerList = document.getElementById('gv-gerenciamientos-list');
   if(gerList){
@@ -1613,16 +1335,6 @@ function gvNavDetalleTexto(v, estados){
 var hitos = gvHitosNav(v);
 if(!hitos.length) return null;
 var sr = estados || (v && v.sitiosReal) || {};
-/* Viaje que todavia no arranco (planificado): no esta "en camino" a ningun lado, esta por
-salir. Se muestra "Por salir a: <primer sitio del recorrido despues del origen>". */
-/* Ajuste 1/10 (caso T289 - San Martin): un viaje DEMORADO porque todavia no salio del origen
-(demoradoOrigen y sin iniciadoEn) tampoco esta "en camino": sigue "por salir". */
-if(v && (v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn))){
-var __prox = null;
-for(var k=0; k<hitos.length; k++){ if(hitos[k].id !== 'origen'){ __prox = hitos[k]; break; } }
-if(!__prox) __prox = hitos[0];
-return { kind:'porsalir', texto: 'Por salir a: ' + (__prox.label || '?') };
-}
 for(var i=0; i<hitos.length; i++){
 var h = hitos[i];
 /* El destino se resuelve SIN consultar su estado de GPS (sr[h.id]): computeStopStatuses ya
@@ -1806,15 +1518,6 @@ function gvJornadaTextoInfo(v){
   if(jn.fuente === 'estimado'){
     return { texto: horaTxt + ' — ESTIMADO, sin confirmar (valor por defecto, no se pudo detectar automaticamente). Lleva ' + hsTxt + ' en servicio. Corregilo aca si sabes el horario real.', esEstimado: true };
   }
-  if(jn.fuente === 'horario'){
-    return { texto: horaTxt + ' — horario de ingreso (no hubo arranque de motor antes de esa hora). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
-  }
-  if(jn.fuente === 'turno'){
-    return { texto: horaTxt + ' — inicio del turno diurno (camion de 24 hs con chofer de turno). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
-  }
-  if(jn.fuente === 'salida'){
-    return { texto: horaTxt + ' — desde la salida del viaje (camion de 24 hs con chofer de turno). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
-  }
   var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido de forma sostenida' : (jn.fuente === 'manual' ? 'editado a mano' : 'salida sostenida del origen');
   return { texto: horaTxt + ' — detectado por ' + fuenteTxt + '. Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
 }
@@ -1856,30 +1559,12 @@ function gvHsChoferHtml(v, hoyStr){
     };
   }
   var esAlerta = (ms / 60000) >= (GV.HS_CHOFER_ALERTA_MIN || 720);
-  var fuenteTxt = jn.fuente === 'motor' ? 'detectado por motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : (jn.fuente === 'horario' ? 'horario de ingreso, sin arranque de motor antes' : (jn.fuente === 'salida' ? 'desde la salida del viaje, camion de 24 hs' : (jn.fuente === 'turno' ? 'inicio del turno diurno, camion de 24 hs' : 'detectado por movimiento del vehiculo'))));
+  var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : 'movimiento del vehiculo');
   return {
     html: '<span class="gv-trk-hs' + (esAlerta ? ' gv-trk-hs-alerta' : '') + '">' + durTxt + (esAlerta ? ' &#9888;' : '') + '</span>',
-    title: 'Inicio de jornada: ' + horaTxt + ' (' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
+    title: 'Inicio de jornada: ' + horaTxt + ' (detectado por ' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
   };
 }
-
-function gvSitioBadgeHtml(ingresoMs, progMin, detBase, attrs){
-  var elapsedMs = Math.max(0, Date.now() - ingresoMs);
-  var excessMs = elapsedMs - ((progMin || 0) * 60000);
-  var over = progMin > 0 && excessMs > 0;
-  var title = detBase + ' hace ' + GV.fmtDurMin(elapsedMs) + (over ? (' — excede lo programado (' + progMin + ' min) por ' + GV.fmtDurMin(excessMs)) : (progMin ? (' (programado ' + progMin + ' min)') : ''));
-  return '<span class="gv-trk-site ' + (over ? 'gv-trk-site-over' : 'gv-trk-site-onsite') + '"' + (attrs || '') + ' title="' + GV.escapeHtml(title) + '">' + (over ? '&#9888; ' : '&#9679; ') + 'hace ' + GV.fmtDurMin(elapsedMs) + '</span>';
-}
-/* Refresca en vivo (cada 30 s) el "hace X" de la columna Sitio sin esperar a recalcular el historial. */
-setInterval(function(){
-  try{
-    document.querySelectorAll('.gv-trk-site[data-ingreso]').forEach(function(el){
-      var cont = el.parentNode; if(!cont) return;
-      var attrs = ' data-ingreso="' + el.getAttribute('data-ingreso') + '" data-prog="' + el.getAttribute('data-prog') + '" data-det="' + GV.escapeHtml(el.getAttribute('data-det') || '') + '"';
-      cont.innerHTML = gvSitioBadgeHtml(new Date(el.getAttribute('data-ingreso')).getTime(), parseInt(el.getAttribute('data-prog'), 10) || 0, el.getAttribute('data-det') || '', attrs);
-    });
-  }catch(e){}
-}, 30000);
 
 function updateTrackBadges(v){
   if(!gApi || !v.vehiculoId) return;
@@ -1888,12 +1573,7 @@ function updateTrackBadges(v){
      de hoy, independiente de dayStart (que abajo sigue usandose para el historial de sitios del
      viaje). Es una consulta aparte (Trip) y no bloquea el resto de la celda si falla o tarda. */
   var hoyInicio = new Date(); hoyInicio.setHours(0,0,0,0);
-  /* Ajuste 1/10 (caso H295 - Fernandez Mario, camion de 24 hs): HS Manejo cuenta desde el INICIO DE LA
-     JORNADA del chofer de hoy (no desde la medianoche), asi no suma lo que manejo el chofer anterior
-     (por ejemplo el nocturno). Si todavia no hay jornada calculada, se usa la medianoche. */
-  var __jnHoy = v.jornadas && v.jornadas[GV.dateStr(new Date())];
-  var __desdeManejo = (__jnHoy && __jnHoy.inicio && new Date(__jnHoy.inicio) > hoyInicio) ? new Date(__jnHoy.inicio) : hoyInicio;
-  GV.getTripsToday(gApi, v.vehiculoId, __desdeManejo.toISOString(), new Date().toISOString()).then(function(ms){
+  GV.getTripsToday(gApi, v.vehiculoId, hoyInicio.toISOString(), new Date().toISOString()).then(function(ms){
     var __hsmEl = document.getElementById('gv-trk-hsmanejo-' + v.id);
     if(__hsmEl) __hsmEl.textContent = GV.fmtDurMin(ms);
   });
@@ -1949,11 +1629,11 @@ var waitEl = document.getElementById('gv-track-wait-' + v.id);
         var excessMs = elapsedMs - (progMin * 60000);
         var tipoTxt = GV.tipoParadaLabel(openSite.tipo).toLowerCase();
         var detalleTxt = 'En sitio: ' + (openSite.label || '') + ' (' + tipoTxt + ') hace ' + GV.fmtDurMin(elapsedMs);
-        /* Ajuste 1/10: la celda muestra solo "hace X" (el nombre del sitio ya esta en Detalle) y se
-           actualiza sola cada 30 s (gvTickSitios) usando data-ingreso / data-prog. Celeste mientras
-           este dentro de lo programado, rojo con aviso si ya lo excede (el exceso queda en el title). */
-        var __attrs = ' data-ingreso="' + GV.escapeHtml(new Date(openSite.ingreso).toISOString()) + '" data-prog="' + progMin + '" data-det="' + GV.escapeHtml(detalleTxt.replace(/ hace .*$/, '')) + '"';
-        waitEl.innerHTML = gvSitioBadgeHtml(new Date(openSite.ingreso).getTime(), progMin, detalleTxt.replace(/ hace .*$/, ''), __attrs);
+        if(excessMs > 0){
+          waitEl.innerHTML = '<span class="gv-trk-site gv-trk-site-over" title="' + GV.escapeHtml(detalleTxt + ' — excede lo programado (' + progMin + ' min) por ' + GV.fmtDurMin(excessMs)) + '">&#9888; +' + GV.fmtDurMin(excessMs) + '</span>';
+        } else {
+          waitEl.innerHTML = '<span class="gv-trk-site gv-trk-site-onsite" title="' + GV.escapeHtml(detalleTxt) + '">&#9679; ' + GV.escapeHtml(openSite.label || tipoTxt) + '</span>';
+        }
       } else {
         waitEl.innerHTML = '';
       }
@@ -1965,25 +1645,7 @@ function renderTracking(){
   var box = document.getElementById('gv-track-map');
   var listEl = document.getElementById('gv-track-list');
   if(!box) return;
-  GV.loadGoogleMaps().then(function(){
-    /* Arreglo 25/9 (mapa de Seguimiento vacio despues de entrar a otra pantalla de Geotab y
-       volver): el add-in corre dentro de la pagina de MyGeotab, y cuando se abre una pantalla
-       nativa con mapa (Historial de viajes, Mapa, etc.) Geotab carga su propia copia de Google
-       Maps y reemplaza window.google. El gTrackMap creado con la copia anterior deja de ser
-       "instanceof google.maps.Map" para la copia nueva y cada overlay que se le agrega falla con
-       "setMap: not an instance of Map" -- el render se corta y no aparece ni un camion. Se usa
-       siempre el window.google vigente y, si el mapa quedo de una copia anterior (o su contenedor
-       fue reemplazado), se lo vuelve a crear. */
-    var google = window.google;
-    if(gTrackMap){
-      var __mapaOk = false;
-      try{ __mapaOk = (gTrackMap instanceof google.maps.Map) && gTrackMap.getDiv() === box; }catch(e){}
-      if(!__mapaOk){
-        try{ if(gTrackLayer) gTrackLayer.clearLayers(); }catch(e){}
-        gTrackMap = null; gTrackLayer = null;
-        box.innerHTML = '';
-      }
-    }
+  GV.loadGoogleMaps().then(function(google){
     if(!gTrackMap){
       gTrackMap = GV.createMap('gv-track-map', { center: { lat: -38.951, lng: -68.059 }, zoom: 9 });
       /* Mismo mapa base (Google, con selector Mapa/Satelite y capa de Trafico) que el buscador de
@@ -2057,11 +1719,11 @@ function renderTracking(){
 '<div class="gv-trk-cell">Unidad</div>' +
 '<div class="gv-trk-cell">Conductor</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm">Estado</div>' +
-'<div class="gv-trk-cell" style="text-align:center">Detalle</div>' +
-'<div class="gv-trk-cell" style="text-align:center" title="Tiempo que lleva la unidad en el sitio de carga/descarga actual (rojo si ya excede lo programado)">Tiempo</div>' +
-'<div class="gv-trk-cell gv-trk-hide-sm" style="text-align:center">En vivo</div>' +
+'<div class="gv-trk-cell">Detalle</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm">En vivo</div>' +
 '<div class="gv-trk-cell" style="text-align:right">Avance %</div>' +
-'<div class="gv-trk-cell" style="text-align:center">Progreso</div>' +
+'<div class="gv-trk-cell">Progreso</div>' +
+'<div class="gv-trk-cell">Sitio</div>' +
 '<div class="gv-trk-cell gv-trk-hs-head" title="Horas que lleva el chofer en servicio, desde el inicio real de la jornada (detectado automaticamente, o editado a mano en el detalle del viaje)">HS Chofer</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm gv-trk-hs-head" title="Horas de manejo real de hoy (tramos con la unidad efectivamente circulando)">HS Manejo</div>' +
 '<div></div>' +
@@ -2087,19 +1749,19 @@ var __navInitTxt = __navInit ? __navInit.texto : '';
 var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
 var __hsChoferHtml = gvHsChoferHtml(v, hoyStr);
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
-'<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + (gvEsVehiculo24hs(v) ? ' <span class="gv-trk-24hs" title="Camion de 24 hs (grupo Camiones 24 hs en MyGeotab): la jornada del chofer se cuenta por turno">24hs</span>' : '') + '</div>' +
+'<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + '</div>' +
 '<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
 '<div class="gv-trk-cell gv-trk-nav' + (__navInit ? (' gv-trk-nav-' + __navInit.kind) : '') + '" id="gv-track-nav-' + v.id + '" title="' + GV.escapeHtml(__navInitTxt) + '">' + GV.escapeHtml(__navInitTxt) + '</div>' +
+'<div class="gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-unknown" id="gv-track-status-' + v.id + '">Obteniendo estado...</div>' +
+'<div class="gv-trk-pct" id="gv-trk-pct-' + v.id + '">' + av.pct + '%</div>' +
+'<div id="gv-trk-bar-' + v.id + '">' + gvBarraAvanceHtml(v, v.sitiosReal) + '</div>' +
 /* Antes esta etiqueta (gv-track-wait) era un texto largo con grid-column:1/-1: ocupaba TODA
    el ancho de la fila, obligandola a una segunda linea completa por debajo apenas la unidad
    quedaba en un sitio mas tiempo del programado. Ahora es una celda mas, del mismo alto que
    el resto (columna angosta y fija), asi la fila siempre ocupa un solo renglon; el detalle
    completo (nombre del sitio, cuanto lleva, cuanto excede) queda en el title (tooltip). */
 '<div class="gv-trk-cell" id="gv-track-wait-' + v.id + '"></div>' +
-'<div class="gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-unknown" id="gv-track-status-' + v.id + '">Obteniendo estado...</div>' +
-'<div class="gv-trk-pct" id="gv-trk-pct-' + v.id + '">' + av.pct + '%</div>' +
-'<div id="gv-trk-bar-' + v.id + '">' + gvBarraAvanceHtml(v, v.sitiosReal) + '</div>' +
 '<div class="gv-trk-cell" id="gv-trk-hschofer-' + v.id + '" title="' + GV.escapeHtml(__hsChoferHtml.title) + '">' + __hsChoferHtml.html + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm gv-trk-hs" id="gv-trk-hsmanejo-' + v.id + '">--</div>' +
 '<button type="button" class="gv-trk-det" data-detalle-id="' + v.id + '">Detalle</button>' +
@@ -2147,6 +1809,22 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             __truckMarker.addListener('mouseover', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaHover)); });
             __truckMarker.addListener('mouseout', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaCorta)); });
           }
+        }
+        if(v.compartirToken){
+          var __navC = null; try{ __navC = gvNavDetalleTexto(v, v.sitiosReal); }catch(navErrC){ }
+          var __avC = null; try{ __avC = gvAvanceViaje(v); }catch(avErrC){ }
+          GV.Storage.pushCompartido(v.compartirToken, {
+            viajeId: v.id,
+            unidad: v.vehiculo || '',
+            conductor: v.conductor || '',
+            estado: v.estado || 'planificado',
+            activo: true,
+            proximo: __navC ? __navC.texto : '',
+            avancePct: __avC ? __avC.pct : null,
+            origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''),
+            destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''),
+            pos: (res && res.length && res[0].latitude != null) ? { lat: res[0].latitude, lng: res[0].longitude, bearing: res[0].bearing || 0, speed: Math.round(res[0].speed || 0), dateTime: res[0].dateTime || null } : null
+          });
         }
         pending--;
         if(pending <= 0 && bounds.length){ GV.fitBoundsArr(gTrackMap, bounds, 30); }
@@ -2236,19 +1914,8 @@ return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px da
 '</div>';
 }
 var retrasosHtml = '';
-if(v.justificacionesDemora && v.justificacionesDemora.length){
-retrasosHtml += '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
-'<div style="font-size:.78rem;font-weight:700;color:#78350f;margin-bottom:6px">Demora de salida justificada (salida programada ' + GV.fmtDate(v.fechaSalida) + ')</div>' +
-v.justificacionesDemora.map(function(jd, i){
-return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px dashed #fcd34d' : '') + '">' +
-'<span style="color:#78350f">' + GV.fmtDate(jd.registradoEn) + ' &middot; llevaba ' + GV.fmtDurMin((jd.demoraMin||0) * 60000) + ' de demora</span>' +
-'<br><span style="color:#92400e">Motivo: ' + GV.escapeHtml(jd.motivo) + '</span>' +
-'</div>';
-}).join('') +
-'</div>';
-}
 if(v.retrasosSalida && v.retrasosSalida.length){
-retrasosHtml += '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+retrasosHtml = '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
 '<div style="font-size:.78rem;font-weight:700;color:#78350f;margin-bottom:6px">Historial de demoras justificadas</div>' +
 v.retrasosSalida.map(function(rt, i){
 return '<div style="font-size:.78rem;padding:5px 0;' + (i>0 ? 'border-top:1px dashed #fcd34d' : '') + '">' +
@@ -2265,8 +1932,8 @@ overlay.innerHTML =
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
+(v.estado!=='cancelado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir" title="Genera un link publico, de solo lectura, para que un cliente vea el progreso y la posicion en vivo de esta unidad sin entrar a MyGeotab">' + (v.compartirToken ? 'Ver link para el cliente' : 'Compartir con cliente') + '</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
 ((v.estado==='planificado'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
@@ -2274,6 +1941,12 @@ overlay.innerHTML =
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
   '</div>' +
 '<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + '</div>' +
+(v.compartirToken ? ('<div id="gv-det-compartir-panel" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+'<span style="font-size:.78rem;font-weight:700;color:#0c4a6e;white-space:nowrap">Link para el cliente:</span>' +
+'<input type="text" readonly id="gv-det-compartir-link" value="https://axel-valle-22.github.io/geotab-gestion-viajes/compartir.html?t=' + encodeURIComponent(v.compartirToken) + '" style="flex:1;min-width:220px;font-size:.78rem;padding:5px 8px;border:1px solid #bae6fd;border-radius:6px;background:#fff;color:#0c4a6e" onclick="this.select()">' +
+'<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir-copiar">Copiar</button>' +
+'<button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-compartir-stop">Dejar de compartir</button>' +
+'</div>') : '') +
 ((v.vehiculoId && v.origen && (v.estado==='en_curso'||v.estado==='demorado'||v.estado==='planificado')) ? gvJornadaBlockHtml(v) : '') +
 (v.llegadaDestinoPendienteEn ?('<div style="font-size:.82rem;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad ingreso al destino el ' + GV.fmtDate(v.llegadaDestinoPendienteEn) + ' pero quedan sitios sin completar (' + paradasSinCompletar(v).map(function(p){ return GV.escapeHtml(p.label); }).join(', ') + '). Confirma el cierre con <b>Marcar finalizado</b> si esos sitios no se van a completar, o usa <b>Agregar espera</b> para dejar la unidad esperando aca y retomar el resto del recorrido mas tarde.</div>') : '') +
 tramosHtml +
@@ -2851,10 +2524,32 @@ renderTrips(); renderTracking(); renderStats();
 });
 }
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
-var __detJustBtn = document.getElementById('gv-det-justificar'); if(__detJustBtn){ __detJustBtn.addEventListener('click', function(){ abrirJustificarDemora(v.id, function(){ closeDetalle(); abrirDetalleViaje(v.id); renderTracking(); }); }); }
+var __detCompartirBtn = document.getElementById('gv-det-compartir'); if(__detCompartirBtn){ __detCompartirBtn.addEventListener('click', function(){
+  if(v.compartirToken){ closeDetalle(); abrirDetalleViaje(v.id); return; }
+  var __tok = GV.genId('sh');
+  GV.Storage.updateViaje(v.id, { compartirToken: __tok }).then(function(){
+    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), creadoEn: new Date().toISOString() });
+  }).then(function(){ closeDetalle(); abrirDetalleViaje(v.id); });
+}); }
+var __detCompartirCopiarBtn = document.getElementById('gv-det-compartir-copiar'); if(__detCompartirCopiarBtn){ __detCompartirCopiarBtn.addEventListener('click', function(){
+  var __inp = document.getElementById('gv-det-compartir-link'); if(!__inp) return;
+  var __doFallback = function(){ __inp.select(); __inp.setSelectionRange(0, 99999); try{ document.execCommand('copy'); }catch(e){} };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(__inp.value).then(function(){
+      __detCompartirCopiarBtn.textContent = 'Copiado!'; setTimeout(function(){ __detCompartirCopiarBtn.textContent = 'Copiar'; }, 1500);
+    })['catch'](__doFallback);
+  } else { __doFallback(); }
+}); }
+var __detCompartirStopBtn = document.getElementById('gv-det-compartir-stop'); if(__detCompartirStopBtn){ __detCompartirStopBtn.addEventListener('click', function(){
+  if(!confirm('¿Dejar de compartir este viaje? El link dejara de mostrar informacion actualizada para el cliente.')) return;
+  var __oldTok = v.compartirToken;
+  GV.Storage.updateViaje(v.id, { compartirToken: null }).then(function(){
+    return GV.Storage.stopCompartido(__oldTok);
+  }).then(function(){ closeDetalle(); abrirDetalleViaje(v.id); });
+}); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
-GV.loadGoogleMaps().then(function(){ var google = window.google; /* ver arreglo 25/9 en renderTracking: usar siempre la copia vigente de Google Maps */
+GV.loadGoogleMaps().then(function(google){
 detMap = GV.createMap('gv-det-map', { center: { lat: -38.951, lng: -68.059 }, zoom: 9 });
 /* Mismo mapa base (Google) que el mapa de seguimiento y el buscador de sitios. */
 detLayer = GV.layerGroup(detMap);
@@ -3891,7 +3586,7 @@ function doInit(api){
   setupEvents();
 
   GV.Storage.init(api).then(function(){
-    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
+    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkJornadas();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
@@ -3900,13 +3595,15 @@ function doInit(api){
     GV.autoSyncSitiosDiario();
   });
 
-  gvRefrescarFechaNuevoViaje(true);
-  ['gv-fecha','gv-hora'].forEach(function(idCampo){ var el = document.getElementById(idCampo); if(el) el.addEventListener('input', function(){ gNvFechaTocada = true; }); });
+  var now = new Date();
+  var fe = document.getElementById('gv-fecha'), he = document.getElementById('gv-hora');
+  if(fe) fe.value = now.toISOString().substring(0,10);
+  if(he) he.value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
 
   if(api){
     loadMasterData(api);
     setInterval(function(){
-      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
+      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkJornadas();
       GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
   } else {
