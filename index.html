@@ -449,7 +449,9 @@ function checkDelays(){
   var now = new Date(), DELAY = 20*60*1000;
   var changed = false;
   GV.Storage.getViajes().forEach(function(v){
-    if(v.estado === 'planificado'){
+    /* Ajuste 1/10: la alerta de demora de salida se repite cada 20 min mientras la unidad siga sin
+       salir del origen (antes solo se generaba la primera, al pasar de planificado a demorado). */
+    if(v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn)){
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
         if(v.estado !== 'demorado'){ v.estado = 'demorado'; v.demoradoOrigen = true; changed = true; GV.Storage.markDirtyViaje(v.id); }
@@ -472,11 +474,11 @@ function checkDelays(){
     if(changed){ GV.Storage.updateViaje(null, {}); }
 }
 
-function abrirJustificarDemora(viajeId){
+function abrirJustificarDemora(viajeId, onDone){
   var v = GV.Storage.getViaje(viajeId);
   if(!v) return;
   var fs = new Date(v.fechaSalida);
-  var fechaVal = isNaN(fs.getTime()) ? '' : fs.toISOString().substring(0,10);
+  var fechaVal = isNaN(fs.getTime()) ? '' : gvFechaHoraLocal(fs).fecha;
   var horaVal = isNaN(fs.getTime()) ? '' : (fs.getHours().toString().padStart(2,'0') + ':' + fs.getMinutes().toString().padStart(2,'0'));
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay';
@@ -519,6 +521,7 @@ function abrirJustificarDemora(viajeId){
     }).then(function(){
       close();
       renderAlertas(); renderEventsWidget(); renderStats(); renderTrips();
+      if(typeof onDone === 'function') onDone();
     });
   });
 }
@@ -1606,7 +1609,9 @@ if(!hitos.length) return null;
 var sr = estados || (v && v.sitiosReal) || {};
 /* Viaje que todavia no arranco (planificado): no esta "en camino" a ningun lado, esta por
 salir. Se muestra "Por salir a: <primer sitio del recorrido despues del origen>". */
-if(v && v.estado === 'planificado'){
+/* Ajuste 1/10 (caso T289 - San Martin): un viaje DEMORADO porque todavia no salio del origen
+(demoradoOrigen y sin iniciadoEn) tampoco esta "en camino": sigue "por salir". */
+if(v && (v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn))){
 var __prox = null;
 for(var k=0; k<hitos.length; k++){ if(hitos[k].id !== 'origen'){ __prox = hitos[k]; break; } }
 if(!__prox) __prox = hitos[0];
@@ -2220,6 +2225,7 @@ overlay.innerHTML =
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo del retraso y la nueva hora de salida">Justificar demora / cambiar horario</button>' : '') +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
 ((v.estado==='planificado'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
@@ -2805,6 +2811,7 @@ renderTrips(); renderTracking(); renderStats();
 });
 }
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
+var __detJustBtn = document.getElementById('gv-det-justificar'); if(__detJustBtn){ __detJustBtn.addEventListener('click', function(){ abrirJustificarDemora(v.id, function(){ closeDetalle(); abrirDetalleViaje(v.id); renderTracking(); }); }); }
 overlay.addEventListener('click', function(e){ if(e.target === overlay) closeDetalle(); });
 
 GV.loadGoogleMaps().then(function(){ var google = window.google; /* ver arreglo 25/9 en renderTracking: usar siempre la copia vigente de Google Maps */
