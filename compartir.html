@@ -32,6 +32,7 @@
   .gv-sh-msg b { color:#111827; }
   .gv-sh-stale { background:#fffbeb; border:1px solid #fcd34d; color:#78350f; border-radius:8px; padding:8px 12px; font-size:.78rem; margin-top:10px; display:none; }
   .gv-sh-footer { text-align:center; font-size:.72rem; color:#9ca3af; padding:10px 0 20px; }
+  .gv-sh-site-label{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:#152238;color:#fff;font-weight:700;font-size:12px;font-family:inherit;padding:5px 11px;border-radius:7px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.45);opacity:.96;pointer-events:none;z-index:1}
 </style>
 </head>
 <body>
@@ -117,62 +118,103 @@
       anchor: new google.maps.Point(15, 15)
     };
   }
+  function stopIcon(google, label, color){
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
+      '<circle cx="13" cy="13" r="11" fill="' + color + '" stroke="#fff" stroke-width="2"/>' +
+      '<text x="13" y="14" text-anchor="middle" dominant-baseline="middle" font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="700" fill="#fff">' + escapeHtml(String(label)) + '</text>' +
+      '</svg>';
+    return {
+      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+      scaledSize: new google.maps.Size(26, 26),
+      anchor: new google.maps.Point(13, 13)
+    };
+  }
+  function makeLabelOverlay(google, position, html){
+    function Ov(){}
+    Ov.prototype = new google.maps.OverlayView();
+    var ov = new Ov();
+    ov.__pos = position;
+    ov.__div = null;
+    ov.onAdd = function(){
+      var div = document.createElement('div');
+      div.className = 'gv-sh-site-label';
+      div.innerHTML = html;
+      this.__div = div;
+      this.getPanes().floatPane.appendChild(div);
+    };
+    ov.draw = function(){
+      if(!this.__div) return;
+      var proj = this.getProjection();
+      if(!proj) return;
+      var pt = proj.fromLatLngToDivPixel(new google.maps.LatLng(this.__pos.lat, this.__pos.lng));
+      if(pt){ this.__div.style.left = pt.x + 'px'; this.__div.style.top = pt.y + 'px'; }
+    };
+    ov.onRemove = function(){ if(this.__div && this.__div.parentNode){ this.__div.parentNode.removeChild(this.__div); } this.__div = null; };
+    return ov;
+  }
+  var TIPO_LABEL = { descarga:'Descarga', ambos:'Carga y Descarga', espera:'Espera', carga:'Carga' };
+  function getRoute(points){
+    return new Promise(function(resolve){
+      try{
+        if(!points || points.length < 2){ resolve(null); return; }
+        var coordStr = points.map(function(p){ return p.lng + ',' + p.lat; }).join(';');
+        var url = 'https://router.project-osrm.org/route/v1/driving/' + coordStr + '?overview=full&geometries=geojson&steps=false';
+        fetch(url).then(function(r){ return r.json(); }).then(function(data){
+          if(data && data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].geometry && data.routes[0].geometry.coordinates){
+            resolve(data.routes[0].geometry.coordinates.map(function(c){ return { lat: c[1], lng: c[0] }; }));
+          } else { resolve(null); }
+        })['catch'](function(){ resolve(null); });
+      }catch(e){ resolve(null); }
+    });
+  }
 
   var gMap = null, gMarker = null, gMapsReady = false;
   var lastRenderedEstado = null;
   var gSiteMarkers = {};
+  var gSiteLabels = {};
   var gPolyline = null;
   var gSitiosDrawn = false;
   var gBoundsFitted = false;
 
-  var ESTADO_COLOR = { done:'#16a34a', active:'#2563eb', pending:'#9ca3af' };
-  var ROLE_LABEL = { origen:'O', parada:null, destino:'D' };
-
-  function siteIcon(estado){
-    return {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 9,
-      fillColor: ESTADO_COLOR[estado] || ESTADO_COLOR.pending,
-      fillOpacity: 1,
-      strokeColor: '#fff',
-      strokeWeight: 2
-    };
-  }
+  var ESTADO_COLOR = { done:'#059669', active:'#2563eb', pending:'#d97706' };
 
   function drawSitios(sitios){
     if(!sitios || !sitios.length) return;
     var paradaN = 0;
+    var bounds = new google.maps.LatLngBounds();
     sitios.forEach(function(s){
-      var labelTxt = ROLE_LABEL[s.role];
-      if(s.role === 'parada'){ paradaN++; labelTxt = String(paradaN); }
-      var existing = gSiteMarkers[s.id];
-      if(!existing){
-        var m = new google.maps.Marker({
-          position: { lat: s.lat, lng: s.lng },
-          map: gMap,
-          icon: siteIcon(s.estado),
-          label: { text: labelTxt || '', color: '#fff', fontSize: '11px', fontWeight: '700' },
-          title: s.label,
-          zIndex: 500
+      var dotLabel, labelTxt, color;
+      if(s.role === 'origen'){ dotLabel = 'O'; color = '#059669'; labelTxt = 'Origen: ' + (s.label||''); }
+      else if(s.role === 'destino'){ dotLabel = 'D'; color = '#dc2626'; labelTxt = 'Destino: ' + (s.label||''); }
+      else { paradaN++; dotLabel = String(paradaN); color = '#d97706'; labelTxt = paradaN + '. ' + (s.tipo ? (TIPO_LABEL[s.tipo] + ': ') : '') + (s.label||''); }
+      bounds.extend({ lat: s.lat, lng: s.lng });
+      if(!gSiteMarkers[s.id]){
+        gSiteMarkers[s.id] = new google.maps.Marker({
+          position: { lat: s.lat, lng: s.lng }, map: gMap, icon: stopIcon(google, dotLabel, color), zIndex: 500
         });
-        gSiteMarkers[s.id] = m;
-      } else {
-        existing.setIcon(siteIcon(s.estado));
+        var dotHtml = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + color + ';margin-right:5px;vertical-align:middle"></span>';
+        var lbl = makeLabelOverlay(google, { lat: s.lat, lng: s.lng }, dotHtml + escapeHtml(labelTxt));
+        lbl.setMap(gMap);
+        gSiteLabels[s.id] = lbl;
       }
     });
+    gSitiosDrawn = true;
     if(!gPolyline){
       gPolyline = new google.maps.Polyline({
         path: sitios.map(function(s){ return { lat: s.lat, lng: s.lng }; }),
-        strokeColor: '#00A6E0', strokeOpacity: .6, strokeWeight: 3, map: gMap
+        strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3, map: gMap
+      });
+      getRoute(sitios.map(function(s){ return { lat: s.lat, lng: s.lng }; })).then(function(coords){
+        if(coords && coords.length){ gPolyline.setPath(coords); gPolyline.setOptions({ strokeOpacity: .85 }); }
       });
     }
-    gSitiosDrawn = true;
+    return bounds;
   }
 
   function ensureMap(pos, sitios){
     if(!gMap){
       gMap = new google.maps.Map(document.getElementById('gv-sh-map'), {
-        center: pos, zoom: 13, streetViewControl: false, mapTypeControl: false, fullscreenControl: false
+        center: pos, zoom: 13, streetViewControl: false, mapTypeControl: true, mapTypeId: google.maps.MapTypeId.HYBRID, fullscreenControl: false
       });
     }
     if(!gMarker){
@@ -180,9 +222,10 @@
     } else {
       gMarker.setPosition(pos);
     }
-    if(sitios && sitios.length && !gSitiosDrawn){ drawSitios(sitios); }
+    var bounds = null;
+    if(sitios && sitios.length && !gSitiosDrawn){ bounds = drawSitios(sitios); }
     if(!gBoundsFitted){
-      var bounds = new google.maps.LatLngBounds();
+      bounds = bounds || new google.maps.LatLngBounds();
       bounds.extend(pos);
       (sitios || []).forEach(function(s){ bounds.extend({ lat: s.lat, lng: s.lng }); });
       gMap.fitBounds(bounds, 40);
@@ -250,7 +293,7 @@
       loadGoogleMaps().then(function(){
         if(!gMap){
           gMap = new google.maps.Map(document.getElementById('gv-sh-map'), {
-            center: { lat: data.sitios[0].lat, lng: data.sitios[0].lng }, zoom: 11, streetViewControl: false, mapTypeControl: false, fullscreenControl: false
+            center: { lat: data.sitios[0].lat, lng: data.sitios[0].lng }, zoom: 11, streetViewControl: false, mapTypeControl: true, mapTypeId: google.maps.MapTypeId.HYBRID, fullscreenControl: false
           });
         }
         if(!gSitiosDrawn) drawSitios(data.sitios);
