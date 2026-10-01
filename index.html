@@ -817,12 +817,17 @@ function confirmarSalidaDeOrigen(v, r){
    La jornada se calcula con el motor/GPS del CAMION, asi que en estos camiones el arranque del chofer
    nocturno se le asignaba al de dia. Decision de la empresa: en estos camiones la jornada del chofer
    arranca a la hora de SALIDA programada del viaje (o a la hora en que se le reasigno el viaje, si fue
-   hoy). Un camion se trata como de 24 hs si esta en esta lista (numero de interno) o, automaticamente,
-   si ese dia el motor estaba encendido a las 00:00. */
-GV.VEHICULOS_24HS = GV.VEHICULOS_24HS || ['H295'];
+   hoy). Un camion se trata como de 24 hs si esta en el grupo de MyGeotab GV.GRUPO_24HS_NOMBRE
+   ("Camiones 24 hs": lo administra la empresa agregando o sacando vehiculos de ese grupo desde
+   MyGeotab, se lee al abrir el panel), si esta en la lista fija GV.VEHICULOS_24HS (respaldo, numero de
+   interno) o, automaticamente, si ese dia el motor estaba encendido a las 00:00. */
+GV.GRUPO_24HS_NOMBRE = GV.GRUPO_24HS_NOMBRE || 'Camiones 24 hs';
+GV.VEHICULOS_24HS = GV.VEHICULOS_24HS || [];
+GV.__veh24Ids = GV.__veh24Ids || {};
 function gvEsVehiculo24hs(v){
+  if(v && v.vehiculoId && GV.__veh24Ids[v.vehiculoId]) return true;
   var interno = String((v && v.vehiculo) || '').split(' - ')[0].trim().toUpperCase();
-  return interno && GV.VEHICULOS_24HS.map(function(x){ return String(x).toUpperCase(); }).indexOf(interno) >= 0;
+  return !!interno && GV.VEHICULOS_24HS.map(function(x){ return String(x).toUpperCase(); }).indexOf(interno) >= 0;
 }
 /* Ajuste 1/10: en estos camiones el turno DIURNO arranca a las GV.HORA_JORNADA_DEFECTO (08:00) y el
    NOCTURNO desde las GV.HORA_TURNO_NOCHE (20:00). Si el viaje sale dentro del horario diurno, la jornada
@@ -1339,6 +1344,16 @@ function checkDwellAlerts(){
 
   api.call('Get', {typeName:'Device', search:{}}, function(res){
     gState.vehiculos = (res||[]).map(function(d){ return {id:d.id, nombre:d.name||d.id}; });
+    /* Camiones de 24 hs: los que estan en el grupo de MyGeotab "Camiones 24 hs" (ver gvEsVehiculo24hs). */
+    (function(devs){
+      api.call('Get', {typeName:'Group'}, function(grupos){
+        var nombre = String(GV.GRUPO_24HS_NOMBRE || '').trim().toLowerCase();
+        var g = (grupos || []).filter(function(x){ return String(x.name || '').trim().toLowerCase() === nombre; })[0];
+        var ids = {};
+        if(g){ devs.forEach(function(d){ if((d.groups || []).some(function(x){ return x.id === g.id; })) ids[d.id] = true; }); }
+        GV.__veh24Ids = ids;
+      }, function(){});
+    })(res || []);
     var sel = document.getElementById('gv-vehiculo');
     if(sel && gState.vehiculos.length){
       sel.innerHTML = '<option value="">Seleccionar vehiculo...</option>' +
