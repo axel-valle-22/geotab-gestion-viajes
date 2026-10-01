@@ -1675,17 +1675,17 @@ var out = [];
 var sr = v.sitiosReal || {};
 if(v.origen && typeof v.origen.lat === 'number'){
 var sOr = sr.origen || {};
-out.push({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', estado: sOr.egreso ? 'done' : 'active' });
+out.push({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', tipo: v.origen.tipo || null, estado: sOr.egreso ? 'done' : 'active' });
 }
 (v.paradas||[]).forEach(function(p, i){
 if(typeof p.lat !== 'number') return;
 var sp = sr['parada'+i] || {};
 var est = sp.egreso ? 'done' : (sp.ingreso ? 'active' : 'pending');
-out.push({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), estado: est });
+out.push({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), tipo: p.tipo || null, estado: est });
 });
 if(v.destino && typeof v.destino.lat === 'number'){
 var sd = sr.destino || {};
-out.push({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', estado: sd.ingreso ? 'done' : 'pending' });
+out.push({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', tipo: v.destino.tipo || null, estado: sd.ingreso ? 'done' : 'pending' });
 }
 return out;
 }
