@@ -1360,9 +1360,15 @@ if(!api || !deviceId){ resolve(0); return; }
 try{
 api.call('Get', { typeName: 'Trip', search: { deviceSearch: { id: deviceId }, fromDate: fromISO, toDate: toISO } }, function(res){
 var totalMs = 0;
+/* Ajuste 1/10: cada tramo se recorta a la ventana pedida [fromISO, toISO]. Asi, si la ventana arranca
+   en el inicio de la jornada del chofer (por ejemplo 08:00 en un camion de 24 hs), un tramo que el
+   chofer anterior empezo antes de esa hora solo suma la parte posterior. */
+var __fromMs = new Date(fromISO).getTime(), __toMs = new Date(toISO).getTime();
 (res || []).forEach(function(t){
 if(!t.start || !t.stop) return;
-var d = new Date(t.stop).getTime() - new Date(t.start).getTime();
+var ini = Math.max(new Date(t.start).getTime(), __fromMs);
+var fin = Math.min(new Date(t.stop).getTime(), __toMs);
+var d = fin - ini;
 if(!isNaN(d) && d > 0) totalMs += d;
 });
 resolve(totalMs);
