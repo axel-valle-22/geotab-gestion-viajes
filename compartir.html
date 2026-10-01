@@ -120,8 +120,56 @@
 
   var gMap = null, gMarker = null, gMapsReady = false;
   var lastRenderedEstado = null;
+  var gSiteMarkers = {};
+  var gPolyline = null;
+  var gSitiosDrawn = false;
+  var gBoundsFitted = false;
 
-  function ensureMap(pos){
+  var ESTADO_COLOR = { done:'#16a34a', active:'#2563eb', pending:'#9ca3af' };
+  var ROLE_LABEL = { origen:'O', parada:null, destino:'D' };
+
+  function siteIcon(estado){
+    return {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 9,
+      fillColor: ESTADO_COLOR[estado] || ESTADO_COLOR.pending,
+      fillOpacity: 1,
+      strokeColor: '#fff',
+      strokeWeight: 2
+    };
+  }
+
+  function drawSitios(sitios){
+    if(!sitios || !sitios.length) return;
+    var paradaN = 0;
+    sitios.forEach(function(s){
+      var labelTxt = ROLE_LABEL[s.role];
+      if(s.role === 'parada'){ paradaN++; labelTxt = String(paradaN); }
+      var existing = gSiteMarkers[s.id];
+      if(!existing){
+        var m = new google.maps.Marker({
+          position: { lat: s.lat, lng: s.lng },
+          map: gMap,
+          icon: siteIcon(s.estado),
+          label: { text: labelTxt || '', color: '#fff', fontSize: '11px', fontWeight: '700' },
+          title: s.label,
+          zIndex: 500
+        });
+        gSiteMarkers[s.id] = m;
+      } else {
+        existing.setIcon(siteIcon(s.estado));
+      }
+    });
+    if(!gPolyline){
+      gPolyline = new google.maps.Polyline({
+        path: sitios.map(function(s){ return { lat: s.lat, lng: s.lng }; }),
+        strokeColor: '#00A6E0', strokeOpacity: .6, strokeWeight: 3, map: gMap
+      });
+    }
+    gSitiosDrawn = true;
+  }
+
+  function ensureMap(pos, sitios){
     if(!gMap){
       gMap = new google.maps.Map(document.getElementById('gv-sh-map'), {
         center: pos, zoom: 13, streetViewControl: false, mapTypeControl: false, fullscreenControl: false
@@ -131,6 +179,14 @@
       gMarker = new google.maps.Marker({ position: pos, map: gMap, icon: vehicleIcon(google, 0, '#00A6E0'), zIndex: 1000 });
     } else {
       gMarker.setPosition(pos);
+    }
+    if(sitios && sitios.length && !gSitiosDrawn){ drawSitios(sitios); }
+    if(!gBoundsFitted){
+      var bounds = new google.maps.LatLngBounds();
+      bounds.extend(pos);
+      (sitios || []).forEach(function(s){ bounds.extend({ lat: s.lat, lng: s.lng }); });
+      gMap.fitBounds(bounds, 40);
+      gBoundsFitted = true;
     }
   }
 
@@ -182,7 +238,7 @@
     if(data.pos && typeof data.pos.lat === 'number'){
       loadGoogleMaps().then(function(){
         var pos = { lat: data.pos.lat, lng: data.pos.lng };
-        ensureMap(pos);
+        ensureMap(pos, data.sitios);
         if(gMarker) gMarker.setIcon(vehicleIcon(google, data.pos.bearing || 0, '#00A6E0'));
         gMapsReady = true;
         var speedTxt = (typeof data.pos.speed === 'number') ? (data.pos.speed + ' km/h') : '';
@@ -190,6 +246,22 @@
       })['catch'](function(err){
         mapEl.innerHTML = '<div class="gv-sh-msg">No se pudo cargar el mapa.</div>';
       });
+    } else if(data.sitios && data.sitios.length){
+      loadGoogleMaps().then(function(){
+        if(!gMap){
+          gMap = new google.maps.Map(document.getElementById('gv-sh-map'), {
+            center: { lat: data.sitios[0].lat, lng: data.sitios[0].lng }, zoom: 11, streetViewControl: false, mapTypeControl: false, fullscreenControl: false
+          });
+        }
+        if(!gSitiosDrawn) drawSitios(data.sitios);
+        if(!gBoundsFitted){
+          var bounds = new google.maps.LatLngBounds();
+          data.sitios.forEach(function(s){ bounds.extend({ lat: s.lat, lng: s.lng }); });
+          gMap.fitBounds(bounds, 40);
+          gBoundsFitted = true;
+        }
+      })['catch'](function(){ mapEl.innerHTML = '<div class="gv-sh-msg">No se pudo cargar el mapa.</div>'; });
+      metaEl.textContent = 'Todavia no hay posicion en vivo de la unidad.';
     } else if(!gMapsReady){
       mapEl.innerHTML = '<div class="gv-sh-msg">Todavia no hay posicion en vivo disponible para esta unidad.</div>';
       metaEl.textContent = '';
