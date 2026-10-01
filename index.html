@@ -1664,6 +1664,32 @@ if(v.estado === 'completado'){ pct = 100; clases = hitos.map(function(){ return 
 return { hitos: hitos, clases: clases, pct: pct };
 }
 
+/* Puntos geograficos del viaje (origen, paradas, destino) con su estado, para el link
+publico de "Compartir con cliente": a diferencia de gvHitosViaje/gvAvanceViaje (que solo
+cuentan los hitos de carga/descarga para el % de avance), aca van TODOS los puntos que
+tengan coordenadas, incluido un origen que sea solo punto de paso, porque en el mapa del
+cliente conviene mostrar el recorrido completo (de donde sale, por donde para, a donde
+llega) y no solo los que suman al avance. */
+function gvSitiosCompartir(v){
+var out = [];
+var sr = v.sitiosReal || {};
+if(v.origen && typeof v.origen.lat === 'number'){
+var sOr = sr.origen || {};
+out.push({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', estado: sOr.egreso ? 'done' : 'active' });
+}
+(v.paradas||[]).forEach(function(p, i){
+if(typeof p.lat !== 'number') return;
+var sp = sr['parada'+i] || {};
+var est = sp.egreso ? 'done' : (sp.ingreso ? 'active' : 'pending');
+out.push({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), estado: est });
+});
+if(v.destino && typeof v.destino.lat === 'number'){
+var sd = sr.destino || {};
+out.push({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', estado: sd.ingreso ? 'done' : 'pending' });
+}
+return out;
+}
+
 /* Barra segmentada: un tramo por hito (verde cumplido, violeta el que esta en curso,
 rayado el pendiente) y la bandera de meta al final. */
 function gvBarraAvanceHtml(v, estados){
@@ -2161,6 +2187,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             avancePct: __avC ? __avC.pct : null,
             origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''),
             destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''),
+            sitios: gvSitiosCompartir(v),
             pos: (res && res.length && res[0].latitude != null) ? { lat: res[0].latitude, lng: res[0].longitude, bearing: res[0].bearing || 0, speed: Math.round(res[0].speed || 0), dateTime: res[0].dateTime || null } : null
           });
         }
@@ -2878,7 +2905,7 @@ var __detCompartirBtn = document.getElementById('gv-det-compartir'); if(__detCom
   if(v.compartirToken){ closeDetalle(); abrirDetalleViaje(v.id); return; }
   var __tok = GV.genId('sh');
   GV.Storage.updateViaje(v.id, { compartirToken: __tok }).then(function(){
-    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), creadoEn: new Date().toISOString() });
+    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), sitios: gvSitiosCompartir(v), creadoEn: new Date().toISOString() });
   }).then(function(){ closeDetalle(); abrirDetalleViaje(v.id); });
 }); }
 var __detCompartirCopiarBtn = document.getElementById('gv-det-compartir-copiar'); if(__detCompartirCopiarBtn){ __detCompartirCopiarBtn.addEventListener('click', function(){
