@@ -1737,7 +1737,7 @@ GV.Storage = (function(){
     historicoCargado: function(){ return _hist.cargado; },
     getConductores: function(){ return _data.conductores; },
     setConductores: function(list){ _data.conductores = list || []; return persist(); },
-    getAlertas: function(){ return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
+    getAlertas: function(){ /* arreglo 1/10: alertas viejas de 12hs guardadas con creadoEn/texto en vez de fecha/mensaje rompian el orden de la lista de Alertas */ _data.alertas.forEach(function(a){ if(a && !a.fecha && a.creadoEn) a.fecha = a.creadoEn; if(a && !a.mensaje && a.texto) a.mensaje = a.texto; }); return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
     addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = true; return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
