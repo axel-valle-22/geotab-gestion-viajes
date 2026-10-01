@@ -519,6 +519,11 @@ function abrirJustificarDemora(viajeId, onDone){
       var alertasDemora = GV.Storage.getAlertas().filter(function(a){ return a.tipo === 'demora' && a.viajeId === v.id; });
       return Promise.all(alertasDemora.map(function(a){ return GV.Storage.removeAlerta(a.id); }));
     }).then(function(){
+      /* Ajuste 1/10: el motivo de la demora queda visible como evento (Ultimos eventos / Alertas). */
+      var __nf = new Date(nuevaFecha);
+      return GV.Storage.addAlerta({ id: 'al_' + v.id + '_justif_' + Date.now(), tipo: 'info', viajeId: v.id, fecha: new Date().toISOString(),
+        mensaje: (v.conductor || '') + ' - ' + (v.vehiculo || '') + ': demora de salida justificada. Motivo: ' + motivo + '. Nueva salida: ' + GV.fmtDate(__nf) + '.' });
+    }).then(function(){
       close();
       renderAlertas(); renderEventsWidget(); renderStats(); renderTrips();
       if(typeof onDone === 'function') onDone();
