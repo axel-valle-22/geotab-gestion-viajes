@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Seguimiento de viaje - Transporte Dolores Parra</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background:#f3f4f6; color:#111827; }
+  .gv-sh-header { background:#0c4a6e; color:#fff; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+  .gv-sh-header h1 { font-size:1rem; margin:0; font-weight:700; }
+  .gv-sh-header .gv-sh-sub { font-size:.75rem; opacity:.85; }
+  .gv-sh-wrap { max-width:960px; margin:0 auto; padding:14px; }
+  .gv-sh-card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:14px 16px; margin-bottom:14px; }
+  .gv-sh-row { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
+  .gv-sh-title { font-size:1.05rem; font-weight:700; }
+  .gv-sh-chip { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.78rem; font-weight:700; }
+  .gv-sh-chip.en_curso, .gv-sh-chip.demorado { background:#dbeafe; color:#1e40af; }
+  .gv-sh-chip.demorado { background:#fef3c7; color:#78350f; }
+  .gv-sh-chip.planificado { background:#f3f4f6; color:#374151; }
+  .gv-sh-chip.completado { background:#dcfce7; color:#166534; }
+  .gv-sh-chip.cancelado { background:#fee2e2; color:#991b1b; }
+  .gv-sh-ruta { font-size:.88rem; color:#4b5563; margin-bottom:4px; }
+  .gv-sh-proximo { font-size:.88rem; color:#0c4a6e; font-weight:600; }
+  .gv-sh-bar-wrap { background:#e5e7eb; border-radius:999px; height:10px; overflow:hidden; margin:10px 0 4px; }
+  .gv-sh-bar-fill { background:#00A6E0; height:100%; border-radius:999px; transition:width .4s ease; }
+  .gv-sh-pct { font-size:.75rem; color:#6b7280; text-align:right; }
+  #gv-sh-map { height:min(60vh, 460px); border-radius:10px; border:1px solid #d1d5db; background:#e5e7eb; }
+  .gv-sh-meta { font-size:.75rem; color:#9ca3af; margin-top:8px; }
+  .gv-sh-msg { text-align:center; padding:40px 16px; color:#6b7280; }
+  .gv-sh-msg b { color:#111827; }
+  .gv-sh-stale { background:#fffbeb; border:1px solid #fcd34d; color:#78350f; border-radius:8px; padding:8px 12px; font-size:.78rem; margin-top:10px; display:none; }
+  .gv-sh-footer { text-align:center; font-size:.72rem; color:#9ca3af; padding:10px 0 20px; }
+</style>
+</head>
+<body>
+
+<div class="gv-sh-header">
+  <h1>Transporte Dolores Parra</h1>
+  <span class="gv-sh-sub">Seguimiento de viaje en vivo</span>
+</div>
+
+<div class="gv-sh-wrap">
+  <div id="gv-sh-content">
+    <div class="gv-sh-msg">Cargando informacion del viaje...</div>
+  </div>
+</div>
+
+<div class="gv-sh-footer">Link de solo lectura generado por Gestion de Viajes. Si este viaje ya finalizo o dejo de compartirse, esta pagina dejara de actualizarse.</div>
+
+<script>
+(function(){
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+  function fmtDate(iso){
+    if(!iso) return '-';
+    try{ return new Date(iso).toLocaleString('es-AR', { hour12:false }); }catch(e){ return iso; }
+  }
+  var ESTADO_LABEL = { planificado:'Planificado', en_curso:'En curso', demorado:'Demorado', completado:'Finalizado', cancelado:'Cancelado' };
+
+  var qs = new URLSearchParams(window.location.search);
+  var token = qs.get('t');
+  var contentEl = document.getElementById('gv-sh-content');
+
+  if(!token){
+    contentEl.innerHTML = '<div class="gv-sh-msg"><b>Link invalido.</b><br>Falta el codigo del viaje en la direccion.</div>';
+    return;
+  }
+
+  var FIREBASE_CONFIG = { apiKey: "AIzaSyC8e7EGfwvxZkCkmqG59OA2yRTcsAXkamE", authDomain: "gestion-de-viajes-f5f65.firebaseapp.com", projectId: "gestion-de-viajes-f5f65", storageBucket: "gestion-de-viajes-f5f65.firebasestorage.app", messagingSenderId: "147508872002", appId: "1:147508872002:web:ca2d0c8ee51eca0f81fedb", measurementId: "G-ECF2NS0YBY" };
+  var GOOGLE_MAPS_API_KEY = 'AIzaSyAxnEKemi5U2aADw1y6FfEA2vuwgFovEPQ';
+
+  function loadScript(src){
+    return new Promise(function(resolve, reject){
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function(){ resolve(); };
+      s.onerror = function(){ reject(new Error('No se pudo cargar ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  function loadFirebase(){
+    if(window.firebase && window.firebase.firestore) return Promise.resolve(window.firebase);
+    return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js')
+      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'); })
+      .then(function(){ return window.firebase; });
+  }
+  var _mapsPromise = null;
+  function loadGoogleMaps(){
+    if(_mapsPromise) return _mapsPromise;
+    _mapsPromise = new Promise(function(resolve, reject){
+      if(window.google && window.google.maps){ resolve(window.google.maps); return; }
+      var cbName = '__gvShMapsCb_' + Date.now();
+      window[cbName] = function(){ resolve(window.google.maps); delete window[cbName]; };
+      var s = document.createElement('script');
+      s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(GOOGLE_MAPS_API_KEY) + '&callback=' + cbName + '&loading=async&v=weekly';
+      s.onerror = function(){ reject(new Error('No se pudo cargar Google Maps')); };
+      document.head.appendChild(s);
+    });
+    return _mapsPromise;
+  }
+  function vehicleIcon(google, heading, color){
+    var deg = (typeof heading === 'number' && !isNaN(heading)) ? heading : 0;
+    var c = color || '#00A6E0';
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 28 28">' +
+      '<g transform="rotate(' + deg + ' 14 14)">' +
+      '<circle cx="14" cy="14" r="12.5" fill="' + c + '" stroke="#fff" stroke-width="2"/>' +
+      '<path d="M14 6.5 L19 18.5 L14 15.3 L9 18.5 Z" fill="#fff"/>' +
+      '</g></svg>';
+    return {
+      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+      scaledSize: new google.maps.Size(30, 30),
+      anchor: new google.maps.Point(15, 15)
+    };
+  }
+
+  var gMap = null, gMarker = null, gMapsReady = false;
+  var lastRenderedEstado = null;
+
+  function ensureMap(pos){
+    if(!gMap){
+      gMap = new google.maps.Map(document.getElementById('gv-sh-map'), {
+        center: pos, zoom: 13, streetViewControl: false, mapTypeControl: false, fullscreenControl: false
+      });
+    }
+    if(!gMarker){
+      gMarker = new google.maps.Marker({ position: pos, map: gMap, icon: vehicleIcon(google, 0, '#00A6E0'), zIndex: 1000 });
+    } else {
+      gMarker.setPosition(pos);
+    }
+  }
+
+  function render(data){
+    if(!data){
+      contentEl.innerHTML = '<div class="gv-sh-msg"><b>No encontramos este viaje.</b><br>El link puede haber vencido o el viaje dejo de compartirse.</div>';
+      return;
+    }
+    var estado = data.estado || 'planificado';
+    var estadoLbl = ESTADO_LABEL[estado] || estado;
+    var pct = (typeof data.avancePct === 'number') ? data.avancePct : null;
+    var huboCambioEstructura = (lastRenderedEstado === null);
+    lastRenderedEstado = estado;
+
+    if(huboCambioEstructura){
+      contentEl.innerHTML =
+        '<div class="gv-sh-card">' +
+          '<div class="gv-sh-row">' +
+            '<div class="gv-sh-title">' + escapeHtml(data.unidad || 'Unidad') + (data.conductor ? (' <span style="font-weight:400;color:#6b7280">- ' + escapeHtml(data.conductor) + '</span>') : '') + '</div>' +
+            '<span class="gv-sh-chip ' + estado + '" id="gv-sh-chip">' + escapeHtml(estadoLbl) + '</span>' +
+          '</div>' +
+          '<div class="gv-sh-ruta" id="gv-sh-ruta"></div>' +
+          '<div class="gv-sh-proximo" id="gv-sh-proximo"></div>' +
+          (pct != null ? ('<div class="gv-sh-bar-wrap"><div class="gv-sh-bar-fill" id="gv-sh-bar-fill" style="width:0%"></div></div><div class="gv-sh-pct" id="gv-sh-pct"></div>') : '') +
+        '</div>' +
+        '<div class="gv-sh-card">' +
+          '<div id="gv-sh-map"></div>' +
+          '<div class="gv-sh-meta" id="gv-sh-meta"></div>' +
+          '<div class="gv-sh-stale" id="gv-sh-stale">La posicion no se actualiza en este momento (puede deberse a que el panel de seguimiento no esta abierto del lado de la empresa). Los ultimos datos disponibles son los que se muestran.</div>' +
+        '</div>';
+    }
+
+    var rutaTxt = (data.origen || '?') + ' &rarr; ' + (data.destino || 'sin destino programado');
+    document.getElementById('gv-sh-ruta').innerHTML = rutaTxt;
+    var proximoEl = document.getElementById('gv-sh-proximo');
+    if(estado === 'completado'){ proximoEl.textContent = 'Viaje finalizado.'; }
+    else if(estado === 'cancelado'){ proximoEl.textContent = 'Viaje cancelado.'; }
+    else { proximoEl.textContent = data.proximo || ''; }
+    var chipEl = document.getElementById('gv-sh-chip'); if(chipEl){ chipEl.className = 'gv-sh-chip ' + estado; chipEl.textContent = estadoLbl; }
+    if(pct != null){
+      var fillEl = document.getElementById('gv-sh-bar-fill'); if(fillEl) fillEl.style.width = pct + '%';
+      var pctEl = document.getElementById('gv-sh-pct'); if(pctEl) pctEl.textContent = pct + '% del recorrido';
+    }
+
+    var metaEl = document.getElementById('gv-sh-meta');
+    var staleEl = document.getElementById('gv-sh-stale');
+    var mapEl = document.getElementById('gv-sh-map');
+
+    if(data.pos && typeof data.pos.lat === 'number'){
+      loadGoogleMaps().then(function(){
+        var pos = { lat: data.pos.lat, lng: data.pos.lng };
+        ensureMap(pos);
+        if(gMarker) gMarker.setIcon(vehicleIcon(google, data.pos.bearing || 0, '#00A6E0'));
+        gMapsReady = true;
+        var speedTxt = (typeof data.pos.speed === 'number') ? (data.pos.speed + ' km/h') : '';
+        metaEl.textContent = 'Ultima posicion: ' + fmtDate(data.pos.dateTime || data.actualizadoEn) + (speedTxt ? (' - ' + speedTxt) : '');
+      })['catch'](function(err){
+        mapEl.innerHTML = '<div class="gv-sh-msg">No se pudo cargar el mapa.</div>';
+      });
+    } else if(!gMapsReady){
+      mapEl.innerHTML = '<div class="gv-sh-msg">Todavia no hay posicion en vivo disponible para esta unidad.</div>';
+      metaEl.textContent = '';
+    }
+
+    var updatedAgoMs = data.actualizadoEn ? (Date.now() - new Date(data.actualizadoEn).getTime()) : null;
+    if(staleEl) staleEl.style.display = (updatedAgoMs != null && updatedAgoMs > 3 * 60 * 1000 && estado !== 'completado' && estado !== 'cancelado') ? 'block' : 'none';
+
+    if(data.activo === false){
+      contentEl.insertAdjacentHTML('beforeend', '');
+    }
+  }
+
+  loadFirebase().then(function(firebase){
+    if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(FIREBASE_CONFIG); }
+    var db = firebase.firestore();
+    db.collection('gv_compartidos').doc(token).onSnapshot(function(doc){
+      if(!doc.exists){ render(null); return; }
+      render(doc.data());
+    }, function(err){
+      contentEl.innerHTML = '<div class="gv-sh-msg"><b>No pudimos conectar con el servicio de seguimiento.</b><br>Intenta recargar la pagina en unos minutos.</div>';
+    });
+  })['catch'](function(err){
+    contentEl.innerHTML = '<div class="gv-sh-msg"><b>No pudimos cargar la pagina de seguimiento.</b><br>' + escapeHtml(err.message) + '</div>';
+  });
+})();
+</script>
+
+</body>
+</html>
