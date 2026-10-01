@@ -238,6 +238,11 @@
       contentEl.innerHTML = '<div class="gv-sh-msg"><b>No encontramos este viaje.</b><br>El link puede haber vencido o el viaje dejo de compartirse.</div>';
       return;
     }
+    if(data.activo === false){
+      contentEl.innerHTML = '<div class="gv-sh-msg"><b>Este viaje ya no se comparte.</b><br>La empresa desactivo este link. Si necesitas seguir el viaje, pedi uno nuevo.</div>';
+      lastRenderedEstado = null;
+      return;
+    }
     var estado = data.estado || 'planificado';
     var estadoLbl = ESTADO_LABEL[estado] || estado;
     var pct = (typeof data.avancePct === 'number') ? data.avancePct : null;
@@ -312,10 +317,6 @@
 
     var updatedAgoMs = data.actualizadoEn ? (Date.now() - new Date(data.actualizadoEn).getTime()) : null;
     if(staleEl) staleEl.style.display = (updatedAgoMs != null && updatedAgoMs > 3 * 60 * 1000 && estado !== 'completado' && estado !== 'cancelado') ? 'block' : 'none';
-
-    if(data.activo === false){
-      contentEl.insertAdjacentHTML('beforeend', '');
-    }
   }
 
   loadFirebase().then(function(firebase){
