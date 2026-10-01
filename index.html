@@ -1888,7 +1888,12 @@ function updateTrackBadges(v){
      de hoy, independiente de dayStart (que abajo sigue usandose para el historial de sitios del
      viaje). Es una consulta aparte (Trip) y no bloquea el resto de la celda si falla o tarda. */
   var hoyInicio = new Date(); hoyInicio.setHours(0,0,0,0);
-  GV.getTripsToday(gApi, v.vehiculoId, hoyInicio.toISOString(), new Date().toISOString()).then(function(ms){
+  /* Ajuste 1/10 (caso H295 - Fernandez Mario, camion de 24 hs): HS Manejo cuenta desde el INICIO DE LA
+     JORNADA del chofer de hoy (no desde la medianoche), asi no suma lo que manejo el chofer anterior
+     (por ejemplo el nocturno). Si todavia no hay jornada calculada, se usa la medianoche. */
+  var __jnHoy = v.jornadas && v.jornadas[GV.dateStr(new Date())];
+  var __desdeManejo = (__jnHoy && __jnHoy.inicio && new Date(__jnHoy.inicio) > hoyInicio) ? new Date(__jnHoy.inicio) : hoyInicio;
+  GV.getTripsToday(gApi, v.vehiculoId, __desdeManejo.toISOString(), new Date().toISOString()).then(function(ms){
     var __hsmEl = document.getElementById('gv-trk-hsmanejo-' + v.id);
     if(__hsmEl) __hsmEl.textContent = GV.fmtDurMin(ms);
   });
