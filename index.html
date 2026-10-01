@@ -128,6 +128,25 @@ var gCalMonth = new Date(); gCalMonth.setDate(1);
 var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLiveStatusCache = {};
 var gTrackSelectedId = null;
 
+function gvFechaHoraLocal(d){
+  return { fecha: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'),
+           hora: String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') };
+}
+/* Arreglo 1/10 (bug real: viaje de Fernandez Mario Jose cargado a las 09:47 que aparecio con 40 min
+   de demora): la fecha/hora de salida del formulario "Nuevo Viaje" se completaba con la hora en que
+   se ABRIO la pagina y no se actualizaba nunca, asi que si el panel estaba abierto desde temprano el
+   viaje quedaba programado para una hora que ya habia pasado. Ahora, cada vez que se entra a la
+   pestana "Nuevo Viaje", si el coordinador no toco esos campos se ponen en la hora actual. Ademas se
+   usaba la fecha UTC (despues de las 21:00 ponia la fecha de manana); ahora es la fecha local. */
+var gNvFechaTocada = false;
+function gvRefrescarFechaNuevoViaje(forzar){
+  if(gNvFechaTocada && !forzar) return;
+  var fEl = document.getElementById('gv-fecha'), hEl = document.getElementById('gv-hora');
+  var fh = gvFechaHoraLocal(new Date());
+  if(fEl) fEl.value = fh.fecha;
+  if(hEl) hEl.value = fh.hora;
+  if(forzar) gNvFechaTocada = false;
+}
 function showTab(name){
   document.querySelectorAll('.gv-tab-btn').forEach(function(b){
     b.classList.toggle('gv-active', b.getAttribute('data-tab') === name);
@@ -135,6 +154,7 @@ function showTab(name){
   document.querySelectorAll('.gv-tab-content').forEach(function(c){
     c.classList.toggle('gv-show', c.id === 'gv-tab-' + name);
   });
+  if(name === 'nuevo'){ gvRefrescarFechaNuevoViaje(false); }
   if(name === 'seguimiento'){ gTrackSelectedId = null; renderTracking(); if(!gTrackInterval){ gTrackInterval = setInterval(renderTracking, 15000); } } else { if(gTrackInterval){ clearInterval(gTrackInterval); gTrackInterval = null; } }
 }
 
@@ -833,6 +853,12 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr){
     var encendidoDesde = null;
     for(var j = 0; j < ign.length; j++){
       var st = ign[j];
+      /* Arreglo 1/10 (bug real: H295 - Fernandez Mario Jose con jornada desde las 00:00): igual que con
+         las posiciones, Geotab devuelve un registro "de borde" de encendido justo en fromDate (00:00)
+         con el ULTIMO estado conocido. Si la unidad habia quedado reportando "encendido", ese registro
+         se tomaba como un arranque a medianoche. Se ignora todo registro del primer minuto del dia: el
+         arranque tiene que ser un cambio real de estado ocurrido despues. */
+      if(new Date(st.dateTime).getTime() - diaInicio.getTime() < 60000) continue;
       var prendido = (st.data === 1 || st.data === true);
       if(prendido){
         if(!encendidoDesde) encendidoDesde = st.dateTime;
@@ -937,8 +963,8 @@ function checkJornadas(){
           id: 'al_' + v.id + '_12hs_' + hoyStr,
           tipo: 'chofer_12hs',
           viajeId: v.id,
-          creadoEn: new Date().toISOString(),
-          texto: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').'
+          fecha: new Date().toISOString(),
+          mensaje: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').'
         });
       }
     }
@@ -1308,10 +1334,7 @@ function resetForm(){
   var cSel=document.getElementById('gv-conductor'), vSel=document.getElementById('gv-vehiculo');
   var oEl=document.getElementById('gv-obs');
   if(cSel) cSel.value=''; if(vSel) vSel.value=''; if(oEl) oEl.value='';
-  var now = new Date();
-  var fEl=document.getElementById('gv-fecha'), hEl=document.getElementById('gv-hora');
-  if(fEl) fEl.value = now.toISOString().substring(0,10);
-  if(hEl) hEl.value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  gvRefrescarFechaNuevoViaje(true);
 }
 
 function setupEvents(){
@@ -1375,6 +1398,8 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
     }
 
     var __fechaSalidaNv = fEl.value + 'T' + hEl.value + ':00';
+    var __atrasoMin = Math.round((Date.now() - new Date(__fechaSalidaNv).getTime()) / 60000);
+    if(__atrasoMin > 20 && !window.confirm('La hora de salida cargada (' + hEl.value + ' del ' + fEl.value.split('-').reverse().join('/') + ') ya paso hace ' + GV.fmtDurMin(__atrasoMin * 60000) + ', asi que el viaje va a aparecer DEMORADO apenas se guarde.\n\nAceptar = guardarlo igual con esa hora.\nCancelar = volver y corregir la hora.')){ return; }
     var viaje = {
       id: GV.genId(),
       conductorId: cSel.value, conductor: cSel.options[cSel.selectedIndex].text,
@@ -3752,10 +3777,8 @@ function doInit(api){
     GV.autoSyncSitiosDiario();
   });
 
-  var now = new Date();
-  var fe = document.getElementById('gv-fecha'), he = document.getElementById('gv-hora');
-  if(fe) fe.value = now.toISOString().substring(0,10);
-  if(he) he.value = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  gvRefrescarFechaNuevoViaje(true);
+  ['gv-fecha','gv-hora'].forEach(function(idCampo){ var el = document.getElementById(idCampo); if(el) el.addEventListener('input', function(){ gNvFechaTocada = true; }); });
 
   if(api){
     loadMasterData(api);
