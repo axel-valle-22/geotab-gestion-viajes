@@ -634,21 +634,39 @@ if(doneIds.indexOf(s.id) < 0) return;
 var dKm = GV.distKm(s, __sDest);
 if(dKm !== null && dKm * 1000 > __rDest) __salio = true;
 });
+/* Arreglo 1/10 (bug real: 278 - Torres Pablo Andres, viaje de ida y vuelta a Base TDP Plottier):
+   la unidad estuvo estacionada en el borde de la base, salio, y al pasar de nuevo por la ruta frente
+   a la base UN solo punto de GPS adentro alcanzo para marcar "ingreso a destino" con las 2 paradas
+   todavia pendientes (y desde ahi el viaje quedaba trabado sin cerrarse nunca solo). Dos reglas:
+   1) la llegada exige permanencia: GV.MIN_DWELL_MIN minutos seguidos adentro del destino (una pasada
+      por al lado no cuenta), y se toma como horario de llegada el primer punto de esa permanencia;
+   2) si origen y destino son el mismo predio y el viaje tiene paradas de carga/descarga, mientras no
+      se haya completado ninguna, volver a la base no se toma como fin del viaje. */
+var __mismoPredio = vv.origen && typeof vv.origen.lat === 'number' && (GV.distKm(vv.origen, __sDest) * 1000) <= __rDest;
+var __paradasOp = (vv.paradas || []).filter(function(p){ return p.tipo; }).length;
+var __paradasHechas = doneIds.filter(function(id){ return id.indexOf('parada') === 0; }).length;
+if(__mismoPredio && __paradasOp > 0 && __paradasHechas === 0) return;
 var hit = null;
 var __fueraDesde = null;
+var __adentroDesde = null;
 var __minSalidaMs = (GV.MIN_DWELL_MIN || 3) * 60000;
 for(var i = 0; i < hist.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
 var __fueraDestino = !GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, __sDest, sitesN, 0);
 if(__fueraDestino){
+__adentroDesde = null; /* si estaba entrando, era solo una pasada: se descarta */
 if(!__salio){
 if(!__fueraDesde) __fueraDesde = rec.dateTime;
 if(new Date(rec.dateTime).getTime() - new Date(__fueraDesde).getTime() >= __minSalidaMs) __salio = true;
 }
 continue;
 }
-if(__salio){ hit = rec; break; }
+if(__salio){
+if(!__adentroDesde) __adentroDesde = rec;
+if(new Date(rec.dateTime).getTime() - new Date(__adentroDesde.dateTime).getTime() >= __minSalidaMs){ hit = __adentroDesde; break; }
+continue;
+}
 __fueraDesde = null; /* volvio a entrar sin llegar al minimo: fue ruido, no una salida real */
 }
 if(!hit) return;
