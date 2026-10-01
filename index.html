@@ -840,9 +840,17 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr){
       var t = new Date(c.ts).getTime();
       return t >= diaInicio.getTime() && t <= tope.getTime();
     });
-    if(!candidatos.length) return estimado;
+    /* Regla de la empresa (arreglo 1/10, caso 278 - Torres Pablo Andres marcando desde las 08:20):
+       la jornada arranca a las GV.HORA_JORNADA_DEFECTO (08:00) salvo que el motor (o una salida
+       sostenida) haya arrancado ANTES de esa hora, en cuyo caso se toma ese horario mas temprano.
+       Antes se tomaba siempre el primer arranque detectado aunque fuera despues de las 08:00. */
     candidatos.sort(function(a,b){ return new Date(a.ts) - new Date(b.ts); });
-    return { inicio: new Date(candidatos[0].ts).toISOString(), fuente: candidatos[0].fuente, confirmado: true };
+    var horaIngreso = GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8);
+    if(candidatos.length && new Date(candidatos[0].ts) < horaIngreso){
+      return { inicio: new Date(candidatos[0].ts).toISOString(), fuente: candidatos[0].fuente, confirmado: true };
+    }
+    if(horaIngreso <= tope) return { inicio: horaIngreso.toISOString(), fuente: 'horario', confirmado: true };
+    return estimado; /* todavia no son las 08:00 y no hubo arranque: se vuelve a revisar mas tarde */
   })['catch'](function(){ return estimado; });
 }
 
@@ -852,6 +860,7 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr){
    sola vez. jornadas queda guardado por dia (v.jornadas['2026-09-18'] = {...}) para que un viaje
    que sigue varios dias (pernocte en el campo) tenga un inicio de jornada propio cada dia, en vez
    de arrastrar siempre el del primer dia. */
+var gJornadaRedetect = {};
 function checkJornadas(){
   if(!gApi) return;
   var hoyStr = GV.dateStr(new Date());
@@ -876,6 +885,30 @@ function checkJornadas(){
       return;
     }
     var hoy = jornadas[hoyStr];
+    /* Misma regla de las 08:00 aplicada a jornadas ya guardadas (arreglo 1/10): si quedo un arranque
+       detectado DESPUES de las 08:00, se corrige a las 08:00. Las ediciones manuales no se tocan. */
+    var __horaIngreso = GV.dateFromDateStr(hoyStr, GV.HORA_JORNADA_DEFECTO || 8);
+    if((hoy.fuente === 'motor' || hoy.fuente === 'movimiento') && new Date(hoy.inicio) > __horaIngreso){
+      var jj3 = Object.assign({}, jornadas);
+      jj3[hoyStr] = Object.assign({}, hoy, { inicio: __horaIngreso.toISOString(), fuente: 'horario', confirmado: true });
+      GV.Storage.updateViaje(v.id, { jornadas: jj3 });
+      return;
+    }
+    /* Si quedo como 'estimado' (por ejemplo se calculo antes de las 08:00 sin arranque de motor), se
+       vuelve a revisar cada 10 minutos: asi toma un arranque temprano posterior o, pasadas las 08:00,
+       queda confirmado con la hora de ingreso. */
+    if(hoy.fuente === 'estimado' && (!gJornadaRedetect[v.id] || (Date.now() - gJornadaRedetect[v.id]) > 600000)){
+      gJornadaRedetect[v.id] = Date.now();
+      detectarInicioJornada(v.vehiculoId, v.origen, hoyStr).then(function(res){
+        if(!res || res.fuente === 'estimado') return;
+        var vv2 = GV.Storage.getViaje(v.id);
+        if(!vv2) return;
+        var jj4 = Object.assign({}, vv2.jornadas || {});
+        if(!jj4[hoyStr] || jj4[hoyStr].fuente !== 'estimado') return;
+        jj4[hoyStr] = Object.assign({}, jj4[hoyStr], { inicio: res.inicio, fuente: res.fuente, confirmado: res.confirmado });
+        GV.Storage.updateViaje(v.id, { jornadas: jj4 });
+      });
+    }
     if(!hoy.alertado12hs){
       var minutosChofer = (Date.now() - new Date(hoy.inicio).getTime()) / 60000;
       if(minutosChofer >= (GV.HS_CHOFER_ALERTA_MIN || 720)){
@@ -1649,6 +1682,9 @@ function gvJornadaTextoInfo(v){
   if(jn.fuente === 'estimado'){
     return { texto: horaTxt + ' — ESTIMADO, sin confirmar (valor por defecto, no se pudo detectar automaticamente). Lleva ' + hsTxt + ' en servicio. Corregilo aca si sabes el horario real.', esEstimado: true };
   }
+  if(jn.fuente === 'horario'){
+    return { texto: horaTxt + ' — horario de ingreso (no hubo arranque de motor antes de esa hora). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
+  }
   var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido de forma sostenida' : (jn.fuente === 'manual' ? 'editado a mano' : 'salida sostenida del origen');
   return { texto: horaTxt + ' — detectado por ' + fuenteTxt + '. Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
 }
@@ -1690,10 +1726,10 @@ function gvHsChoferHtml(v, hoyStr){
     };
   }
   var esAlerta = (ms / 60000) >= (GV.HS_CHOFER_ALERTA_MIN || 720);
-  var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : 'movimiento del vehiculo');
+  var fuenteTxt = jn.fuente === 'motor' ? 'detectado por motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : (jn.fuente === 'horario' ? 'horario de ingreso, sin arranque de motor antes' : 'detectado por movimiento del vehiculo'));
   return {
     html: '<span class="gv-trk-hs' + (esAlerta ? ' gv-trk-hs-alerta' : '') + '">' + durTxt + (esAlerta ? ' &#9888;' : '') + '</span>',
-    title: 'Inicio de jornada: ' + horaTxt + ' (detectado por ' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
+    title: 'Inicio de jornada: ' + horaTxt + ' (' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
   };
 }
 
