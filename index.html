@@ -3478,8 +3478,18 @@ rows.forEach(function(r){
 if(r.id !== 'origen' && r.id !== 'destino' && !r.tipo) return; /* puntos de paso: no tienen horario propio */
 var __cur = __srActual[r.id] || {};
 var __quiere = {};
-if(r.id !== 'origen' && r.realIn && (+new Date(__cur.ingreso || 0)) !== (+r.realIn)) __quiere.ingreso = r.realIn.toISOString();
-if(r.id !== 'destino' && r.realOut && (+new Date(__cur.egreso || 0)) !== (+r.realOut)) __quiere.egreso = r.realOut.toISOString();
+/* No se persiste un horario marcado "dudoso": ese flag significa que HABIA un valor guardado
+   (a veces corregido a mano) y el control de coherencia cronologica de mas arriba decidio
+   descartarlo por chocar con el sitio vecino, reemplazandolo por el que sale de puro GPS. Ese
+   reemplazo es correcto para esta tabla (mejor mostrar el automatico que uno roto), pero NO es
+   un dato mas confiable que el guardado como para pisarlo en Storage -- si se persistiera, cada
+   reapertura del detalle (o cada ciclo de refreshDetalle, cada 60s mientras el viaje este en
+   curso) volvia a escribir el mismo reemplazo, y una correccion manual que de verdad era
+   correcta pero quedaba cronologicamente "rara" por algun otro dato se deshacia ella sola a los
+   pocos minutos, una y otra vez. Bug real reportado: viajes en curso donde se corregia un
+   horario y "a los minutos" volvia a aparecer el valor viejo. */
+if(r.id !== 'origen' && r.realIn && !r.realInDudoso && (+new Date(__cur.ingreso || 0)) !== (+r.realIn)) __quiere.ingreso = r.realIn.toISOString();
+if(r.id !== 'destino' && r.realOut && !r.realOutDudoso && (+new Date(__cur.egreso || 0)) !== (+r.realOut)) __quiere.egreso = r.realOut.toISOString();
 if(Object.keys(__quiere).length){
 __srPatch = __srPatch || Object.assign({}, __srActual);
 __srPatch[r.id] = Object.assign({}, __cur, __quiere);
