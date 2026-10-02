@@ -1457,7 +1457,16 @@ GV.Storage = (function(){
   var _listeners = [];
       var _pendingWrites = 0;
     var _dirtyViajeIds = {}; var _removedViajeIds = {};
-    var REPO_MARK = 'geotab-gestion-viajes'; var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); cargarHistorico(); setTimeout(function(){ archivarAntiguos(); }, 30000); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
+    var REPO_MARK = 'geotab-gestion-viajes';
+    /* Ajuste 4/10: marca de version que viaja en TODA escritura al documento principal (gv_data/main).
+       Las reglas de seguridad de Firestore van a exigir este valor exacto para aceptar la escritura.
+       Asi, una pestana/computadora que haya quedado abierta con una version VIEJA de la app (que no
+       conoce este campo, o trae un valor anterior) queda bloqueada por Firestore mismo -- no hace
+       falta que nadie la encuentre ni la actualice manualmente. Si en el futuro se necesita repetir
+       este mecanismo (por otro bug similar), alcanza con subir este numero ACA y actualizar las
+       reglas de Firestore con el mismo valor nuevo. */
+    var SCHEMA_BUILD = 'ajuste4-2026-10-02';
+    var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); cargarHistorico(); setTimeout(function(){ archivarAntiguos(); }, 30000); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
 
   /* ---------------- Archivo histórico ----------------
      Todo Gestion de Viajes vive en UN solo documento de Firestore (gv_data/main) y Firestore no
@@ -1561,7 +1570,8 @@ GV.Storage = (function(){
           var sacarA = {}; alMover.forEach(function(a){ sacarA[a.id] = true; });
           tx.set(_fbDocRef, {
             viajes: viajes.filter(function(v){ return !sacarV[v.id]; }),
-            alertas: alertas.filter(function(a){ return !sacarA[a.id]; })
+            alertas: alertas.filter(function(a){ return !sacarA[a.id]; }),
+            _schemaBuild: SCHEMA_BUILD
           }, { merge: true });
           movidos = aMover.length + alMover.length;
           return true;
@@ -1726,7 +1736,7 @@ GV.Storage = (function(){
     var _removedIdsSnapshot = Object.keys(_removedViajeIds); _removedViajeIds = {};
     if(_fbReady && _fbDocRef){
       _pendingWrites++;
-      var _otherFields = { alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos };
+      var _otherFields = { alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos, _schemaBuild: SCHEMA_BUILD };
       var _writeOp;
             if((_dirtyIdsSnapshot.length || _removedIdsSnapshot.length) && _fbDb){
         var _localFullById = {};
