@@ -427,6 +427,11 @@ function renderAlertas(){
     document.getElementById('gv-gerdet-close').addEventListener('click', function(){ overlay.remove(); });
     overlay.addEventListener('click', function(e){ if(e.target === overlay) overlay.remove(); });
   }
+/* Que unidades quedaron desplegadas en "Ultimos eventos" (ver renderEventsWidget): el widget
+   se reconstruye solo con cada cambio de datos (posicion en vivo, nuevas alertas, etc.), asi
+   que si no se recordara aca afuera, un refresco de fondo cerraria el grupo que el coordinador
+   acababa de abrir casi al instante. */
+var gEventsAbiertos = {};
 function renderEventsWidget(){
         var miniList = document.getElementById('gv-events-mini-list');
         if(!miniList) return;
@@ -462,13 +467,14 @@ function renderEventsWidget(){
         }
         miniList.innerHTML = orden.map(function(u){
                   var items = grupos[u], top = items[0], resto = items.slice(1);
-                  if(!resto.length) return '<div class="gv-events-group">' + itemHtml(top) + '</div>';
-                  return '<div class="gv-events-group gv-events-stacked">' +
+                  if(!resto.length){ delete gEventsAbiertos[u]; return '<div class="gv-events-group">' + itemHtml(top) + '</div>'; }
+                  var abierto = !!gEventsAbiertos[u];
+                  return '<div class="gv-events-group gv-events-stacked' + (abierto ? ' gv-events-open' : '') + '" data-u="' + GV.escapeHtml(u) + '">' +
                       '<div class="gv-events-mini-item gv-events-group-head">' +
                         '<div class="gv-events-head-main"><span class="gv-events-head-msg">' + GV.escapeHtml(top.mensaje) + '</span><span class="gv-events-count">+' + resto.length + '</span></div>' +
                         '<span class="gv-events-mini-time">' + GV.fmtDate(top.fecha) + '</span>' +
                       '</div>' +
-                      '<div class="gv-events-sub" style="display:none">' + resto.map(itemHtml).join('') + '</div>' +
+                      '<div class="gv-events-sub" style="display:' + (abierto ? 'block' : 'none') + '">' + resto.map(itemHtml).join('') + '</div>' +
                     '</div>';
         }).join('');
 }
@@ -1569,6 +1575,8 @@ abrirDetalleViaje(id);
       if(!sub) return;
       var abierto = grupo.classList.toggle('gv-events-open');
       sub.style.display = abierto ? 'block' : 'none';
+      var u = grupo.getAttribute('data-u');
+      if(u){ if(abierto){ gEventsAbiertos[u] = true; } else { delete gEventsAbiertos[u]; } }
     });
   }
 
@@ -3454,6 +3462,33 @@ r.realOut = (ts(r.realOutAuto) != null && ts(r.realOutAuto) >= ts(r.realIn) && _
 r.realOutDudoso = true;
 }
 });
+})();
+
+/* Si lo de arriba encontro (o corrigio) un ingreso/egreso real que todavia no estaba guardado en
+   el viaje -- tipicamente porque editarUbicacionSitio lo borro al mover un sitio, o porque el
+   valor guardado resulto cronologicamente imposible y se reemplazo por el automatico -- se
+   registra en v.sitiosReal. Sin este guardado, el recalculo de arriba quedaba visible solo en
+   esta tabla del detalle: el resto de la app (Seguimiento, el % de avance, el link publico
+   compartido) sigue leyendo v.sitiosReal nomas, y en un viaje ya completado nadie vuelve a
+   completarlo porque el chequeo en vivo (checkDwellAlerts) ya no corre sobre viajes cerrados. */
+(function(){
+var __srActual = v.sitiosReal || {};
+var __srPatch = null;
+rows.forEach(function(r){
+if(r.id !== 'origen' && r.id !== 'destino' && !r.tipo) return; /* puntos de paso: no tienen horario propio */
+var __cur = __srActual[r.id] || {};
+var __quiere = {};
+if(r.id !== 'origen' && r.realIn && (+new Date(__cur.ingreso || 0)) !== (+r.realIn)) __quiere.ingreso = r.realIn.toISOString();
+if(r.id !== 'destino' && r.realOut && (+new Date(__cur.egreso || 0)) !== (+r.realOut)) __quiere.egreso = r.realOut.toISOString();
+if(Object.keys(__quiere).length){
+__srPatch = __srPatch || Object.assign({}, __srActual);
+__srPatch[r.id] = Object.assign({}, __cur, __quiere);
+}
+});
+if(__srPatch){
+v.sitiosReal = __srPatch;
+GV.Storage.updateViaje(v.id, { sitiosReal: __srPatch });
+}
 })();
 
 function estadoBadge(r){
