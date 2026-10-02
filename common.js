@@ -263,6 +263,15 @@ GV.CSS = ""
 + '.gv-alert-card{background:#fff;border-left:4px solid #ef4444;border-radius:var(--gv-radius-lg);padding:14px 16px;margin-bottom:10px;box-shadow:var(--gv-shadow);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}'
 + '.gv-alert-card.gv-alert-warn{border-left-color:#d97706}'
 + '.gv-alert-text{font-size:.9rem}.gv-alert-time{font-size:.78rem;color:#6b7280;margin-top:3px}'
+/* Ajuste 5/10: agrupado "estilo notificaciones apiladas" (iOS) en Alertas, igual que en
+   Ultimos eventos -- ver gv-events-count/gv-events-stacked mas arriba, de donde se copia
+   el mismo criterio visual (la insignia "+N" y el efecto de tarjetas apiladas detras). */
++ '.gv-alert-group-head{cursor:pointer}'
++ '.gv-alert-head-row{display:flex;align-items:flex-start;gap:8px}'
++ '.gv-alert-count{flex:0 0 auto;background:var(--gv-accent-light);color:var(--gv-accent-dark);font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:var(--gv-radius-pill);white-space:nowrap;margin-top:1px}'
++ '.gv-alert-stacked:not(.gv-alert-open) .gv-alert-group-head > .gv-alert-card{position:relative;box-shadow:var(--gv-shadow),0 7px 0 -3px #f4f5f7,0 13px 0 -6px #e9ecf1}'
++ '.gv-alert-sub{margin:2px 0 10px 4px;padding-left:9px;border-left:2px solid #eef0f3}'
++ '.gv-alert-sub .gv-alert-card{margin-bottom:8px}'
 + '.gv-loc-display{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--gv-border);border-radius:var(--gv-radius);background:#F8F9FB;font-size:.85rem;min-height:38px}'
 + '.gv-loc-display span{flex:1;color:#374151}'
 + '.gv-stop-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#F8F9FB;border:1px solid var(--gv-border);border-radius:var(--gv-radius);margin-bottom:6px}'
