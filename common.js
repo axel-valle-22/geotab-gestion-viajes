@@ -1703,24 +1703,54 @@ GV.Storage = (function(){
   }
 
   function persist(){
-    var _dirtyIdsSnapshot = Object.keys(_dirtyViajeIds); _dirtyViajeIds = {};
+    /* Ajuste 2/10 (bug real: viaje de Torres T278 volviendo solo a "En curso" minutos despues de
+       cerrarse bien, con el sitio editado y los horarios recien registrados vueltos a su valor
+       viejo): el panel (index.html) y la app del chofer (chofer.html) son dos pestañas/dispositivos
+       separados, cada uno con su PROPIA copia en memoria del viaje (cada <script> de common.js arma
+       su propio _data). Antes, persist() escribia siempre el OBJETO COMPLETO del viaje tal cual
+       estaba en la memoria de esta sesion (serverViajes[idx] = copia local entera), pisando TODOS
+       los campos server-side, incluidos los que esta sesion ni toco. Si el telefono del chofer
+       tenia una copia vieja del viaje (por ejemplo la pestaña quedo en segundo plano y el celular
+       pauso su timer de actualizacion cada 20s, o el GPS tardo en refrescar), y el chofer tocaba
+       cualquier boton de su app (Llegue, Sali, Iniciar, Completar, etc.), esa escritura reemplazaba
+       TODO el viaje -estado, horarios ya registrados, hasta la ubicacion del sitio- por los datos
+       viejos que tenia guardados, deshaciendo cualquier cambio que el coordinador hubiera hecho
+       mientras tanto en el panel (y viceversa). Ahora cada cambio via updateViaje(id, patch) guarda
+       tambien el patch puntual, y el merge contra el servidor (abajo) solo pisa los campos que ESTA
+       sesion realmente toco (sitiosReal ademas se mergea sitio por sitio); el resto de los campos
+       queda tal cual los tenga el servidor en ese momento, sin importar que tan vieja sea la copia
+       local del resto del viaje. markDirtyViaje/addViaje (cambios que mutan el objeto directamente
+       sin pasar por un patch explicito) siguen escribiendo el objeto completo, como antes. */
+    var _dirtyEntriesSnapshot = _dirtyViajeIds; _dirtyViajeIds = {};
+    var _dirtyIdsSnapshot = Object.keys(_dirtyEntriesSnapshot);
     var _removedIdsSnapshot = Object.keys(_removedViajeIds); _removedViajeIds = {};
     if(_fbReady && _fbDocRef){
       _pendingWrites++;
       var _otherFields = { alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos };
       var _writeOp;
             if((_dirtyIdsSnapshot.length || _removedIdsSnapshot.length) && _fbDb){
-        var _localViajesById = {};
-        _dirtyIdsSnapshot.forEach(function(id){ var v = _data.viajes.find(function(x){ return x.id === id; }); if(v) _localViajesById[id] = v; });
+        var _localFullById = {};
+        _dirtyIdsSnapshot.forEach(function(id){ var v = _data.viajes.find(function(x){ return x.id === id; }); if(v) _localFullById[id] = v; });
         _writeOp = _fbDb.runTransaction(function(tx){
           return tx.get(_fbDocRef).then(function(doc){
             var serverViajes = (doc.exists && doc.data().viajes) || [];
             serverViajes = serverViajes.slice();
             if(_removedIdsSnapshot.length){ serverViajes = serverViajes.filter(function(v){ return _removedIdsSnapshot.indexOf(v.id) < 0; }); }
-            Object.keys(_localViajesById).forEach(function(id){
+            _dirtyIdsSnapshot.forEach(function(id){
+              var entry = _dirtyEntriesSnapshot[id];
               var idx = -1;
               for(var i = 0; i < serverViajes.length; i++){ if(serverViajes[i].id === id){ idx = i; break; } }
-              if(idx >= 0){ serverViajes[idx] = _localViajesById[id]; } else { serverViajes.push(_localViajesById[id]); }
+              var serverViaje = idx >= 0 ? serverViajes[idx] : null;
+              var finalViaje;
+              if(!serverViaje || !entry || entry === 'full'){
+                finalViaje = _localFullById[id] || serverViaje;
+              } else {
+                finalViaje = Object.assign({}, serverViaje, entry);
+                if(entry.sitiosReal){ finalViaje.sitiosReal = Object.assign({}, serverViaje.sitiosReal || {}, entry.sitiosReal); }
+              }
+              if(finalViaje){
+                if(idx >= 0){ serverViajes[idx] = finalViaje; } else { serverViajes.push(finalViaje); }
+              }
             });
             tx.set(_fbDocRef, Object.assign({ viajes: serverViajes }, _otherFields), { merge: true });
           });
@@ -1755,14 +1785,17 @@ GV.Storage = (function(){
     getConductores: function(){ return _data.conductores; },
     setConductores: function(list){ _data.conductores = list || []; return persist(); },
     getAlertas: function(){ /* arreglo 1/10: alertas viejas de 12hs guardadas con creadoEn/texto en vez de fecha/mensaje rompian el orden de la lista de Alertas */ _data.alertas.forEach(function(a){ if(a && !a.fecha && a.creadoEn) a.fecha = a.creadoEn; if(a && !a.mensaje && a.texto) a.mensaje = a.texto; }); return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
-    addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = true; return persist(); },
+    addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = 'full'; return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
       if(v){ Object.keys(patch).forEach(function(k){ v[k] = patch[k]; }); }
-      if(id) _dirtyViajeIds[id] = true;
+      if(id){
+        var _prevEntry = _dirtyViajeIds[id];
+        _dirtyViajeIds[id] = (_prevEntry === 'full') ? 'full' : Object.assign({}, (_prevEntry && typeof _prevEntry === 'object') ? _prevEntry : {}, patch);
+      }
       return persist();
     },
-    markDirtyViaje: function(id){ if(id){ traerDelHistorico(id); _dirtyViajeIds[id] = true; } },
+    markDirtyViaje: function(id){ if(id){ traerDelHistorico(id); _dirtyViajeIds[id] = 'full'; } },
     removeViaje: function(id){
       traerDelHistorico(id);
       _data.viajes = _data.viajes.filter(function(v){ return v.id !== id; });
