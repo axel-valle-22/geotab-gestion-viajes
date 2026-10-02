@@ -1742,10 +1742,43 @@ GV.Storage = (function(){
               for(var i = 0; i < serverViajes.length; i++){ if(serverViajes[i].id === id){ idx = i; break; } }
               var serverViaje = idx >= 0 ? serverViajes[idx] : null;
               var finalViaje;
+              /* Ajuste 3/10 (bug real: viajes de Torres y Soto reabriendose solos UN DIA despues de
+                 cerrados, sin que nadie tocara nada, ni el chofer ni el coordinador): el merge por
+                 campo de arriba (Ajuste 2/10) evita que una sesion con datos viejos borre campos que
+                 no toco, pero no alcanza cuando esa sesion vieja SI decide, por su cuenta, pisar
+                 "estado" -- por ejemplo una pestaña del Panel olvidada abierta desde el dia anterior,
+                 que nunca se entero de que el viaje ya se completo: su chequeo automatico de cada 60s
+                 (checkDwellAlerts/checkDestinoLlegadas) sigue viendo el GPS real del camion y, con su
+                 copia vieja del viaje todavia en "planificado"/"demorado"/"en_curso", "detecta" que la
+                 unidad ya salio o que llego a destino y manda un patch (autoIniciado:true, o
+                 llegadaDestinoPendienteEn) perfectamente valido COMO PATCH -- el problema es que la
+                 DECISION de fondo esta basada en una copia local obsoleta, no en el estado real.
+                 No se puede confiar en que todas las pantallas que haya abiertas en algun lado se
+                 actualicen solas, asi que el limite se pone aca, en el UNICO lugar por el que pasan
+                 todas las escrituras (de cualquier pestaña, cualquier dispositivo): un viaje que el
+                 SERVIDOR ya tiene como completado/cancelado (estado terminal) no puede salir de ahi ni
+                 quedar "a la espera de confirmacion" (llegadaDestinoPendienteEn) por un patch que no
+                 sea, el mismo, una reafirmacion de un estado terminal. La UNICA excepcion es un patch
+                 que lleve reaperturaExplicita:true -- la marca que pone el boton "Reabrir viaje" (una
+                 decision tomada por un humano mirando ESE viaje puntual en pantalla, no una deduccion
+                 automatica sobre una copia vieja); cualquier otro intento de mover el estado se recorta
+                 antes de aplicar el patch. */
               if(!serverViaje || !entry || entry === 'full'){
                 finalViaje = _localFullById[id] || serverViaje;
               } else {
-                finalViaje = Object.assign({}, serverViaje, entry);
+                var _entryAplicado = entry;
+                var _esTerminalEnServidor = serverViaje.estado === 'completado' || serverViaje.estado === 'cancelado';
+                if(_esTerminalEnServidor && entry.reaperturaExplicita !== true){
+                  var _estadoPatchNoTerminal = ('estado' in entry) && entry.estado !== 'completado' && entry.estado !== 'cancelado';
+                  var _reabrePendiente = ('llegadaDestinoPendienteEn' in entry) && !!entry.llegadaDestinoPendienteEn;
+                  if(_estadoPatchNoTerminal || _reabrePendiente){
+                    _entryAplicado = Object.assign({}, entry);
+                    delete _entryAplicado.estado; delete _entryAplicado.iniciadoEn; delete _entryAplicado.autoIniciado;
+                    delete _entryAplicado.salioConDemora; delete _entryAplicado.demoraSalidaMin; delete _entryAplicado.dwellState;
+                    delete _entryAplicado.llegadaDestinoPendienteEn;
+                  }
+                }
+                finalViaje = Object.assign({}, serverViaje, _entryAplicado);
                 if(entry.sitiosReal){ finalViaje.sitiosReal = Object.assign({}, serverViaje.sitiosReal || {}, entry.sitiosReal); }
               }
               if(finalViaje){
