@@ -3485,9 +3485,28 @@ __srPatch = __srPatch || Object.assign({}, __srActual);
 __srPatch[r.id] = Object.assign({}, __cur, __quiere);
 }
 });
-if(__srPatch){
-v.sitiosReal = __srPatch;
-GV.Storage.updateViaje(v.id, { sitiosReal: __srPatch });
+var __srFinal = __srPatch || __srActual;
+if(__srPatch){ v.sitiosReal = __srFinal; }
+/* Si el viaje habia quedado "a la espera" porque la unidad entro a destino con paradas de
+   carga/descarga sin completar (v.llegadaDestinoPendienteEn, ver cerrarOAvisarLlegadaDestino),
+   y lo que faltaba se acaba de completar aca -- por ejemplo, al corregir la ubicacion de un
+   sitio el recalculo de arriba encontro el ingreso/egreso real que no se habia detectado -- el
+   viaje queda esperando un "Marcar finalizado" manual para siempre, porque un viaje con
+   llegadaDestinoPendienteEn ya puesto se saca del chequeo en vivo (no se vuelve a revisar solo).
+   Bug real: viaje de TORRES PABLO ANDRES del 1/10/2026, termino en Base TDP Plottier con las dos
+   paradas completas pero quedo en curso. Si el recalculo de sitios de arriba resuelve lo que
+   faltaba, se cierra el viaje solo aca, sin esperar a que el coordinador lo note y lo cierre a mano. */
+if(v.llegadaDestinoPendienteEn && !paradasSinCompletar(Object.assign({}, v, { sitiosReal: __srFinal })).length){
+var __hitAutoResuelto = v.llegadaDestinoPendienteEn;
+v.estado = 'completado'; v.completadoEn = __hitAutoResuelto; v.llegadaDestinoPendienteEn = null;
+GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitAutoResuelto, llegadaDestinoPendienteEn: null, sitiosReal: __srFinal })
+.then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); })
+.then(function(){
+GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: (v.conductor||'') + ' - ' + (v.vehiculo||'') + ': el viaje FINALIZO. Habia quedado a la espera de confirmacion por sitios sin completar; se resolvieron al corregir un sitio y el viaje se cerro solo.', fecha: new Date().toISOString(), viajeId: v.id });
+try{ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } }catch(__e){}
+});
+} else if(__srPatch){
+GV.Storage.updateViaje(v.id, { sitiosReal: __srFinal });
 }
 })();
 
