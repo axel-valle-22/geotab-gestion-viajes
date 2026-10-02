@@ -3504,6 +3504,12 @@ GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitAutoResu
 .then(function(){
 GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: (v.conductor||'') + ' - ' + (v.vehiculo||'') + ': el viaje FINALIZO. Habia quedado a la espera de confirmacion por sitios sin completar; se resolvieron al corregir un sitio y el viaje se cerro solo.', fecha: new Date().toISOString(), viajeId: v.id });
 try{ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } }catch(__e){}
+/* El detalle ya esta abierto mostrando el banner viejo ("quedan sitios sin completar") y los
+   botones de Marcar finalizado/Agregar espera, armados ANTES de que esta recalculacion (que
+   corre en un callback asincronico, despues del fetch del historial de GPS) resolviera el
+   cierre. Se refresca el detalle (mismo patron que editarUbicacionSitio) para que el
+   coordinador vea de una el viaje ya como Finalizado, en vez de un banner desactualizado. */
+try{ closeDetalle(); abrirDetalleViaje(v.id); }catch(__e2){}
 });
 } else if(__srPatch){
 GV.Storage.updateViaje(v.id, { sitiosReal: __srFinal });
