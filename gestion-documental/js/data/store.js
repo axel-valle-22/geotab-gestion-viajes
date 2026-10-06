@@ -1102,7 +1102,10 @@ const GD = (function () {
     let nuevosVehiculos = 0;
     activos.forEach((dev) => {
       let ent =
-        _data.entidades.find((e) => e.geotabId === dev.id) ||
+        // Solo entidades de vehiculo/remolque: los ids de Geotab se repiten entre
+        // tipos (un Device y un User pueden tener el mismo id), y sin este filtro
+        // un remolque nuevo "caia" sobre la entidad de un chofer y no se creaba.
+        _data.entidades.find((e) => (e.tipo === "Vehiculo" || e.tipo === "AnexoVehicular") && e.geotabId === dev.id) ||
         _data.entidades.find((e) => e.id === `veh_${dev.id}`) ||
         // Cambio de equipo: mismo nombre, pero la entidad apunta a un equipo que ya no está activo.
         _data.entidades.find((e) => vehiculoDe(e) && !idsActivos.has(e.geotabId) && normNombre(e.descripcion) === normNombre(dev.name));
