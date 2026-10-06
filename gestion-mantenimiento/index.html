@@ -506,12 +506,18 @@ function buildState(devs,trs,groups,users,persist){
     nextOT:p.nextOT||1,nextAv:p.nextAv||1,nextChk:p.nextChk||1,audit:p.audit||[],checks:(p.manualChecks||[]).slice(),docs:[],geotab:[]};
   S.cfg.refL100=S.cfg.refL100||def.cfg.refL100;
   var fi=p.fichas||{};
-  actDev(devs).forEach(function(d){S.units.push(mkUnit(d,false,gname,fi[d.id]))});
-  actDev(trs).forEach(function(d){S.units.push(mkUnit(d,true,gname,fi[d.id]))});
+  /* Geotab devuelve cada remolque dos veces: como Remolque (Trailer) y como Device tipo "None" del grupo de remolques. Se deja solo el Remolque. */
+  var trl=actDev(trs),trByName={},alias={},aliasRev={};trl.forEach(function(t){trByName[normName(t.name)]=t.id});
+  var devOk=actDev(devs).filter(function(d){var tid=trByName[normName(d.name)],isNone=/^None$/i.test(d.deviceType||''),inTr=(d.groups||[]).some(function(g){return g.id==='GroupTrailerId'});
+    if(tid&&!/^GO/i.test(d.deviceType||'')){alias[d.id]=tid;aliasRev[tid]=d.id;return false}
+    if(isNone&&inTr)return false;return true});
+  ADDIN.dupTr=devs?actDev(devs).length-devOk.length:0;
+  devOk.forEach(function(d){S.units.push(mkUnit(d,false,gname,fi[d.id]))});
+  trl.forEach(function(d){S.units.push(mkUnit(d,true,gname,fi[d.id]||fi[aliasRev[d.id]]))});
   var ord=function(u){var m=u.nombre.match(/^([A-Za-z]+)(\d+)/);return m?[m[1],+m[2]]:[u.nombre,0]};
   S.units.sort(function(a,b){var x=ord(a),y=ord(b);return x[0]<y[0]?-1:x[0]>y[0]?1:x[1]-y[1]});
   S.geotab=S.units.map(function(u){return {id:u.gt.id,name:u.gt.name,plate:u.patente,tipo:u.gt.tipo,marca:u.marca,modelo:u.modelo}});
-  ADDIN.byGt={};S.units.forEach(function(u){ADDIN.byGt[u.gt.id]=u});
+  ADDIN.byGt={};S.units.forEach(function(u){ADDIN.byGt[u.gt.id]=u});Object.keys(alias).forEach(function(did){if(ADDIN.byGt[alias[did]])ADDIN.byGt[did]=ADDIN.byGt[alias[did]]});
   ADDIN.loadedAt=new Date();ADDIN.ready=true;
 }
 
@@ -699,7 +705,7 @@ function readFuel(){var tel=S.units.filter(function(u){return u.tel&&u.motor}),i
 function haySCombustible(){return S.units.some(function(u){var m=S.mensual[u.id];return m&&m.some(function(x){return x.lit!=null})})}
 
 /* ---------- fallas del motor (FaultData de Geotab) ---------- */
-var CTRL_W={engine:'Motor',transmission:'Transmisión',brake:'Frenos',brakes:'Frenos',body:'Carrocería',controller:'',instrument:'Tablero',cluster:'Tablero',abs:'ABS',retarder:'Retarder',trailer:'Acoplado',exhaust:'Escape',aftertreatment:'Postratamiento',suspension:'Suspensión',cab:'Cabina',cruise:'Control de crucero',steering:'Dirección',axle:'Eje',gateway:'Gateway',other:'Otro'};
+var CTRL_W={engine:'Motor',transmission:'Transmisión',brake:'Frenos',brakes:'Frenos',body:'Carrocería',controller:'',obd:'OBD',wwh:'',powertrain:'tren motriz',instrument:'Tablero',cluster:'Tablero',abs:'ABS',retarder:'Retarder',trailer:'Acoplado',exhaust:'Escape',aftertreatment:'Postratamiento',suspension:'Suspensión',cab:'Cabina',cruise:'Control de crucero',steering:'Dirección',axle:'Eje',gateway:'Gateway',other:'Otro'};
 function ctrlName(c){if(!c)return '';var s=String(c.name||'');if(s)return s;var id=String(c.id||'').replace(/^Controller/,'').replace(/Id$/,'');if(!id||id==='NoController'||id==='Unknown')return '';
   var w=id.replace(/([a-z0-9])([A-Z])/g,'$1 $2').split(' ').map(function(x){var t=CTRL_W[x.toLowerCase()];return t!=null?t:x}).filter(Boolean);return w.join(' ')}
 function sevInfo(s){s=String(s||'');var k=s.replace(/Id$/,'');
