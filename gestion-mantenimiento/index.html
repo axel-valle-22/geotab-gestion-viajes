@@ -699,37 +699,57 @@ function readFuel(){var tel=S.units.filter(function(u){return u.tel&&u.motor}),i
 function haySCombustible(){return S.units.some(function(u){var m=S.mensual[u.id];return m&&m.some(function(x){return x.lit!=null})})}
 
 /* ---------- fallas del motor (FaultData de Geotab) ---------- */
-function readFaults(){var from=new Date(Date.now()-30*864e5);
-  return aCall('Get',{typeName:'FaultData',search:{fromDate:isoDT(from),toDate:isoDT(new Date())},resultsLimit:30000}).then(function(rows){
-    rows=rows||[];ADDIN.raw.faultCount=rows.length;ADDIN.raw.fault=rows[0];
-    var ids={};rows.forEach(function(r){var d=r.diagnostic&&r.diagnostic.id;if(d)ids[d]=1});
-    var list=Object.keys(ids),dn={},p=Promise.resolve();
-    chunk(list,40).forEach(function(c){p=p.then(function(){return aMulti(c.map(function(id){return ['Get',{typeName:'Diagnostic',search:{id:id}}]})).then(function(res){res.forEach(function(x,i){var d=Array.isArray(x)?x[0]:x;if(d)dn[c[i]]=d})}).catch(function(e){aErr('Diagnostic',e)})})});
-    return p.then(function(){
-      var agg={};
-      rows.forEach(function(r){var u=ADDIN.byGt[r.device&&r.device.id];if(!u)return;var did=r.diagnostic&&r.diagnostic.id,fm=r.failureMode&&r.failureMode.id,k=u.id+'|'+did+'|'+fm,t=new Date(r.dateTime).getTime();
-        var a=agg[k];if(!a)a=agg[k]={unitId:u.id,did:did,fm:r.failureMode||null,count:0,first:t,last:t,_lt:0,st:'',ctrl:'',R:false,A:false,M:false,P:false};
-        a.count+=(r.count||1);if(t<a.first)a.first=t;if(t>a.last)a.last=t;
-        if(t>=a._lt){a._lt=t;a.st=String(r.faultState||'')}
-        if(r.redStopLamp)a.R=true;if(r.amberWarningLamp)a.A=true;if(r.malfunctionLamp)a.M=true;if(r.protectWarningLamp)a.P=true;
-        if(r.controller&&r.controller.name)a.ctrl=r.controller.name});
-      var out=Object.keys(agg).map(function(k){var a=agg[k],d=dn[a.did]||{},nm=String(d.name||''),m=nm.match(/^([PCBU][0-9A-F]{4})\b[\s:–-]*(.*)$/i),code=m?m[1].toUpperCase():(d.code!=null?String(d.code):''),desc=m?m[2]:nm;
-        if(a.fm&&a.fm.name&&desc.indexOf(a.fm.name)<0)desc=(desc?desc+' · ':'')+a.fm.name;
-        var act=/active/i.test(a.st)&&!/inactive/i.test(a.st)||(!a.st&&Date.now()-a.last<864e5);
-        return {unitId:a.unitId,code:code||'—',desc:desc||'Sin descripción',count:a.count,first:a.first,last:a.last,estado:act?'Activa':'Inactiva',luz:a.R?'Roja (parar)':a.M?'Falla de motor (MIL)':a.A?'Ámbar (advertencia)':a.P?'Protección':'—',luzOn:!!(a.R||a.M||a.A||a.P),ctrl:a.ctrl}});
+var CTRL_W={engine:'Motor',transmission:'Transmisión',brake:'Frenos',brakes:'Frenos',body:'Carrocería',controller:'',instrument:'Tablero',cluster:'Tablero',abs:'ABS',retarder:'Retarder',trailer:'Acoplado',exhaust:'Escape',aftertreatment:'Postratamiento',suspension:'Suspensión',cab:'Cabina',cruise:'Control de crucero',steering:'Dirección',axle:'Eje',gateway:'Gateway',other:'Otro'};
+function ctrlName(c){if(!c)return '';var s=String(c.name||'');if(s)return s;var id=String(c.id||'').replace(/^Controller/,'').replace(/Id$/,'');if(!id||id==='NoController'||id==='Unknown')return '';
+  var w=id.replace(/([a-z0-9])([A-Z])/g,'$1 $2').split(' ').map(function(x){var t=CTRL_W[x.toLowerCase()];return t!=null?t:x}).filter(Boolean);return w.join(' ')}
+function sevInfo(s){s=String(s||'');var k=s.replace(/Id$/,'');
+  var M={MaintenanceOnly:['Solo mantenimiento',1],CheckAtNextHalt:['Revisar en la próxima parada',2],NoRepairNeeded:['Sin reparación necesaria',0],StopSoon:['Detener pronto',3],StopNow:['Detener ya',4],StopImmediately:['Detener ya',4],RepairSoon:['Reparar pronto',2],RepairNow:['Reparar ya',3]};
+  if(M[k])return {t:M[k][0],r:M[k][1]};if(!k||/^None$|^Unknown$/i.test(k))return {t:'',r:0};
+  return {t:k.replace(/([a-z])([A-Z])/g,'$1 $2'),r:/stop|now|immediate/i.test(k)?4:/soon|check|halt/i.test(k)?2:1}}
+function faultSt(r){var e=r.faultStates&&r.faultStates.effectiveStatus,s=String((e&&(e.id||e))||'');
+  if(!s)s=String(r.faultState||'');
+  if(/pending/i.test(s))return 'Pendiente';if(/inactive|none/i.test(s))return 'Inactiva';if(/active/i.test(s))return 'Activa';return ''}
+function readFaults(){var N=30,STEP=5,now=Date.now(),wins=[];
+  for(var o=0;o<N;o+=STEP)wins.push([new Date(now-Math.min(o+STEP,N)*864e5),new Date(now-o*864e5)]);
+  var agg={},ids={},total=0,p=Promise.resolve(),sample=null;
+  wins.forEach(function(w){p=p.then(function(){return aCall('Get',{typeName:'FaultData',search:{fromDate:isoDT(w[0]),toDate:isoDT(w[1])},resultsLimit:30000}).then(function(rows){
+    rows=rows||[];total+=rows.length;if(rows.length>=30000)aErr('FaultData','ventana truncada (30000 filas)');if(!sample&&rows[0])sample=rows[0];
+    rows.forEach(function(r){var u=ADDIN.byGt[r.device&&r.device.id];if(!u)return;var did=r.diagnostic&&r.diagnostic.id;if(!did)return;ids[did]=1;
+      var fmId=r.failureMode&&r.failureMode.id,k=u.id+'|'+did+'|'+(fmId||''),t=new Date(r.dateTime).getTime();
+      var a=agg[k];if(!a)a=agg[k]={unitId:u.id,did:did,fm:r.failureMode||null,count:0,first:t,last:t,_lt:0,st:'',sev:'',ctrl:'',R:false,A:false,M:false,P:false};
+      var c=+r.count||1;if(c>a.count)a.count=c;if(t<a.first)a.first=t;if(t>a.last)a.last=t;
+      if(t>=a._lt){a._lt=t;a.st=faultSt(r);a.sev=String((r.severity&&(r.severity.id||r.severity))||'')}
+      if(r.redStopLamp)a.R=true;if(r.amberWarningLamp)a.A=true;if(r.malfunctionLamp)a.M=true;if(r.protectWarningLamp)a.P=true;
+      var cn=ctrlName(r.controller);if(cn)a.ctrl=cn})})})});
+  return p.then(function(){ADDIN.raw.faultCount=total;ADDIN.raw.fault=sample;
+    var list=Object.keys(ids),dn={},q=Promise.resolve();
+    chunk(list,40).forEach(function(c){q=q.then(function(){return aMulti(c.map(function(id){return ['Get',{typeName:'Diagnostic',search:{id:id}}]})).then(function(res){res.forEach(function(x,i){var d=Array.isArray(x)?x[0]:x;if(d)dn[c[i]]=d})}).catch(function(e){aErr('Diagnostic',e)})})});
+    return q.then(function(){
+      var out=Object.keys(agg).map(function(k){var a=agg[k],d=dn[a.did]||{},nm=String(d.name||'');
+        var src=String((d.source&&(d.source.id||d.source.name))||d.source||''),dt=String(d.diagnosticType||''),sd=src+' '+dt;
+        var org=/geotab|gofault/i.test(sd)?'GO':/j1939|suspect/i.test(sd)?'J1939':'OBD';
+        var cd=d.code!=null?String(d.code):'',fmc=a.fm&&a.fm.code!=null?String(a.fm.code):'',fmn=a.fm&&a.fm.name?String(a.fm.name):'';
+        var unk=/unknown diagnostic/i.test(nm)||!nm;
+        var code=org==='J1939'?(cd?'SPN '+cd+(fmc?' · FMI '+fmc:''):'—'):org==='GO'?(cd?'GO '+cd:'—'):(cd?'OBD '+cd+(fmc?' · '+fmc:''):'—');
+        var desc=unk?'Sin descripción en Geotab':nm;
+        if(fmn&&desc.toLowerCase().indexOf(fmn.toLowerCase())<0)desc+=' · '+fmn;
+        var sv=sevInfo(a.sev),st=a.st||(Date.now()-a.last<864e5?'Activa':'Inactiva');
+        return {unitId:a.unitId,code:code,org:org,desc:desc,sinDesc:unk,count:a.count,first:a.first,last:a.last,estado:st,sev:sv.t,sevR:sv.r,luz:a.R?'Roja (parar)':a.M?'Falla de motor (MIL)':a.A?'Ámbar (advertencia)':a.P?'Protección':'—',luzOn:!!(a.R||a.M||a.A||a.P),ctrl:a.ctrl}});
       S.fallas=out;ADDIN.raw.diagSample=dn[list[0]]})
-  }).catch(function(e){aErr('FaultData',e);S.fallas=[]})}
+  }).catch(function(e){aErr('FaultData',e);S.fallas=S.fallas||[]})}
+var ORG_T={GO:'Equipo GO',J1939:'J1939',OBD:'OBD'};
 function vFallas(){
   if(MODE!=='addin')return '<section class="card"><div class="note">Esta pantalla muestra los códigos de falla que informa el motor a través de Geotab. Está disponible en el Add-In.</div></section>';
   if(!S.fallas){return '<section class="card"><div class="note">Leyendo las fallas del motor desde MyGeotab…</div></section>'}
-  var W=+UI.fallaWin||7,cut=Date.now()-W*864e5,q=(UI.fallaQ||'').toLowerCase(),f=UI.fallaEst||'';
-  var base=S.fallas.filter(function(x){return x.last>=cut&&unitById(x.unitId)});
-  var L=base.filter(function(x){var u=unitById(x.unitId);return (!f||x.estado===f)&&(!q||(u.nombre+' '+u.patente+' '+x.code+' '+x.desc).toLowerCase().indexOf(q)>=0)}).sort(function(a,b){return (a.estado===b.estado?0:a.estado==='Activa'?-1:1)||b.last-a.last});
+  var W=+UI.fallaWin||7,cut=Date.now()-W*864e5,q=(UI.fallaQ||'').toLowerCase(),f=UI.fallaEst||'',go=!!UI.fallaGo;
+  var all=S.fallas.filter(function(x){return x.last>=cut&&unitById(x.unitId)}),nGo=all.filter(function(x){return x.org==='GO'}).length;
+  var base=all.filter(function(x){return go||x.org!=='GO'});
+  var L=base.filter(function(x){var u=unitById(x.unitId);return (!f||x.estado===f)&&(!q||(u.nombre+' '+u.patente+' '+x.code+' '+x.desc+' '+x.ctrl).toLowerCase().indexOf(q)>=0)}).sort(function(a,b){var ra=a.estado==='Activa'?0:a.estado==='Pendiente'?1:2,rb=b.estado==='Activa'?0:b.estado==='Pendiente'?1:2;return (ra-rb)||(b.sevR-a.sevR)||(b.luzOn-a.luzOn)||(b.last-a.last)});
   var un={},cd={},act=0,luz=0;base.forEach(function(x){un[x.unitId]=1;cd[x.code]=1;if(x.estado==='Activa')act++;if(x.luzOn)luz++});
   var kp='<div class="grid g4">'+kpi('Unidades con fallas',Object.keys(un).length,'en los últimos '+W+' días')+kpi('Fallas activas',act,'siguen presentes',act?'bad':'ok','fallaF:Activa',f==='Activa')+kpi('Con luz en tablero',luz,'falla, ámbar o roja',luz?'warn':'ok')+kpi('Códigos distintos',Object.keys(cd).length,'')+'</div>';
-  var how='<div class="note"><b>Estos códigos no se cargan acá.</b> Son los que el motor informa por el equipo GO (OBD / J1939) y se leen de MyGeotab cada vez que se abre el módulo. Solo aparecen unidades con equipo GO; las demás no informan fallas.</div>';
-  var tb=tbl(['Unidad','Código','Descripción','Estado','Luz en tablero','>Repeticiones','Última vez','Primera vez'],L.slice(0,300).map(function(x){var u=unitById(x.unitId);return '<tr><td>'+ent(u)+'</td><td><b class="mono">'+esc(x.code)+'</b></td><td>'+esc(x.desc)+(x.ctrl?'<div class="muted small">'+esc(x.ctrl)+'</div>':'')+'</td><td>'+pill(x.estado)+'</td><td>'+(x.luzOn?pill('Preaviso',x.luz):'<span class="muted">—</span>')+'</td><td class="r num">'+n0(x.count)+'</td><td class="num small">'+fd(localDate(x.last))+' '+hhmm(x.last)+'</td><td class="num small">'+fd(localDate(x.first))+'</td></tr>'}),'No hay fallas con este filtro.');
-  var bar='<div class="bar"><input id="f-fq" data-ui="fallaQ" type="search" placeholder="Buscar por unidad, código o descripción" value="'+esc(UI.fallaQ||'')+'" style="width:min(340px,100%)">'+segHtml('fallaWin',[['7','7 días'],['30','30 días']],String(W))+(f?'<button class="btn sm" data-act="fallaF:">Quitar filtro</button>':'')+'<span class="sp"></span><span class="muted small">'+L.length+' de '+base.length+'</span></div>';
+  var how='<div class="note"><b>Estos códigos no se cargan acá.</b> Son los que el motor informa por el equipo GO (J1939 / OBD) y se leen de MyGeotab cada vez que se abre el módulo. Solo aparecen unidades con equipo GO. Las repeticiones son el contador que informa la ECU; “Sin descripción” significa que Geotab no tiene el texto de ese código (se muestra el SPN/FMI para buscarlo).</div>';
+  var tb=tbl(['Unidad','Código','Descripción','Estado','Gravedad','Luz en tablero','>Repeticiones','Última vez'],L.slice(0,300).map(function(x){var u=unitById(x.unitId),stp=x.estado==='Pendiente'?pill('Preaviso','Pendiente'):pill(x.estado);return '<tr><td>'+ent(u)+'</td><td style="white-space:nowrap"><b class="mono">'+esc(x.code)+'</b><div class="muted small">'+ORG_T[x.org]+'</div></td><td'+(x.sinDesc?' class="muted"':'')+'>'+esc(x.desc)+(x.ctrl?'<div class="muted small">'+esc(x.ctrl)+'</div>':'')+'</td><td>'+stp+'</td><td class="small">'+(x.sev?esc(x.sev):'<span class="muted">—</span>')+'</td><td>'+(x.luzOn?pill('Preaviso',x.luz):'<span class="muted">—</span>')+'</td><td class="r num">'+n0(x.count)+'</td><td class="num small">'+fd(localDate(x.last))+' '+hhmm(x.last)+'</td></tr>'}),'No hay fallas con este filtro.');
+  var bar='<div class="bar"><input id="f-fq" data-ui="fallaQ" type="search" placeholder="Buscar por unidad, código o descripción" value="'+esc(UI.fallaQ||'')+'" style="width:min(340px,100%)">'+segHtml('fallaWin',[['7','7 días'],['30','30 días']],String(W))+(f?'<button class="btn sm" data-act="fallaF:">Quitar filtro</button>':'')+(nGo?'<button class="btn sm" data-act="fallaGo">'+(go?'Ocultar':'Mostrar')+' avisos internos del equipo GO ('+nGo+')</button>':'')+'<span class="sp"></span><span class="muted small">'+L.length+' de '+base.length+'</span></div>';
   return kp+how+'<section class="card">'+bar+'<div style="height:12px"></div>'+tb+(L.length>300?'<p class="muted small">Se muestran 300 de '+L.length+'. Usá el buscador o los filtros.</p>':'')+'</section>'}
 
 
@@ -1227,6 +1247,7 @@ var ACT={
  go:function(d,el,arg){go(arg)},
  tab:function(d){UI[d.k]=d.v;render()},
  fallaF:function(d,el,arg){UI.fallaEst=UI.fallaEst===arg?'':arg;render()},
+ fallaGo:function(){UI.fallaGo=!UI.fallaGo;render()},
  bell:function(){UI.bell=!UI.bell;render()},
  vtvF:function(d,el,arg){UI.vtvF=UI.vtvF===arg?'':arg;render()},
  docOpen:function(d){var u=unitById(d.id),i=vtvInfo(u);modal(mhead('VTV Nacional · '+esc(u.nombre),pill(i.e))+'<div class="kv"><div class="kvr"><span>Entidad en Gestión Documental</span><b>'+esc(u.gt.name)+'</b></div><div class="kvr"><span>Documento</span><b>VTV Nacional</b></div><div class="kvr"><span>Vigente hasta</span><b>'+(i.hasta?fd(i.hasta):'—')+'</b></div><div class="kvr"><span>Estado</span><b>'+esc(i.e)+'</b></div></div><p class="muted small" style="margin:12px 0 0">En el Add-In este botón abre el documento en Gestión Documental. La fecha se edita allá.</p><div class="mf"><button class="btn" data-act="close">Cerrar</button></div>')},
