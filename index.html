@@ -863,6 +863,22 @@ if(typeof renderTracking === 'function') renderTracking();
    el minimo, se descarta como ruido y se empieza a contar de nuevo la proxima vez que salga.
    Bug real: viaje 289 (VERA LUIS MIGUEL) del 18/9/2026, demorado en origen (rotura de guardabarros,
    la unidad seguia en la base) marcado igual como "ya salio" 55 minutos antes de que arrancara. */
+/* Ajuste 6/10 (caso T280 - GONZALEZ LEOPOLDO, origen = TIPSA = primera carga): cuando el origen y la
+   primera parada de carga/descarga son el MISMO lugar, la unidad nunca "sale del origen" para empezar
+   el viaje -- el viaje arranca justo ahi, cargando. Como el auto-inicio por GPS solo se disparaba al
+   alejarse del origen, el viaje quedaba "Planificado" (y Seguimiento decia "Por salir a: TIPSA") aunque
+   la unidad ya llevara un rato en sitio cargando. Si el origen cae dentro de la geocerca de la primera
+   parada (con tipo) y esa parada ya tiene ingreso confirmado y todavia no egreso, la unidad esta en
+   sitio: el viaje ya empezo. Devuelve { ingreso } o null. */
+function gvIniciaEnPrimerSitio(v){
+  if(!v || !v.origen || typeof v.origen.lat !== 'number') return null;
+  var p0 = (v.paradas || [])[0];
+  if(!p0 || !p0.tipo || typeof p0.lat !== 'number') return null;
+  var st = v.sitiosReal && v.sitiosReal.parada0;
+  if(!st || !st.ingreso || st.egreso) return null;
+  if(!GV.isWithinSite({ lat: v.origen.lat, lng: v.origen.lng }, p0)) return null;
+  return { ingreso: st.ingreso };
+}
 function confirmarSalidaDeOrigen(v, r){
   if(!v.origen) return true;
   var afuera = !GV.isWithinSite({lat:r.latitude,lng:r.longitude}, v.origen);
@@ -1138,15 +1154,20 @@ function checkDwellAlerts(){
            movia cuando checkDelays lo marcaba "demorado" a los 20 minutos (esa rama si ignora el
            gerenciamiento a proposito). Que la unidad salio es un hecho fisico: se refleja en el
            momento, y el gerenciamiento pendiente sigue avisado en el badge del viaje y en la alerta. */
-        var __awayFromOrigin = confirmarSalidaDeOrigen(v, r);
+        var __away0 = confirmarSalidaDeOrigen(v, r);
+        var __iniciaEnSitio = __away0 ? null : gvIniciaEnPrimerSitio(v); /* Ajuste 6/10: origen = primera carga */
+        var __awayFromOrigin = __away0 || !!__iniciaEnSitio;
         /* Tampoco se esperan 5 minutos desde la hora programada: apenas el GPS confirma que la unidad
            dejo el origen, el viaje pasa a "en curso" para que el coordinador lo vea en tiempo real. Se
            admite hasta 30 minutos antes de lo programado, para no auto-iniciar viajes cuya unidad
            todavia esta afectada a otra tarea lejos del origen. */
         if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > -30*60*1000){
-          var __demoraMsAuto = Date.now() - new Date(v.fechaSalida).getTime();
+          /* Si el viaje arranca por estar en sitio (origen = primera carga), la referencia no es "ahora" sino
+             la hora de ingreso a ese sitio. */
+          var __refMsAuto = __iniciaEnSitio ? new Date(__iniciaEnSitio.ingreso).getTime() : Date.now();
+          var __demoraMsAuto = Math.max(0, __refMsAuto - new Date(v.fechaSalida).getTime());
           var __salioTarde = __demoraMsAuto > 20*60*1000;
-          var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true };
+          var __updatesAuto = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || (__iniciaEnSitio ? __iniciaEnSitio.ingreso : new Date().toISOString()), autoIniciado: true };
           if(__salioTarde){ __updatesAuto.salioConDemora = true; __updatesAuto.demoraSalidaMin = Math.round(__demoraMsAuto/60000); }
           /* Bug real (21/9, viaje de Chavez Nicolas Emanuel): al auto-iniciar por GPS nunca se dejaba
              sellado el horario real de salida del ORIGEN (sitiosReal.origen.egreso) -- esa fila quedaba
@@ -1154,7 +1175,7 @@ function checkDwellAlerts(){
              por historial del detalle del viaje tampoco puede reconstruirlo despues, porque arranca a
              mirar el historial recien desde iniciadoEn, cuando la unidad ya esta afuera del origen. Se
              sella aca con el mismo horario ya usado para confirmar la salida (salidaOrigenTentativaDesde). */
-          if(!(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
+          if(!__iniciaEnSitio && !(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
             var __srAuto = Object.assign({}, v.sitiosReal || {});
             __srAuto.origen = Object.assign({}, __srAuto.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
             __updatesAuto.sitiosReal = __srAuto;
@@ -1162,7 +1183,7 @@ function checkDwellAlerts(){
           GV.Storage.updateViaje(v.id, __updatesAuto);
           v.estado = 'en_curso';
           if(__salioTarde){ v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto.demoraSalidaMin; }
-          var __msgAuto = __salioTarde ? (v.conductor + ' - ' + v.vehiculo + ': la unidad salio con ' + GV.fmtDurMin(__demoraMsAuto) + ' de demora sobre lo programado (se detecto en curso automaticamente por GPS, no se marco el inicio en la app del chofer).') : (v.conductor + ' - ' + v.vehiculo + ': el viaje se detecto en curso automaticamente por GPS (no se marco el inicio en la app del chofer).');
+          var __msgAuto = __iniciaEnSitio ? (v.conductor + ' - ' + v.vehiculo + ': la unidad esta en sitio en ' + ((v.paradas && v.paradas[0] && GV.siteNameFor(v.paradas[0])) || 'la primera parada') + ' (el origen y la primera carga son el mismo lugar): el viaje se detecto en curso automaticamente por GPS.') : __salioTarde ? (v.conductor + ' - ' + v.vehiculo + ': la unidad salio con ' + GV.fmtDurMin(__demoraMsAuto) + ' de demora sobre lo programado (se detecto en curso automaticamente por GPS, no se marco el inicio en la app del chofer).') : (v.conductor + ' - ' + v.vehiculo + ': el viaje se detecto en curso automaticamente por GPS (no se marco el inicio en la app del chofer).');
           GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __msgAuto + (puedeIniciar(v) ? '' : ' El gerenciamiento de riesgos todavia no fue aprobado.'), fecha: new Date().toISOString(), viajeId: v.id });
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
@@ -1178,20 +1199,23 @@ function checkDwellAlerts(){
            salida queda igual en salioConDemora/demoraSalidaMin (visible en el detalle del viaje) y en
            la alerta ya emitida por checkDelays. Asi en "Demorados" el coordinador solo ve las unidades
            que TODAVIA estan paradas en el origen o en una carga/descarga. */
-        var __awayFromOrigin2 = confirmarSalidaDeOrigen(v, r);
+        var __away02 = confirmarSalidaDeOrigen(v, r);
+        var __iniciaEnSitio2 = __away02 ? null : gvIniciaEnPrimerSitio(v); /* Ajuste 6/10: origen = primera carga */
+        var __awayFromOrigin2 = __away02 || !!__iniciaEnSitio2;
         if(__awayFromOrigin2){
-          var __demoraMsAuto2 = Date.now() - new Date(v.fechaSalida).getTime();
-          var __updatesAuto2 = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || new Date().toISOString(), autoIniciado: true, salioConDemora: true, demoraSalidaMin: Math.round(__demoraMsAuto2/60000) };
+          var __refMsAuto2 = __iniciaEnSitio2 ? new Date(__iniciaEnSitio2.ingreso).getTime() : Date.now();
+          var __demoraMsAuto2 = Math.max(0, __refMsAuto2 - new Date(v.fechaSalida).getTime());
+          var __updatesAuto2 = { estado: 'en_curso', iniciadoEn: v.iniciadoEn || (__iniciaEnSitio2 ? __iniciaEnSitio2.ingreso : new Date().toISOString()), autoIniciado: true, salioConDemora: (!__iniciaEnSitio2 || __demoraMsAuto2 > 20*60*1000), demoraSalidaMin: Math.round(__demoraMsAuto2/60000) };
           /* Mismo resguardo que en la rama de arriba (planificado -> en_curso): sellar sitiosReal.origen.egreso
              al auto-iniciar por GPS, para que "Egreso real" del origen no quede en blanco para siempre. */
-          if(!(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
+          if(!__iniciaEnSitio2 && !(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
             var __srAuto2 = Object.assign({}, v.sitiosReal || {});
             __srAuto2.origen = Object.assign({}, __srAuto2.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
             __updatesAuto2.sitiosReal = __srAuto2;
           }
           GV.Storage.updateViaje(v.id, __updatesAuto2);
-          v.estado = 'en_curso'; v.salioConDemora = true; v.demoraSalidaMin = __updatesAuto2.demoraSalidaMin;
-          GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad ya salio de ' + (v.origen ? GV.siteNameFor(v.origen) : 'origen') + ' (' + GV.fmtDurMin(__demoraMsAuto2) + ' de demora sobre lo programado) y deja de figurar como demorada.', fecha: new Date().toISOString(), viajeId: v.id });
+          v.estado = 'en_curso'; v.salioConDemora = __updatesAuto2.salioConDemora; v.demoraSalidaMin = __updatesAuto2.demoraSalidaMin;
+          GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __iniciaEnSitio2 ? (v.conductor + ' - ' + v.vehiculo + ': la unidad esta en sitio en ' + ((v.paradas && v.paradas[0] && GV.siteNameFor(v.paradas[0])) || 'la primera parada') + ' (el origen y la primera carga son el mismo lugar): el viaje deja de figurar como demorado y pasa a en curso.') : (v.conductor + ' - ' + v.vehiculo + ': la unidad ya salio de ' + (v.origen ? GV.siteNameFor(v.origen) : 'origen') + ' (' + GV.fmtDurMin(__demoraMsAuto2) + ' de demora sobre lo programado) y deja de figurar como demorada.'), fecha: new Date().toISOString(), viajeId: v.id });
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
         } else {
