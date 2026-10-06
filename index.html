@@ -3407,6 +3407,7 @@ var t = new Date(v.fechaSalida);
 var accDist = 0;
 var __histCursor = 0;
 var __seqBroken = false;
+var __origenEgresoCorregidoGps = false; /* Ajuste 6/10: ver mas abajo, donde se asigna */
 /* Mismo motivo que en computeStopStatuses (Seguimiento): sin este piso, el barrido puede
    engancharse con una posicion de la unidad anterior a la salida real de ESTE viaje (por ejemplo
    un paso por un sitio temprano a la manana, antes de que el viaje arrancara) y marcar "Finalizado"
@@ -3480,6 +3481,20 @@ if(!p.tipo){ __realIn = __realIn || (__srP && __srP.ingreso); __realOut = __real
 var __realInAuto = __realIn, __realOutAuto = __realOut;
 if(__srP && __srP.ingreso){ __realIn = __srP.ingreso; }
 if(__srP && __srP.egreso){ __realOut = __srP.egreso; }
+/* Ajuste 6/10 (bug real: viaje de C258 - VESCHI TOMAS ALBERTO del 6/10/2026, la unidad salio de la
+   base a las ~07:10 y el panel mostro "Egreso real 08:12"): al auto-iniciar un viaje por GPS, el
+   egreso del ORIGEN se sella con salidaOrigenTentativaDesde, que es la hora en que el panel VIO por
+   primera vez a la unidad afuera -- no la hora en que realmente salio. Si nadie tenia el panel
+   abierto cuando salio, la diferencia puede ser de una hora o mas (y de paso inflaba la demora de
+   salida). Como el recorrido GPS si tiene la hora real de salida (__realOutAuto), si el valor
+   guardado es EXACTAMENTE ese sello de observacion (no una correccion manual del coordinador) y es
+   mas de 2 minutos posterior a la salida que muestra el GPS, se usa la del GPS. */
+if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigenTentativaDesde
+   && (+new Date(__srP.egreso)) === (+new Date(v.salidaOrigenTentativaDesde))
+   && ((+new Date(__srP.egreso)) - (+new Date(__realOutAuto))) > 2*60000){
+  __realOut = __realOutAuto;
+  __origenEgresoCorregidoGps = true;
+}
 /* Ingreso real / Egreso real siguen calculandose igual que siempre (por historial de GPS, con
    sitiosReal solo como respaldo en puntos de paso): son el dato automatico de cuando el camion
    entro/salio del sitio segun su posicion. Aparte de eso, si el chofer efectivamente toco el
@@ -3553,6 +3568,18 @@ __srPatch[r.id] = Object.assign({}, __cur, __quiere);
 });
 var __srFinal = __srPatch || __srActual;
 if(__srPatch){ v.sitiosReal = __srFinal; }
+/* Ajuste 6/10: si el egreso del origen se corrigio con la hora real del GPS (ver arriba), la demora
+   de salida guardada (demoraSalidaMin / salioConDemora) quedo calculada con el sello inflado: se
+   recalcula con el egreso corregido para que el resto de la app (alertas, reportes) la vea bien. */
+var __demoraFix = null;
+if(__origenEgresoCorregidoGps){
+  var __filaOr = rows.filter(function(rr){ return rr.id === 'origen'; })[0];
+  if(__filaOr && __filaOr.realOut && __filaOr.egreso && !isNaN(__filaOr.realOut.getTime()) && !isNaN(__filaOr.egreso.getTime())){
+    var __dmFix = Math.max(0, Math.round((__filaOr.realOut.getTime() - __filaOr.egreso.getTime())/60000));
+    __demoraFix = { demoraSalidaMin: __dmFix, salioConDemora: __dmFix > 20 };
+    v.demoraSalidaMin = __demoraFix.demoraSalidaMin; v.salioConDemora = __demoraFix.salioConDemora;
+  }
+}
 /* Si el viaje habia quedado "a la espera" porque la unidad entro a destino con paradas de
    carga/descarga sin completar (v.llegadaDestinoPendienteEn, ver cerrarOAvisarLlegadaDestino),
    y lo que faltaba se acaba de completar aca -- por ejemplo, al corregir la ubicacion de un
@@ -3578,7 +3605,7 @@ try{ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEven
 try{ closeDetalle(); abrirDetalleViaje(v.id); }catch(__e2){}
 });
 } else if(__srPatch){
-GV.Storage.updateViaje(v.id, { sitiosReal: __srFinal });
+GV.Storage.updateViaje(v.id, Object.assign({ sitiosReal: __srFinal }, __demoraFix || {}));
 }
 })();
 
