@@ -588,15 +588,24 @@ function readDvir(){var from=new Date(Date.now()-120*864e5);
 
 /* ---------- VTV desde Gestión Documental (solo lectura) ---------- */
 function normName(s){return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'')}
-function applyDocs(data){
+function toISO(v){if(v==null||v==='')return '';
+  if(typeof v==='string'){var m=v.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];var m2=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);if(m2)return m2[3]+'-'+('0'+m2[2]).slice(-2)+'-'+('0'+m2[1]).slice(-2);var d0=new Date(v);return isNaN(d0)?'':iso(d0)}
+  if(typeof v==='number'){var d1=new Date(v<1e11?v*1000:v);return isNaN(d1)?'':iso(d1)}
+  if(v&&typeof v.toDate==='function'){try{return iso(v.toDate())}catch(e){return ''}}
+  if(v&&typeof v.seconds==='number')return iso(new Date(v.seconds*1000));
+  if(v instanceof Date)return isNaN(v)?'':iso(v);return ''}
+function applyDocs(data){try{applyDocs0(data)}catch(e){aErr('VTV (Gestión Documental)',e);S.docs=[]}}
+function applyDocs0(data){
   S.docs=[];if(!data){return}
   var ents=data.entidades||[],docs=data.documentos||[],byId={};ents.forEach(function(e){byId[e.id]=e});
   var byGt={},byName={};ents.forEach(function(e){if(e.geotabId)byGt[e.geotabId]=e;byName[normName(e.descripcion)]=e});
-  var vtv=/vtv/i,best={};
-  docs.forEach(function(d){if(d.activo===false||d.eliminadoEn)return;if(!vtv.test(d.tipoDocumentoNombre||''))return;var e=byId[d.entidadId];if(!e)return;
-    var k=e.id,cur=best[k];if(!cur||(d.fechaHasta||'')>(cur.fechaHasta||''))best[k]=d});
-  S.units.forEach(function(u){var e=byGt[u.gt.id]||byName[normName(u.gt.name)];if(!e)return;var d=best[e.id];if(!d)return;
-    S.docs.push({unitId:u.id,tipo:d.tipoDocumentoNombre||'VTV Nacional',hasta:d.sinVencimiento?null:(d.fechaHasta||'').slice(0,10),sinVenc:!!d.sinVencimiento})});
+  var tn={};(data.tiposDocumento||[]).forEach(function(t){tn[t.id]=t.nombre});
+  var dn=function(d){return d.tipoDocumentoNombre||tn[d.tipoDocumentoId]||''};
+  var vtv=/vtv/i,best={};ADDIN.raw.docSample=docs.filter(function(d){return vtv.test(dn(d))})[0];
+  docs.forEach(function(d){if(d.activo===false||d.eliminadoEn)return;if(!vtv.test(dn(d)))return;var e=byId[d.entidadId];if(!e)return;
+    var k=e.id,cur=best[k];var fh=toISO(d.fechaHasta);if(!cur||fh>cur._fh){d._fh=fh;best[k]=d}});
+  S.units.forEach(function(u){var e=byGt[u.gt.id]||byName[normName(u.gt.name)]||byName[normName(u.nombre+' - '+u.patente)]||byName[normName(u.patente)]||byName[normName(u.nombre)];if(!e)return;var d=best[e.id];if(!d)return;
+    S.docs.push({unitId:u.id,tipo:dn(d)||'VTV Nacional',hasta:d.sinVencimiento?null:(d._fh||''),sinVenc:!!d.sinVencimiento})});
   S.docs=S.docs.filter(function(d){return d.sinVenc||d.hasta})}
 
 /* ---------- arranque ---------- */
@@ -615,7 +624,7 @@ window.GM_START=function(api){
   Promise.all([g('Device'),g('Trailer'),g('Group'),aCall('Get',{typeName:'User',search:{isDriver:true}}).catch(function(e){aErr('Get User',e);return []}),fbP]).then(function(r){
     return Promise.all([persistP.catch(function(e){aErr('gm_data',e);return null}),gdP.catch(function(e){aErr('gd_data',e);return null})]).then(function(pp){
       var p=pp[0]||readLS();ADDIN.raw.counts={dispositivos:(r[0]||[]).length,remolques:(r[1]||[]).length,grupos:(r[2]||[]).length,usuarios:(r[3]||[]).length};
-      buildState(r[0],r[1],r[2],r[3],p);applyDocs(pp[1]);ADDIN.gd=pp[1];render();subscribe();phase2()})
+      buildState(r[0],r[1],r[2],r[3],p);ADDIN.gd=pp[1];applyDocs(pp[1]);render();try{subscribe()}catch(e){aErr('suscripción',e)}phase2()})
   }).catch(function(e){aErr('arranque',e);ADDIN.step='No se pudo leer MyGeotab: '+((e&&e.message)||e);render()})
 };
 function phase2(){ADDIN.phase2=true;render();
@@ -657,7 +666,7 @@ function diagText(){var U=S.units,c=ADDIN.raw.counts||{};
    'Guardado en Firestore: '+(ADDIN.saveErr?'ERROR — '+ADDIN.saveErr:'ok')+' · tamaño '+ADDIN.lastPayloadLen+' bytes',
    'Fase de lecturas en curso: '+(ADDIN.phase2?'sí':'no'),'',
    'Avisos de lectura ('+ADDIN.errors.length+'):'].concat(ADDIN.errors.length?ADDIN.errors:['ninguno']);
-  L.push('','Muestra DeviceStatusInfo:',cut(ADDIN.raw.status,900),'','Muestra odómetro (StatusData):',cut(ADDIN.raw.odo,500),'','Muestra horas de motor (StatusData):',cut(ADDIN.raw.hs,500),'','Muestra Trip:',cut(ADDIN.raw.trip,900),'','Muestra DVIRLog:',cut(ADDIN.raw.dvir,1800));
+  L.push('','Muestra DeviceStatusInfo:',cut(ADDIN.raw.status,900),'','Muestra odómetro (StatusData):',cut(ADDIN.raw.odo,500),'','Muestra horas de motor (StatusData):',cut(ADDIN.raw.hs,500),'','Muestra Trip:',cut(ADDIN.raw.trip,900),'','Muestra DVIRLog:',cut(ADDIN.raw.dvir,1800),'','Muestra documento VTV (Gestión Documental):',cut(ADDIN.raw.docSample,600));
   return L.join('\n')}
 function diagModal(){modal(mhead('Diagnóstico de conexión')+'<p class="muted small" style="margin:0">Sirve para ver qué leyó el módulo de MyGeotab. Si algún dato no aparece, copiá este texto y pasalo para ajustarlo.</p><pre style="white-space:pre-wrap;word-break:break-word;max-height:55vh;overflow:auto;background:#f6f7f9;border-radius:8px;padding:14px;font-size:.74rem;margin:0">'+esc(diagText())+'</pre><div class="mf"><button class="btn" data-act="close">Cerrar</button><button class="btn primary" data-act="diagCopy">Copiar diagnóstico</button></div>',true)}
 
