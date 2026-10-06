@@ -1092,7 +1092,12 @@ const GD = (function () {
     const activos = (devices || []).filter(esActivo);
     const idsActivos = new Set(activos.map((d) => d.id));
     const normNombre = (t) => String(t || "").trim().toLowerCase().replace(/\s+/g, " ");
-    const vehiculoDe = (e) => e.tipo === "Vehiculo" && e.activo !== false;
+    // Los remolques (acoplados) se dan de alta en Geotab como activos de tipo
+    // "Remolque"; la API los devuelve igual que a los vehiculos (Device). Se
+    // reconocen por el nombre ("R123 - PATENTE", o "A12 - PATENTE") y se
+    // guardan como AnexoVehicular.
+    const esRemolque = (nombre) => /^\s*[RA]\d+\s*[-\u2013\u2014]/i.test(nombre || "");
+    const vehiculoDe = (e) => (e.tipo === "Vehiculo" || e.tipo === "AnexoVehicular") && e.activo !== false;
 
     let nuevosVehiculos = 0;
     activos.forEach((dev) => {
@@ -1102,11 +1107,16 @@ const GD = (function () {
         // Cambio de equipo: mismo nombre, pero la entidad apunta a un equipo que ya no está activo.
         _data.entidades.find((e) => vehiculoDe(e) && !idsActivos.has(e.geotabId) && normNombre(e.descripcion) === normNombre(dev.name));
       if (!ent) {
-        ent = { id: `veh_${dev.id}`, tipo: "Vehiculo", activo: true, funciones: [] };
+        ent = { id: `veh_${dev.id}`, tipo: esRemolque(dev.name) ? "AnexoVehicular" : "Vehiculo", activo: true, funciones: [] };
         _data.entidades.push(ent);
         nuevosVehiculos++;
       }
       ent.descripcion = gdNombreEntidad(dev.name);
+      // Corrige el tipo de entidades ya sincronizadas (remolques que antes
+      // quedaron como Vehiculo). El id no cambia, asi que sus documentos siguen.
+      if (ent.tipo === "Vehiculo" || ent.tipo === "AnexoVehicular") {
+        ent.tipo = esRemolque(dev.name) ? "AnexoVehicular" : "Vehiculo";
+      }
       ent.geotabId = dev.id;
     });
 
