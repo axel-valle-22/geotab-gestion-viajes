@@ -8,6 +8,7 @@ window.gdApp = (function () {
   let paramsActuales = {};
 
   function navegar(vista, params = {}) {
+    if (!vista) return;
     vistaActual = vista;
     paramsActuales = params;
     document.querySelectorAll(".gd-nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === vista));
@@ -34,6 +35,9 @@ window.gdApp = (function () {
 
   function render() {
     const container = document.getElementById("gd-content");
+    // Si la pantalla del módulo ya no está en pantalla (por ejemplo, el usuario
+    // abrió otro Add-In), no hay nada que dibujar.
+    if (!container) return;
     const vista = window.GD_VIEWS[vistaActual];
     if (!vista) {
       container.innerHTML = `<p class="gd-error">Vista no encontrada: ${vistaActual}</p>`;
@@ -43,7 +47,9 @@ window.gdApp = (function () {
   }
 
   function iniciar() {
-    document.querySelectorAll(".gd-nav-btn").forEach((btn) => {
+    // Solo los botones que tienen una vista asignada: el botón "Sincronizar con
+    // Geotab" comparte la clase gd-nav-btn pero no es una pantalla.
+    document.querySelectorAll(".gd-nav-btn[data-view]").forEach((btn) => {
       btn.addEventListener("click", () => navegar(btn.dataset.view));
     });
 
