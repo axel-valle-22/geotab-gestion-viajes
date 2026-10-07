@@ -1382,6 +1382,8 @@ try{
         } else if(dw){
           var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000;
           try{ var __srH = (v.sitiosReal || {})[atSite.id]; if(dw.confirmado !== false && dw.siteId === atSite.id && __srH && __srH.ingreso && !__srH.ingresoGps && elapsedMin >= 230){ gvRefinarIngresoGps(v, atSite, __srH.ingreso); } }catch(__eH){}
+          /* La demora se mide contra el ingreso real mostrado (sitiosReal), no solo contra la marca interna de la permanencia: si esa marca se reinicio (p.ej. al descartar un aviso), el estado debe coincidir con el "hace Xh" que ve el coordinador. */
+          try{ var __srI = (v.sitiosReal || {})[atSite.id]; if(dw.confirmado !== false && dw.siteId === atSite.id && __srI && __srI.ingreso && !__srI.egreso){ var __emI = (Date.now() - new Date(__srI.ingreso).getTime())/60000; if(__emI > elapsedMin && __emI < 1440){ elapsedMin = __emI; } } }catch(__eI){}
           /* Una parada "espera" (permanece cargado) no tiene minutos fijos de carga/descarga: en
              vez de comparar cuanto tiempo lleva adentro contra atSite.dur, se compara la hora actual
              contra el limite absoluto permaneceHasta que cargo el coordinador (por ejemplo "hasta
