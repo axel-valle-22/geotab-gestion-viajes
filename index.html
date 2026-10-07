@@ -125,7 +125,8 @@ var gTrackInterval = null;
 var gTrackRenderGen = 0;
 var gPanelView = 'calendario';
 var gCalMonth = new Date(); gCalMonth.setDate(1);
-var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLiveStatusCache = {};
+var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLivePos = {};
+var gLiveStatusCache = {};
 var gTrackSelectedId = null;
 
 function gvFechaHoraLocal(d){
@@ -750,6 +751,14 @@ var __mismoPredio = vv.origen && typeof vv.origen.lat === 'number' && (GV.distKm
 var __paradasOp = (vv.paradas || []).filter(function(p){ return p.tipo; }).length;
 var __paradasHechas = doneIds.filter(function(id){ return id.indexOf('parada') === 0; }).length;
 if(__mismoPredio && __paradasOp > 0 && __paradasHechas === 0) return;
+/* Ajuste 7/10 (casos T278 Torres y C258 Veschi): con paradas pendientes y ninguna completada, exigir que la
+   unidad se haya alejado de verdad del destino (mas de 1,5 km) antes de aceptar una llegada. Moverse dentro de
+   la base, o entre dos geocercas de la misma base, no es haber vuelto. */
+if(__paradasOp > 0 && __paradasHechas === 0){
+  var __lejos = false; var __umbM = Math.max(1500, 3 * __rDest);
+  for(var __q = 0; __q < hist.length; __q++){ var __hq = hist[__q]; if(__hq.latitude == null) continue; var __dq = GV.distKm({ lat: __hq.latitude, lng: __hq.longitude }, __sDest); if(__dq !== null && __dq * 1000 > __umbM){ __lejos = true; break; } }
+  if(!__lejos) return;
+}
 var hit = null;
 var __fueraDesde = null;
 var __adentroDesde = null;
@@ -1198,6 +1207,7 @@ function checkDwellAlerts(){
     gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
       if(!res || !res.length || res[0].latitude == null) return;
       var r = res[0];
+      try{ gLivePos[v.id] = { lat: r.latitude, lng: r.longitude, t: Date.now() }; }catch(__eLP){}
       /* IMPORTANTE: entre que se disparo esta consulta y que llego la respuesta, el listener en tiempo
          real de Firebase pudo haber reemplazado por completo los objetos de viajes (o el coordinador
          pudo haber editado el viaje / la ubicacion de un sitio). El "v" capturado en el closure queda
@@ -1302,7 +1312,8 @@ function checkDwellAlerts(){
       if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){
         var __destSiteLive = sites.filter(function(s){ return s.id === 'destino'; })[0];
         var __mismoOrigenDestinoLive = v.origen && typeof v.origen.lat === 'number' && __destSiteLive && (GV.distKm(v.origen, __destSiteLive) * 1000) <= GV.effectiveRadiusM(__destSiteLive, sites);
-        if(__mismoOrigenDestinoLive){
+        var __sinProgresoLive = ((v.paradas || []).filter(function(p){ return p.tipo; }).length > 0) && !__doneIds.some(function(id){ return id.indexOf('parada') === 0; });
+        if(__mismoOrigenDestinoLive || __sinProgresoLive){
           /* Origen y destino son el mismo predio (viaje de ida y vuelta): una sola lectura de GPS
              adentro de la geocerca no alcanza para saber si la unidad recien esta arrancando
              (todavia parada ahi, sin haberse ido nunca) o si realmente se fue y volvio. Eso solo se
@@ -1787,6 +1798,21 @@ var sr = estados || (v && v.sitiosReal) || {};
 salir. Se muestra "Por salir a: <primer sitio del recorrido despues del origen>". */
 /* Ajuste 1/10 (caso T289 - San Martin): un viaje DEMORADO porque todavia no salio del origen
 (demoradoOrigen y sin iniciadoEn) tampoco esta "en camino": sigue "por salir". */
+/* Ajuste 7/10 (caso T278 - Torres): viaje EN CURSO cuyo origen figura como cumplido pero la unidad todavia esta
+   fisicamente en el origen (menos de 400 m, lectura GPS de los ultimos 15 min) y sin ningun otro sitio
+   avanzado: todavia no salio, asi que corresponde 'Por salir a' y no 'En camino a'. */
+try{
+  if(v && v.estado === 'en_curso' && v.origen && typeof v.origen.lat === 'number' && gLivePos[v.id] && (Date.now() - gLivePos[v.id].t) < 900000){
+    var __avz = false;
+    Object.keys(sr).forEach(function(k){ if(k === 'origen' || k === 'destino') return; if(sr[k] && (sr[k].ingreso || sr[k].egreso)) __avz = true; });
+    var __dO = GV.distKm(v.origen, gLivePos[v.id]);
+    if(!__avz && __dO !== null && __dO * 1000 <= 400){
+      var __prx = null;
+      for(var __k = 0; __k < hitos.length; __k++){ if(hitos[__k].id !== 'origen'){ __prx = hitos[__k]; break; } }
+      if(__prx) return { kind:'porsalir', texto:'Por salir a: ' + (__prx.label || '') };
+    }
+  }
+}catch(__eP2){}
 if(v && (v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn))){
 var __prox = null;
 for(var k=0; k<hitos.length; k++){ if(hitos[k].id !== 'origen'){ __prox = hitos[k]; break; } }
@@ -2328,6 +2354,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
       gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
         if(res && res.length && res[0].latitude){
           var pos = { lat: res[0].latitude, lng: res[0].longitude };
+          try{ gLivePos[v.id] = { lat: pos.lat, lng: pos.lng, t: Date.now() }; }catch(__eLP2){}
           var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
           if(activosIds[v.id]){
             bounds.push(pos);
@@ -2481,6 +2508,7 @@ overlay.innerHTML =
 ((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.estado!=='cancelado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir" title="Genera un link publico, de solo lectura, para que un cliente vea el progreso y la posicion en vivo de esta unidad sin entrar a MyGeotab">' + (v.compartirToken ? 'Ver link para el cliente' : 'Compartir con cliente') + '</button>' : '') +
+(v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
 ((v.estado==='planificado'||v.estado==='demorado'||v.estado==='en_curso') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
@@ -2874,7 +2902,20 @@ function renderCamEventMarkers(){
 }
 
 function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
-document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = new Date().toISOString(); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
+document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detDescBtn = document.getElementById('gv-det-descartar-llegada');
+    if(__detDescBtn){ __detDescBtn.addEventListener('click', function(){
+      if(!confirm('¿Descartar el aviso de llegada al destino? Usalo si la unidad en realidad todavia no llego (el viaje sigue en curso).')) return;
+      var __srD = Object.assign({}, v.sitiosReal || {});
+      delete __srD.destino;
+      GV.Storage.updateViaje(v.id, { llegadaDestinoPendienteEn: null, sitiosReal: __srD }).then(function(){
+        return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente');
+      }).then(function(){
+        renderStats(); renderTrips(); renderTracking(); renderAlertas();
+        closeDetalle();
+        abrirDetalleViaje(v.id);
+      });
+    }); }
+    var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = new Date().toISOString(); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 var __detJornadaEditarBtn = document.getElementById('gv-det-jornada-editar');
 if(__detJornadaEditarBtn){
   __detJornadaEditarBtn.addEventListener('click', function(){
