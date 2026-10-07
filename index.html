@@ -1202,6 +1202,19 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
 }
 function checkDwellAlerts(){
   if(!gApi) return;
+/* Ajuste 7/10: viaje abierto, sin aviso de llegada pendiente, pero con ingreso al destino sin egreso guardado (queda de un aviso
+   falso ya descartado): se limpia, si no el ultimo tramo de la barra sigue violeta y suma medio tramo al avance. */
+try{
+  GV.Storage.getViajes().forEach(function(__vo){
+    if(!(__vo.estado === 'en_curso' || __vo.estado === 'demorado') || __vo.llegadaDestinoPendienteEn) return;
+    var __sdo = __vo.sitiosReal && __vo.sitiosReal.destino;
+    if(__sdo && __sdo.ingreso && !__sdo.egreso && (Date.now() - new Date(__sdo.ingreso).getTime()) > 120000){
+      var __upo = Object.assign({}, __vo.sitiosReal); __upo.destino = null;
+      GV.Storage.updateViaje(__vo.id, { sitiosReal: __upo });
+    }
+  });
+}catch(__eO){}
+
   var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId && !v.llegadaDestinoPendienteEn; });
   activos.forEach(function(v){
     gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
@@ -2906,7 +2919,7 @@ document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
     if(__detDescBtn){ __detDescBtn.addEventListener('click', function(){
       if(!confirm('¿Descartar el aviso de llegada al destino? Usalo si la unidad en realidad todavia no llego (el viaje sigue en curso).')) return;
       var __srD = Object.assign({}, v.sitiosReal || {});
-      delete __srD.destino;
+      __srD.destino = null; /* null y no delete: el guardado mergea sitio por sitio contra el servidor y una clave ausente no pisa nada */
       GV.Storage.updateViaje(v.id, { llegadaDestinoPendienteEn: null, sitiosReal: __srD }).then(function(){
         return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente');
       }).then(function(){
