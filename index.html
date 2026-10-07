@@ -1131,6 +1131,66 @@ function checkJornadas(){
   });
 }
 
+/* Busca en el historial de GPS la hora REAL en que la unidad entro a la geocerca del sitio, caminando hacia atras
+   desde ahora hasta encontrar un punto afuera. Antes solo se miraban las ultimas 4 hs, asi que si el camion llevaba
+   toda la noche adentro (bug real 7/10: Pacheco en Base TDP Plottier, llego 21:20 y el panel marco 04:41 = hora
+   de la consulta menos 4 hs), tomaba el inicio de la ventana como si fuera la llegada. Ahora, si dentro de la ventana
+   nunca aparece un punto afuera, se vuelve a consultar con una ventana mas larga (4, 16, 48 y 120 hs). Tambien
+   tolera saltos cortos de GPS (hasta MIN_DWELL_MIN minutos afuera) sin cortar la permanencia. */
+var __gvRefinando = {};
+function gvRefinarIngresoGps(vv, siteRef, refIso){
+  var key = vv.id + '|' + siteRef.id;
+  if(__gvRefinando[key]) return;
+  __gvRefinando[key] = true;
+  var spans = [4, 16, 48, 120];
+  var tolMs = (GV.MIN_DWELL_MIN || 3) * 60000;
+  function terminar(){ setTimeout(function(){ delete __gvRefinando[key]; }, 10 * 60000); }
+  function probar(k){
+    var from = new Date(Date.now() - spans[k] * 3600000);
+    var vAct = GV.Storage.getViaje(vv.id) || vv;
+    var sitesL = siteListFor(vAct);
+    var ref = sitesL.filter(function(s){ return s.id === siteRef.id; })[0] || siteRef;
+    fetchHistoryForViaje(vAct, from, new Date()).then(function(hist){
+      if(!hist || !hist.length){ delete __gvRefinando[key]; return; }
+      var realArrival = null, cortado = false;
+      for(var hi = hist.length - 1; hi >= 0; hi--){
+        if(GV.isWithinSiteEx({lat: hist[hi].latitude, lng: hist[hi].longitude}, ref, sitesL, 0)){ realArrival = hist[hi].dateTime; continue; }
+        var tOut = new Date(hist[hi].dateTime).getTime(), hj = -1;
+        for(var jj = hi - 1; jj >= 0 && (tOut - new Date(hist[jj].dateTime).getTime()) <= tolMs; jj--){
+          if(GV.isWithinSiteEx({lat: hist[jj].latitude, lng: hist[jj].longitude}, ref, sitesL, 0)){ hj = jj; break; }
+        }
+        if(hj >= 0){ hi = hj + 1; continue; }
+        cortado = true; break;
+      }
+      if(!cortado && k < spans.length - 1){ probar(k + 1); return; }
+      var act = GV.Storage.getViaje(vv.id) || vv;
+      var sr = Object.assign({}, act.sitiosReal || {});
+      sr[siteRef.id] = Object.assign({}, sr[siteRef.id] || {});
+      var upd = {};
+      if(realArrival && new Date(realArrival) < new Date(refIso)){
+        sr[siteRef.id].ingreso = realArrival;
+        if(act.dwellState && act.dwellState.siteId === siteRef.id && act.dwellState.arrivedAt === refIso){
+          upd.dwellState = Object.assign({}, act.dwellState, { arrivedAt: realArrival });
+        }
+        /* Si la parada tiene una espera acordada, los minutos se recalculan contra la llegada real. */
+        var so = (siteRef.id === 'origen') ? act.origen : (siteRef.id === 'destino') ? act.destino : (act.paradas || [])[parseInt(siteRef.id.replace('parada', ''), 10)];
+        if(so && so.esperaAcordada && so.esperaAcordada.hasta){
+          var nd = Math.ceil((new Date(so.esperaAcordada.hasta).getTime() - new Date(realArrival).getTime()) / 60000);
+          if(nd > 0){
+            if(siteRef.id === 'origen'){ upd.origen = Object.assign({}, act.origen, { duracionMin: nd }); }
+            else if(siteRef.id === 'destino'){ upd.destino = Object.assign({}, act.destino, { duracionMin: nd }); }
+            else { var ix = parseInt(siteRef.id.replace('parada', ''), 10); upd.paradas = (act.paradas || []).map(function(pp, i){ return i === ix ? Object.assign({}, pp, { duracionMin: nd }) : pp; }); }
+          }
+        }
+      }
+      sr[siteRef.id].ingresoGps = true;
+      upd.sitiosReal = sr;
+      GV.Storage.updateViaje(vv.id, upd);
+      terminar();
+    }).catch(function(){ delete __gvRefinando[key]; });
+  }
+  probar(0);
+}
 function checkDwellAlerts(){
   if(!gApi) return;
   var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId && !v.llegadaDestinoPendienteEn; });
@@ -1283,30 +1343,10 @@ function checkDwellAlerts(){
              ejemplo si nadie tenia la pantalla abierta en ese momento). Para no arrancar tarde la
              cuenta del tiempo de carga/descarga programado, se revisa el historial de GPS de las
              ultimas horas y se busca el momento real en que entro a la geocerca del sitio. */
-          (function(vv, siteRef, arrivalGuessIso){
-            var __histFrom = new Date(Date.now() - 4*60*60*1000);
-            fetchHistoryForViaje(vv, __histFrom, new Date()).then(function(hist){
-              if(!hist || !hist.length) return;
-              var realArrival = null;
-              for(var __hi = hist.length - 1; __hi >= 0; __hi--){
-                if(GV.isWithinSiteEx({lat:hist[__hi].latitude,lng:hist[__hi].longitude}, siteRef, sites, 0)){ realArrival = hist[__hi].dateTime; }
-                else { break; }
-              }
-              if(realArrival && new Date(realArrival) < new Date(arrivalGuessIso)){
-                var __vAct3 = GV.Storage.getViaje(vv.id) || vv;
-                var __sr3 = Object.assign({}, __vAct3.sitiosReal || {});
-                __sr3[siteRef.id] = Object.assign({}, __sr3[siteRef.id] || {});
-                __sr3[siteRef.id].ingreso = realArrival;
-                var __updatesRefine = { sitiosReal: __sr3 };
-                if(__vAct3.dwellState && __vAct3.dwellState.siteId === siteRef.id && __vAct3.dwellState.arrivedAt === arrivalGuessIso){
-                  __updatesRefine.dwellState = Object.assign({}, __vAct3.dwellState, { arrivedAt: realArrival });
-                }
-                GV.Storage.updateViaje(vv.id, __updatesRefine);
-              }
-            });
-          })(v, atSite, __arrivalGuess);
+          gvRefinarIngresoGps(v, atSite, __arrivalGuess);
         } else if(dw){
           var elapsedMin = (Date.now() - new Date(dw.arrivedAt).getTime())/60000;
+          try{ var __srH = (v.sitiosReal || {})[atSite.id]; if(dw.confirmado !== false && dw.siteId === atSite.id && __srH && __srH.ingreso && !__srH.ingresoGps && elapsedMin >= 230){ gvRefinarIngresoGps(v, atSite, __srH.ingreso); } }catch(__eH){}
           /* Una parada "espera" (permanece cargado) no tiene minutos fijos de carga/descarga: en
              vez de comparar cuanto tiempo lleva adentro contra atSite.dur, se compara la hora actual
              contra el limite absoluto permaneceHasta que cargo el coordinador (por ejemplo "hasta
