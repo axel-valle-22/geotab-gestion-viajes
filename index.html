@@ -37,7 +37,7 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar por N° de solicitud..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
 <div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
@@ -126,6 +126,7 @@ var gTrackInterval = null;
 var gTrackRenderGen = 0;
 var gPanelView = 'calendario';
 var gCalMonth = new Date(); gCalMonth.setDate(1);
+var gSolQuery = '';
 var gCalSelectedDay = null; var gStatFilter = null; var gVehicleState = {}; var gLivePos = {};
 var gLiveStatusCache = {};
 var gTrackSelectedId = null;
@@ -243,7 +244,16 @@ function renderTrips(){
   if(!list) return;
   var viajes = GV.Storage.getViajes();
 var filterInfo = document.getElementById('gv-list-filter-info');
-if(gCalSelectedDay){
+if(gSolQuery){
+  var __q = gSolQuery.toLowerCase();
+  viajes = viajes.filter(function(v){ var s = String(v.solicitud || '').toLowerCase(); if(!s) return false; var lab = String(gvSolicitudLabel(v)).toLowerCase(); return s.indexOf(__q) >= 0 || lab.indexOf(__q) >= 0; });
+  if(filterInfo){
+    filterInfo.style.display = 'block';
+    filterInfo.innerHTML = '<span class="gv-filter-chip">Solicitud "' + GV.escapeHtml(gSolQuery) + '" - ' + viajes.length + ' viaje(s) <button type="button" id="gv-clear-sol" style="border:none;background:none;color:#1e3a8a;cursor:pointer;font-weight:700">&times; Quitar busqueda</button></span>';
+    var __cs = document.getElementById('gv-clear-sol');
+    if(__cs) __cs.addEventListener('click', function(){ gSolQuery = ''; var __bi = document.getElementById('gv-buscar-sol'); if(__bi) __bi.value = ''; renderTrips(); });
+  }
+} else if(gCalSelectedDay){
 viajes = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === gCalSelectedDay; });
 if(filterInfo){
 filterInfo.style.display = 'block';
@@ -269,7 +279,7 @@ if(csf) csf.addEventListener('click', function(){ gStatFilter = null; updateStat
 } else if(filterInfo){ filterInfo.style.display = 'none'; filterInfo.innerHTML = ''; }
 
   if(!viajes.length){
-    list.innerHTML = (gCalSelectedDay || gStatFilter)
+    list.innerHTML = (gCalSelectedDay || gStatFilter || gSolQuery)
       ? '<p style="text-align:center;color:#6b7280;padding:40px">No hay viajes que coincidan con el filtro aplicado.</p>'
       : '<p style="text-align:center;color:#6b7280;padding:40px">No hay viajes registrados. Usa "Nuevo Viaje" para crear el primero.</p>';
     return;
@@ -1600,6 +1610,8 @@ updateStatCardHighlight();
 switchPanelView('lista');
 });
 });
+var __bSol = document.getElementById('gv-buscar-sol');
+if(__bSol){ __bSol.addEventListener('input', function(){ gSolQuery = __bSol.value.trim(); if(gSolQuery){ gCalSelectedDay = null; gStatFilter = null; try{ updateStatCardHighlight(); }catch(__eU){} switchPanelView('lista'); } else { renderTrips(); } }); }
 var calPrevBtn = document.getElementById('gv-cal-prev');
 if(calPrevBtn) calPrevBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()-1); renderCalendar(); });
 var calNextBtn = document.getElementById('gv-cal-next');
