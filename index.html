@@ -49,6 +49,7 @@
 <h2>Nuevo Viaje</h2>
 <div class="gv-form-row"><label>Conductor</label><select id="gv-conductor"><option value="">Seleccionar conductor...</option></select></div>
 <div class="gv-form-row"><label>Unidad / Vehiculo</label><select id="gv-vehiculo"><option value="">Seleccionar vehiculo...</option></select></div>
+<div class="gv-form-row"><label>N° de solicitud (Gooper) <span style="font-weight:400;color:#9ca3af">(opcional)</span></label><input type="text" id="gv-solicitud" maxlength="20" placeholder="Ej: 382507" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>
 <div class="gv-form-row gv-two-col">
 <div><label>Fecha</label><input type="date" id="gv-fecha"></div>
 <div><label>Hora de Salida</label><input type="time" id="gv-hora"></div>
@@ -290,7 +291,7 @@ if(csf) csf.addEventListener('click', function(){ gStatFilter = null; updateStat
     }
     actions += '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="detalle" data-id="' + v.id + '">Ver Detalle</button>';
     return '<div class="gv-trip-card">' +
-      '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</div>' +
+      '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '' + gvSolicitudChip(v) + '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div></div>' +
       '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(origenTxt, destinoTxt) + gvContinuidadChip(v) + '</div>' + ((v.estado==='en_curso'||v.estado==='demorado') ? ('<div class="gv-live-banner gv-live-' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].cls)||'unknown') + '">' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].label)||'Obteniendo estado en vivo...') + '</div>') : '') +
       (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
@@ -1576,7 +1577,7 @@ function resetForm(){
   renderStopsList();
   var cSel=document.getElementById('gv-conductor'), vSel=document.getElementById('gv-vehiculo');
   var oEl=document.getElementById('gv-obs');
-  if(cSel) cSel.value=''; if(vSel) vSel.value=''; if(oEl) oEl.value='';
+  if(cSel) cSel.value=''; if(vSel) vSel.value=''; if(oEl) oEl.value=''; var __solEl = document.getElementById('gv-solicitud'); if(__solEl) __solEl.value='';
   gvRefrescarFechaNuevoViaje(true);
 }
 
@@ -1651,6 +1652,7 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
       origen: gOrigen, destino: gDestino,
       paradas: gParadas.slice(),
       observaciones: obsEl ? obsEl.value : '',
+      solicitud: gvSolNorm((document.getElementById('gv-solicitud') || {}).value),
       estado: 'planificado',
       creadoEn: new Date().toISOString(),
       notificado: false,
@@ -1803,6 +1805,34 @@ El origen se trata como ya "ingresado" desde el arranque (el viaje literalmente 
 ahi): solo importa si ya lo dejo (egreso, se paso al hito siguiente) o si la unidad todavia
 esta cargando/descargando alli. Si hay mas de un sitio de carga/descarga la logica se repite
 para cada uno, en orden, hasta llegar al destino. */
+/* N° de solicitud de Gooper (7/10). El numero se guarda tal cual (382507); si varios viajes comparten solicitud el mismo dia,
+   se muestran como 382507, 382507-2, 382507-3 por orden de creacion. El sufijo es solo visual, no se guarda. */
+function gvSolNorm(s){ s = String(s || '').trim().replace(/\s+/g, ''); var m = /^(\d{4,})-\d{1,2}$/.exec(s); return m ? m[1] : s; }
+function gvSolicitudLabel(v){
+  try{
+    var s = v && v.solicitud ? String(v.solicitud).trim() : '';
+    if(!s) return '';
+    var dia = String(v.fechaSalida || '').substring(0, 10);
+    var n = 0;
+    GV.Storage.getViajes().forEach(function(o){
+      if(!o || o.id === v.id) return;
+      if(String(o.solicitud || '').trim() !== s) return;
+      if(String(o.fechaSalida || '').substring(0, 10) !== dia) return;
+      var a = String(o.creadoEn || ''), b = String(v.creadoEn || '');
+      if(a < b || (a === b && String(o.id) < String(v.id))) n++;
+    });
+    return n ? (s + '-' + (n + 1)) : s;
+  }catch(e){ return String((v && v.solicitud) || ''); }
+}
+function gvSolicitudChip(v){
+  var t = gvSolicitudLabel(v);
+  return t ? (' <span title="N° de solicitud de Gooper" style="background:#eef2ff;color:#3730a3;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">Sol. ' + GV.escapeHtml(t) + '</span>') : '';
+}
+function gvSolicitudSub(v){
+  var t = gvSolicitudLabel(v);
+  return t ? ('<div style="font-size:.7rem;color:#6b7280;font-weight:500">Sol. ' + GV.escapeHtml(t) + '</div>') : '';
+}
+
 function gvNavDetalleTexto(v, estados){
 var hitos = gvHitosNav(v);
 if(!hitos.length) return null;
@@ -2323,7 +2353,7 @@ var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino 
 var __hsChoferHtml = gvHsChoferHtml(v, hoyStr);
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
 '<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + (gvEsVehiculo24hs(v) ? ' <span class="gv-trk-24hs" title="Camion de 24 hs (grupo Camiones 24 hs en MyGeotab): la jornada del chofer se cuenta por turno">24hs</span>' : '') + '</div>' +
-'<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + '</div>' +
+'<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + gvSolicitudSub(v) + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
 '<div class="gv-trk-cell gv-trk-nav' + (__navInit ? (' gv-trk-nav-' + __navInit.kind) : '') + '" id="gv-track-nav-' + v.id + '" title="' + GV.escapeHtml(__navInitTxt) + '">' + GV.escapeHtml(__navInitTxt) + '</div>' +
 /* Antes esta etiqueta (gv-track-wait) era un texto largo con grid-column:1/-1: ocupaba TODA
@@ -2516,13 +2546,14 @@ overlay.className = 'gv-modal-overlay';
 overlay.innerHTML =
 '<div class="gv-modal" style="max-width:96vw;width:96vw;border-radius:18px">' +
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
-'<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</h3>' +
+'<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + gvSolicitudChip(v) + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
 ((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.estado!=='cancelado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir" title="Genera un link publico, de solo lectura, para que un cliente vea el progreso y la posicion en vivo de esta unidad sin entrar a MyGeotab">' + (v.compartirToken ? 'Ver link para el cliente' : 'Compartir con cliente') + '</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
+'<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-solicitud" title="N° de solicitud de Gooper de este viaje">' + (v.solicitud ? ('Solicitud ' + GV.escapeHtml(gvSolicitudLabel(v))) : 'N° solicitud') + '</button>' +
 ((v.estado==='planificado'||v.estado==='demorado'||v.estado==='en_curso') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
@@ -2928,6 +2959,19 @@ document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
         abrirDetalleViaje(v.id);
       });
     }); }
+    var __detSolBtn = document.getElementById('gv-det-solicitud');
+    if(__detSolBtn){ __detSolBtn.addEventListener('click', function(){
+      var ovS = document.createElement('div'); ovS.className = 'gv-modal-overlay'; ovS.style.zIndex = '100001';
+      ovS.innerHTML = '<div class="gv-modal" style="max-width:380px"><h3 style="margin:0 0 10px 0">N° de solicitud (Gooper)</h3><input type="text" id="gv-sol-input" maxlength="20" placeholder="Ej: 382507" value="' + GV.escapeHtml(v.solicitud || '') + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><div style="font-size:.76rem;color:#6b7280;margin-top:6px">Si dos viajes comparten la misma solicitud el mismo dia, se muestran como 382507, 382507-2, etc. Dejalo vacio para quitarla.</div><div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-sol-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-sol-save">Guardar</button></div></div>';
+      document.body.appendChild(ovS);
+      var clS = function(){ ovS.remove(); };
+      document.getElementById('gv-sol-cancel').addEventListener('click', clS);
+      ovS.addEventListener('click', function(e){ if(e.target === ovS) clS(); });
+      document.getElementById('gv-sol-save').addEventListener('click', function(){
+        var valS = gvSolNorm(document.getElementById('gv-sol-input').value);
+        GV.Storage.updateViaje(v.id, { solicitud: valS }).then(function(){ clS(); renderTrips(); renderTracking(); closeDetalle(); abrirDetalleViaje(v.id); });
+      });
+    }); }
     var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = new Date().toISOString(); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 var __detJornadaEditarBtn = document.getElementById('gv-det-jornada-editar');
 if(__detJornadaEditarBtn){
@@ -2990,6 +3034,7 @@ ov5.innerHTML =
 '<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px">Crea un viaje nuevo con el mismo origen, destino y paradas de este viaje. Elegi el camion, el chofer y el horario del viaje clonado.</div>' +
 '<div class="gv-form-row"><label>Conductor</label><select id="gv-clon-conductor" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + conductorOpts5 + '</select></div>' +
 '<div class="gv-form-row" style="margin-top:8px"><label>Unidad / Vehiculo</label><select id="gv-clon-vehiculo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + vehiculoOpts5 + '</select></div>' +
+'<div class="gv-form-row" style="margin-top:8px"><label>N° de solicitud <span style="font-weight:400;color:#9ca3af">(vacio = sin solicitud)</span></label><div style="display:flex;gap:8px"><input type="text" id="gv-clon-solicitud" maxlength="20" placeholder="Ej: 382507" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + (v.solicitud ? ('<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-clon-misma">Usar ' + GV.escapeHtml(String(v.solicitud)) + '</button>') : '') + '</div></div>' +
 '<div class="gv-form-row gv-two-col" style="margin-top:8px">' +
 '<div><label>Fecha de salida</label><input type="date" id="gv-clon-fecha" value="' + fechaVal5 + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
 '<div><label>Hora de salida</label><input type="time" id="gv-clon-hora" value="' + horaVal5 + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
@@ -3003,6 +3048,8 @@ ov5.innerHTML =
 document.body.appendChild(ov5);
 function closeClon(){ ov5.remove(); }
 document.getElementById('gv-clon-cancel').addEventListener('click', closeClon);
+var __clonMisma = document.getElementById('gv-clon-misma');
+if(__clonMisma){ __clonMisma.addEventListener('click', function(){ document.getElementById('gv-clon-solicitud').value = String(v.solicitud || ''); }); }
 ov5.addEventListener('click', function(e){ if(e.target === ov5) closeClon(); });
 document.getElementById('gv-clon-save').addEventListener('click', function(){
 var cSel5 = document.getElementById('gv-clon-conductor'), vSel5 = document.getElementById('gv-clon-vehiculo');
@@ -3027,6 +3074,7 @@ creadoEn: new Date().toISOString(),
 notificado: false,
 gerenciamiento: null,
 clonadoDe: v.id,
+solicitud: gvSolNorm((document.getElementById('gv-clon-solicitud') || {}).value),
 tramos: [{
 conductorId: cSel5.value, conductor: cSel5.options[cSel5.selectedIndex].text,
 vehiculoId: vSel5.value, vehiculo: vSel5.options[vSel5.selectedIndex].text,
