@@ -3575,6 +3575,8 @@ if(!p.tipo){ __realIn = __realIn || (__srP && __srP.ingreso); __realOut = __real
    volver a el si el valor guardado en sitiosReal resulta cronologicamente imposible. */
 var __realInAuto = __realIn, __realOutAuto = __realOut;
 if(__srP && __srP.ingreso){ __realIn = __srP.ingreso; }
+/* Si el ingreso guardado no fue verificado contra el GPS (ingresoGps) y el recorrido GPS indica que la unidad entro bastante antes, se muestra el del GPS. Corrige guardados viejos que tomaron el inicio de una ventana de 4 hs como llegada. */
+if(__srP && __srP.ingreso && !__srP.ingresoGps && __realInAuto && (+new Date(__realInAuto)) < (+new Date(__srP.ingreso)) - 5*60000){ __realIn = __realInAuto; }
 if(__srP && __srP.egreso){ __realOut = __srP.egreso; }
 /* Ajuste 6/10 (bug real: viaje de C258 - VESCHI TOMAS ALBERTO del 6/10/2026, la unidad salio de la
    base a las ~07:10 y el panel mostro "Egreso real 08:12"): al auto-iniciar un viaje por GPS, el
