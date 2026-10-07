@@ -46,6 +46,29 @@ window.gdApp = (function () {
     vista(container, paramsActuales);
   }
 
+  // Excepción de clasificación: la sincronización con Geotab marca como
+  // "AnexoVehicular" todo nombre tipo "A123 - PATENTE" o "R123 - PATENTE".
+  // Estas dos unidades son vehículos, así que después de cada sincronización
+  // (y al abrir el módulo) se vuelven a dejar como "Vehiculo". El id no
+  // cambia, así que sus documentos siguen igual.
+  const VEHICULOS_FORZADOS = [/^\s*A172\s*[-\u2013\u2014]/i, /^\s*A174\s*[-\u2013\u2014]/i];
+
+  async function corregirTiposForzados() {
+    try {
+      const entidades = await GD.listarEntidades();
+      let cambio = false;
+      entidades.forEach((e) => {
+        if (e.tipo === "AnexoVehicular" && VEHICULOS_FORZADOS.some((re) => re.test(e.descripcion || ""))) {
+          e.tipo = "Vehiculo";
+          cambio = true;
+        }
+      });
+      if (cambio) await GD.recalcularEstados(); // guarda y vuelve a dibujar
+    } catch (err) {
+      console.warn("No se pudo aplicar la excepción de tipo de vehículo:", err);
+    }
+  }
+
   function iniciar() {
     // Solo los botones que tienen una vista asignada: el botón "Sincronizar con
     // Geotab" comparte la clase gd-nav-btn pero no es una pantalla.
@@ -72,6 +95,7 @@ window.gdApp = (function () {
         btnSync.textContent = "Sincronizando…";
         try {
           const r = await GD.sincronizarConGeotab();
+          await corregirTiposForzados();
           btnSync.textContent = `✓ ${r.totalVehiculos ?? 0} vehículos, ${r.totalChoferes ?? 0} choferes`;
         } catch (err) {
           btnSync.textContent = "Error al sincronizar";
@@ -89,6 +113,7 @@ window.gdApp = (function () {
     GD.onChange(render);
 
     render();
+    corregirTiposForzados();
   }
 
   return { navegar, render, iniciar };
