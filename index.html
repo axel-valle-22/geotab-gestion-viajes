@@ -774,9 +774,13 @@ var hit = null;
 var __fueraDesde = null;
 var __adentroDesde = null;
 var __minSalidaMs = (GV.MIN_DWELL_MIN || 3) * 60000;
+/* Ajuste 7/10 (T278 Torres, 2da vuelta): una parada ya cumplida implica que la unidad ya habia salido de la base; los puntos de GPS ANTERIORES al primer ingreso a una parada (cuando todavia estaba en la base, antes de salir) no pueden ser la llegada al destino. */
+var __tPrimeraParada = null;
+doneIds.forEach(function(id){ if(id.indexOf('parada') !== 0) return; var e = (vv.sitiosReal || {})[id]; var t = e && (e.ingreso || e.egreso); if(t && (!__tPrimeraParada || new Date(t).getTime() < new Date(__tPrimeraParada).getTime())) __tPrimeraParada = t; });
 for(var i = 0; i < hist.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
+if(__tPrimeraParada && new Date(rec.dateTime).getTime() < new Date(__tPrimeraParada).getTime()) continue;
 var __fueraDestino = !GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, __sDest, sitesN, 0);
 if(__fueraDestino){
 __adentroDesde = null; /* si estaba entrando, era solo una pasada: se descarta */
