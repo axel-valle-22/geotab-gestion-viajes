@@ -3108,9 +3108,9 @@ if(v.vehiculoId){
 }
 
 var pts = [];
-if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, label: 'O', color: '#059669', dir: GV.siteNameFor(v.origen), tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null });
-(v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, poligono: p.poligono || null, label: String(i+1), color: '#d97706', dir: GV.siteNameFor(p), tipo: p.tipo, dur: p.duracionMin, permaneceHasta: p.permaneceHasta || null }); });
-if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, label: 'D', color: '#dc2626', dir: GV.siteNameFor(v.destino), tipo: v.destino.tipo || null, dur: v.destino.duracionMin || null });
+if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, label: 'O', color: '#059669', dir: GV.siteNameFor(v.origen), tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null, esperaAcordada: v.origen.esperaAcordada || null });
+(v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, poligono: p.poligono || null, label: String(i+1), color: '#d97706', dir: GV.siteNameFor(p), tipo: p.tipo, dur: p.duracionMin, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null }); });
+if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, label: 'D', color: '#dc2626', dir: GV.siteNameFor(v.destino), tipo: v.destino.tipo || null, dur: v.destino.duracionMin || null, esperaAcordada: v.destino.esperaAcordada || null });
 
 var bounds = [];
 var siteLabelEntries = [];
@@ -3143,10 +3143,12 @@ setTimeout(function(){ GV.fixMapSize(detMap); }, 100);
 
 var itinEl = document.getElementById('gv-det-itin');
 var cachedRoute = null, cachedFullHist = null;
+var __itinRows = [];
 
-function cloneSet(obj, tipo, dur){
+function cloneSet(obj, tipo, dur, ea){
 var o = JSON.parse(JSON.stringify(obj || {}));
 o.tipo = tipo; o.duracionMin = dur;
+if(arguments.length > 3){ if(ea){ o.esperaAcordada = ea; } else { delete o.esperaAcordada; } }
 return o;
 }
 
@@ -3168,6 +3170,14 @@ ov2.innerHTML =
 '</div>' +
 '<label style="display:block;font-size:.85rem;margin-bottom:6px">Minutos estimados en el sitio</label>' +
 '<input type="number" id="gv-es-min" min="0" value="' + (p.dur||0) + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:16px">' +
+' <div id="gv-es-acord-box" style="border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:10px;margin-bottom:14px">' +
+' <label style="display:flex;gap:6px;align-items:center;font-size:.85rem;font-weight:600;color:#92400e;cursor:pointer"><input type="checkbox" id="gv-es-acord"> Espera acordada con el cliente</label>' +
+' <div id="gv-es-acord-fields" style="display:none;margin-top:8px">' +
+' <label style="display:block;font-size:.8rem;margin-bottom:4px">La unidad se queda en este sitio hasta</label>' +
+' <input type="datetime-local" id="gv-es-acord-hasta" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px">' +
+' <input type="text" id="gv-es-acord-motivo" maxlength="120" placeholder="Motivo (ej: descarga manana en Solalique)" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' +
+' <div style="font-size:.75rem;color:#92400e;margin-top:6px">Dentro de ese horario la unidad no figura demorada ni genera alertas. Los horarios estimados de las paradas siguientes se calculan desde ahi.</div>' +
+' </div></div>' +
 '<div style="font-size:.75rem;color:#9ca3af;margin-bottom:14px">Esto ajusta automaticamente los horarios estimados del itinerario. No modifica los horarios reales ya registrados.</div>' +
 '<div class="gv-modal-actions">' +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-es-cancel">Cancelar</button>' +
@@ -3182,21 +3192,41 @@ bc.addEventListener('click', function(){ markTipo('carga'); });
 bd.addEventListener('click', function(){ markTipo('descarga'); });
 ba.addEventListener('click', function(){ markTipo('ambos'); });
 markTipo(tipoSel);
+var __ea = p.esperaAcordada || null;
+var __chk = document.getElementById('gv-es-acord'), __flds = document.getElementById('gv-es-acord-fields');
+function __pad(n){ return (n < 10 ? '0' : '') + n; }
+function __toLocalInput(d){ return d.getFullYear() + '-' + __pad(d.getMonth() + 1) + '-' + __pad(d.getDate()) + 'T' + __pad(d.getHours()) + ':' + __pad(d.getMinutes()); }
+if(__ea && __ea.hasta){ __chk.checked = true; __flds.style.display = 'block'; document.getElementById('gv-es-acord-hasta').value = __toLocalInput(new Date(__ea.hasta)); document.getElementById('gv-es-acord-motivo').value = __ea.motivo || ''; }
+__chk.addEventListener('change', function(){ __flds.style.display = __chk.checked ? 'block' : 'none'; var __hEl = document.getElementById('gv-es-acord-hasta'); if(__chk.checked && !__hEl.value){ var __d = new Date(); __d.setDate(__d.getDate() + 1); __d.setHours(8, 0, 0, 0); __hEl.value = __toLocalInput(__d); } });
 function closeEs(){ ov2.remove(); }
 document.getElementById('gv-es-cancel').addEventListener('click', closeEs);
 ov2.addEventListener('click', function(e){ if(e.target === ov2) closeEs(); });
 document.getElementById('gv-es-save').addEventListener('click', function(){
 var newMin = parseInt(document.getElementById('gv-es-min').value, 10) || 0;
+var __eaNew = null;
+if(document.getElementById('gv-es-acord').checked){
+  var __hv = document.getElementById('gv-es-acord-hasta').value;
+  var __hd = __hv ? new Date(__hv) : null;
+  if(!__hd || isNaN(__hd.getTime())){ alert('Indica hasta que dia y hora se queda la unidad en este sitio.'); return; }
+  var __row = (__itinRows || []).filter(function(r){ return r.id === siteId; })[0];
+  var __ref = __row ? (__row.realIn || __row.ingreso) : null;
+  if(__ref){
+    var __mins = Math.ceil((__hd.getTime() - new Date(__ref).getTime()) / 60000);
+    if(__mins <= 0){ alert('El horario tiene que ser posterior a la llegada de la unidad a este sitio.'); return; }
+    if(__mins > newMin) newMin = __mins;
+  }
+  __eaNew = { hasta: __hd.toISOString(), motivo: (document.getElementById('gv-es-acord-motivo').value || '').trim(), registradoEn: new Date().toISOString() };
+}
 var patch = {};
-if(siteId === 'origen'){ patch.origen = cloneSet(v.origen, tipoSel, newMin); }
-else if(siteId === 'destino'){ patch.destino = cloneSet(v.destino, tipoSel, newMin); }
+if(siteId === 'origen'){ patch.origen = cloneSet(v.origen, tipoSel, newMin, __eaNew); }
+else if(siteId === 'destino'){ patch.destino = cloneSet(v.destino, tipoSel, newMin, __eaNew); }
 else if(siteId.indexOf('parada') === 0){
 var idx = parseInt(siteId.replace('parada',''), 10);
-patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? cloneSet(pp, tipoSel, newMin) : pp; });
+patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? cloneSet(pp, tipoSel, newMin, __eaNew) : pp; });
 }
 GV.Storage.updateViaje(v.id, patch).then(function(){
 v = GV.Storage.getViaje(v.id);
-p.tipo = tipoSel; p.dur = newMin;
+p.tipo = tipoSel; p.dur = newMin; p.esperaAcordada = __eaNew;
 renderItinerario(cachedRoute, cachedFullHist);
 closeEs();
 try{ renderTrips(); }catch(e){}
@@ -3426,7 +3456,7 @@ if(quitarBtn) quitarBtn.addEventListener('click', function(){ closeAcc(); if(isP
 }
 
 function renderItinerario(route, fullHist){
-var rows = [];
+var rows = []; __itinRows = rows;
 var t = new Date(v.fechaSalida);
 var accDist = 0;
 var __histCursor = 0;
@@ -3452,6 +3482,7 @@ var egreso = ingreso;
 /* Una parada "espera" no tiene minutos fijos de permanencia: el egreso estimado es directamente
 el horario limite (permaneceHasta) que cargo el coordinador, no ingreso + minutos. */
 if(p.tipo === 'espera' && p.permaneceHasta){ egreso = new Date(p.permaneceHasta); }
+else if(p.tipo && p.esperaAcordada && p.esperaAcordada.hasta){ egreso = new Date(Math.max(ingreso.getTime(), new Date(p.esperaAcordada.hasta).getTime())); }
 else if(p.tipo && p.dur){ egreso = new Date(ingreso.getTime() + p.dur * 60000); }
 t = egreso;
 var __realIn = null, __realOut = null;
@@ -3527,7 +3558,7 @@ if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigen
    pisar ni confundirse con el ingreso/egreso real de arriba. */
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
-rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
+rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
 
 /* Control de coherencia cronologica de los horarios reales. Los valores guardados en sitiosReal se
@@ -3776,7 +3807,7 @@ return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : ''
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + __ingresoEstCell + '</td>' +
 '<td>' + __ingresoRealCell + '</td>' +
-'<td>' + (r.tipo === 'espera' ? ('<span title="Permanece cargado en el sitio hasta este horario">Hasta ' + (r.permaneceHasta ? GV.fmtDate(r.permaneceHasta) : '?') + '</span>') : (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar carga, descarga y minutos">' + (r.dwell||0) + ' min</span>') : '-')) + '</td>' +
+'<td>' + (r.tipo === 'espera' ? ('<span title="Permanece cargado en el sitio hasta este horario">Hasta ' + (r.permaneceHasta ? GV.fmtDate(r.permaneceHasta) : '?') + '</span>') : (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar carga, descarga y minutos">' + (r.dwell||0) + ' min</span>' + ((r.esperaAcordada && r.esperaAcordada.hasta) ? ('<div title="' + GV.escapeHtml(r.esperaAcordada.motivo || 'Espera acordada con el cliente') + '" style="font-size:.72rem;color:#92400e;font-weight:600;margin-top:2px">Espera acordada hasta ' + GV.fmtDate(r.esperaAcordada.hasta) + '</div>') : '')) : '-')) + '</td>' +
 '<td>' + __egresoEstCell + '</td>' +
 '<td>' + __egresoRealCell + '</td></tr>';
 }).join('') + '</tbody></table>' +
