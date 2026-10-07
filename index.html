@@ -2482,7 +2482,7 @@ overlay.innerHTML =
 ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.estado!=='cancelado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir" title="Genera un link publico, de solo lectura, para que un cliente vea el progreso y la posicion en vivo de esta unidad sin entrar a MyGeotab">' + (v.compartirToken ? 'Ver link para el cliente' : 'Compartir con cliente') + '</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
-((v.estado==='planificado'||v.estado==='demorado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
+((v.estado==='planificado'||v.estado==='demorado'||v.estado==='en_curso') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
@@ -2916,6 +2916,9 @@ if(__detJornadaGuardarBtn){
   });
 }
 
+/* Al clonar, una espera acordada (y los minutos inflados que genero) no se copia al viaje nuevo. */
+function __sinEspera(o){ if(!o || !o.esperaAcordada) return o; var c = Object.assign({}, o); delete c.esperaAcordada; c.duracionMin = 60; return c; }
+
 function abrirClonarViaje(){
 var ov5 = document.createElement('div');
 ov5.className = 'gv-modal-overlay';
@@ -2962,8 +2965,8 @@ id: GV.genId(),
 conductorId: cSel5.value, conductor: cSel5.options[cSel5.selectedIndex].text,
 vehiculoId: vSel5.value, vehiculo: vSel5.options[vSel5.selectedIndex].text,
 fechaSalida: nuevaFechaSalida5,
-origen: v.origen, destino: v.destino,
-paradas: (v.paradas || []).slice(),
+origen: __sinEspera(v.origen), destino: __sinEspera(v.destino),
+paradas: (v.paradas || []).map(__sinEspera),
 observaciones: v.observaciones || '',
 estado: 'planificado',
 creadoEn: new Date().toISOString(),
