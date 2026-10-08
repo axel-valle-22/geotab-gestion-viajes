@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Velocímetro TDP</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap">
+<style>
+/* Mismo lenguaje visual que Gestión de Viajes y Gestión Documental: Poppins, celeste Transporte Dolores Parra, tarjetas blancas sobre fondo gris claro. */
+:root{
+  --accent:#00A6E0; --accent-dark:#0078A1; --accent-light:#E3F5FB;
+  --page:#F4F5F8; --card:#FFFFFF; --border:#ECEDF2; --text:#20232B; --muted:#6B7280;
+  --ok:#1F9D55; --warn:#E8A100; --bad:#D92D20; --idle:#8A93A6; --state:var(--idle);
+  --shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);
+  --radius:14px; --radius-lg:18px;
+  --font:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+:root[data-theme="night"]{
+  --accent:#2BB8EA; --accent-dark:#2BB8EA; --accent-light:#12303B;
+  --page:#0E1316; --card:#172026; --border:#2A3A43; --text:#EEF3F5; --muted:#9AAAB2;
+  --ok:#36C97C; --warn:#F5B72E; --bad:#FF5A4D; --idle:#7F8E96;
+  --shadow:none; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--page);color:var(--text);font-family:var(--font);font-size:15px}
+body[data-s="ok"]{--state:var(--ok)}
+body[data-s="warn"]{--state:var(--warn)}
+body[data-s="bad"]{--state:var(--bad)}
+#app{max-width:640px;margin:0 auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px;min-height:100vh}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+#head{display:flex;align-items:center;gap:12px;padding:12px 16px}
+#head img{height:34px;width:auto;flex:0 0 auto}
+#head .ttl{min-width:0;flex:1}
+#head h1{margin:0;font-size:1.05rem;font-weight:700;line-height:1.2}
+#head p{margin:0;font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:.75rem;font-weight:600;padding:5px 12px;border-radius:999px;background:var(--accent-light);color:var(--accent-dark);white-space:nowrap}
+#dial{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:min(58vh,420px);padding:18px 12px;border:4px solid var(--state);transition:border-color .2s}
+body[data-s="bad"] #dial{animation:flash .7s steps(2,jump-none) infinite}
+@keyframes flash{0%{background:rgba(217,45,32,.16)}100%{background:var(--card)}}
+#zone{font-size:.95rem;font-weight:600;color:var(--text);text-align:center;margin-top:10px;max-width:90%}
+#head img{max-width:38%;object-fit:contain}
+#speed{font-weight:800;font-size:min(38vw,34vh,220px);line-height:1;color:var(--state);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.unit{font-weight:600;font-size:1.1rem;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+#limit{position:absolute;top:12px;right:12px;width:min(24vw,104px);aspect-ratio:1;border-radius:50%;background:#fff;border:min(1.6vw,7px) solid #D62F26;display:grid;place-items:center;color:#111;box-shadow:0 2px 8px rgba(17,24,39,.25)}
+#limitNum{font-weight:700;font-size:min(9.5vw,44px);line-height:1}
+#msg{font-weight:600;color:var(--state);text-align:center;min-height:1.5em;margin-top:8px}
+#unitline{font-size:.78rem;color:var(--muted);text-align:center;margin-top:6px;min-height:1.2em}
+#bar{display:flex;gap:10px}
+button{font:inherit;font-weight:600;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:13px 20px;min-height:50px;cursor:pointer;box-shadow:var(--shadow)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button.primary{flex:1;background:var(--accent);border-color:var(--accent);color:#fff;font-size:1.05rem}
+button.primary.on{background:var(--bad);border-color:var(--bad)}
+button.sm{min-height:38px;padding:7px 14px;font-size:.85rem}
+#sheet{position:fixed;inset:0;background:var(--page);overflow:auto;padding:14px 16px 28px;z-index:5}
+#sheet[hidden]{display:none}
+.wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.sec{padding:16px}
+.sec h2{margin:0 0 6px;font-size:1rem;font-weight:700}
+.sec p.note{margin:0 0 10px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0}
+label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);flex:1;min-width:110px}
+input[type=text],input[type=number],textarea{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
+input[type=range]{width:100%;accent-color:var(--accent)}
+textarea{min-height:80px;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
+.note{color:var(--muted);font-size:.8rem}
+.check{flex-direction:row;align-items:center;gap:10px;font-size:.95rem;color:var(--text)}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+ul{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:8px}
+li{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:.9rem}
+li small{color:var(--muted);display:block;font-size:.78rem}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+td{padding:6px 4px;border-bottom:1px solid var(--border);vertical-align:top}
+td:first-child{color:var(--muted);width:46%}
+@media (prefers-reduced-motion:reduce){body[data-s="bad"] #dial{animation:none;background:rgba(217,45,32,.12)}}
+</style>
+</head>
+<body data-s="idle">
+<main id="app">
+  <header id="head" class="card">
+    <img src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transporte Dolores Parra">
+    <div class="ttl"><h1>Velocímetro</h1><p id="who">Chofer sin identificar</p></div>
+    <span class="pill" id="gps">GPS apagado</span>
+  </header>
+
+  <section id="dial" class="card">
+    <div id="speed">--</div>
+    <div class="unit">km/h</div>
+    <div id="zone">Sin zona (límite general)</div>
+    <div id="limit" title="Límite de la zona"><span id="limitNum">80</span></div>
+    <div id="msg" role="status">Tocá Iniciar para activar el GPS y el sonido</div>
+    <div id="unitline"></div>
+  </section>
+
+  <nav id="bar">
+    <button id="btnStart" class="primary">Iniciar</button>
+    <button id="btnCfg">Configuración</button>
+  </nav>
+</main>
+
+<section id="sheet" hidden aria-label="Configuración">
+ <div class="wrap">
+  <button id="btnClose" class="primary">Volver al velocímetro</button>
+
+  <div class="card sec">
+    <h2>Diagnóstico de la prueba</h2>
+    <p class="note">Sirve para saber qué permite el entorno donde se abrió esta pantalla.</p>
+    <table><tbody id="diag"></tbody></table>
+  </div>
+
+  <div class="card sec">
+    <h2>Prueba sin moverse</h2>
+    <p class="note">Simula una velocidad para probar colores, alarma y vibración sin salir del lugar.</p>
+    <label class="check"><input type="checkbox" id="sim"> Usar velocidad simulada</label>
+    <label><span>Velocidad simulada: <b id="simVal">0</b> km/h</span><input type="range" id="simSpeed" min="0" max="140" value="0"></label>
+    <div class="row"><button id="btnBeep" class="sm">Probar sonido</button></div>
+  </div>
+
+  <div class="card sec">
+    <h2>Ajustes</h2>
+    <div class="row">
+      <label>Límite fuera de zonas (km/h)<input type="number" id="defLimit" min="10" max="130" inputmode="numeric"></label>
+      <label>Tolerancia (km/h)<input type="number" id="tol" min="0" max="15" inputmode="numeric"></label>
+    </div>
+    <label class="check"><input type="checkbox" id="voice"> Aviso hablado además del sonido</label>
+    <label class="check"><input type="checkbox" id="night"> Modo noche</label>
+  </div>
+
+  <div class="card sec">
+    <h2>Zonas con límite propio</h2>
+    <p class="note">Parate dentro de la zona (base, yacimiento), iniciá el GPS y tocá "Guardar zona aquí". Se usa la zona más chica que contenga tu posición.</p>
+    <div class="row">
+      <label>Nombre<input type="text" id="zName" placeholder="Base TDP Plottier"></label>
+      <label>Límite (km/h)<input type="number" id="zLimit" value="20" min="5" max="130" inputmode="numeric"></label>
+      <label>Radio (m)<input type="number" id="zRadius" value="300" min="30" max="5000" inputmode="numeric"></label>
+    </div>
+    <div class="row"><button id="btnZone" class="sm">Guardar zona aquí</button></div>
+    <ul id="zones"></ul>
+    <div class="row"><button id="btnExport" class="sm">Exportar zonas</button><button id="btnImport" class="sm">Importar zonas</button></div>
+    <textarea id="zJson" placeholder="Acá aparece el texto de las zonas. Para importar, pegá el texto y tocá Importar zonas." aria-label="Texto de zonas"></textarea>
+  </div>
+
+  <div class="card sec">
+    <h2>Excesos registrados</h2>
+    <ul id="log"></ul>
+    <div class="row"><button id="btnClear" class="sm">Borrar registro</button></div>
+    <p class="note">Los datos quedan guardados en este celular. Mantené esta pantalla abierta y el celular en un soporte mientras manejás.</p>
+  </div>
+ </div>
+</section>
+
+<script>
+(function(){
+'use strict';
+var LS = 'tdp_velocimetro_addin_v1';
+var DEF = { zones: [], log: [], defLimit: 80, tol: 3, voice: false, night: false };
+var st = load();
+function load(){ try{ var j = JSON.parse(localStorage.getItem(LS) || '{}'); return Object.assign({}, DEF, j); }catch(e){ return Object.assign({}, DEF); } }
+function save(){ try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} }
+function $(id){ return document.getElementById(id); }
+
+var running = false, watchId = null, ctx = null, wl = null, tickTimer = null, alertTimer = null, unitTimer = null;
+var cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
+var unit = { kmh: null, lat: null, lng: null, at: 0, got: 0 };
+var prev = null, ev = null, gpsErr = '';
+var env = { api: false, drive: false, device: null, user: null, geoPerm: '?' };
+var api = null;
+
+/* ---------- geometría ---------- */
+function dist(aLat, aLng, bLat, bLng){
+  var R = 6371000, rad = Math.PI / 180;
+  var dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  var x = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(aLat*rad)*Math.cos(bLat*rad)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+function zoneAt(lat, lng){
+  if(lat == null) return null;
+  var best = null;
+  st.zones.forEach(function(z){ if(dist(lat, lng, z.lat, z.lng) <= z.r && (!best || z.r < best.r)) best = z; });
+  return best;
+}
+
+/* ---------- GPS del celular ---------- */
+function onPos(p){
+  var c = p.coords, kmh = null; gpsErr = '';
+  if(typeof c.speed === 'number' && !isNaN(c.speed)){ kmh = c.speed * 3.6; }
+  else if(prev){
+    var dt = (p.timestamp - prev.t) / 1000;
+    if(dt > 0.5 && dt < 15) kmh = dist(prev.lat, prev.lng, c.latitude, c.longitude) / dt * 3.6;
+  }
+  if(kmh != null && kmh < 3) kmh = 0;
+  prev = { lat: c.latitude, lng: c.longitude, t: p.timestamp };
+  cur = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, kmh: kmh, t: Date.now() };
+  tick();
+}
+function onErr(e){
+  gpsErr = e && e.code === 1 ? 'denegado' : (e && e.code === 3 ? 'sin señal' : 'no disponible');
+  tick();
+}
+
+/* ---------- velocidad que informa Geotab para la unidad asignada ---------- */
+function pollUnit(){
+  if(!api || !env.device) return;
+  try{
+    api.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: env.device } } }, function(res){
+      if(res && res.length){
+        var r = res[0];
+        unit = { kmh: typeof r.speed === 'number' ? r.speed : null, lat: r.latitude, lng: r.longitude, at: r.dateTime ? new Date(r.dateTime).getTime() : 0, got: Date.now() };
+        tick();
+      }
+    }, function(){});
+  }catch(e){}
+}
+
+/* ---------- sonido, voz, pantalla ---------- */
+function initAudio(){
+  try{
+    if(!ctx){ var AC = window.AudioContext || window.webkitAudioContext; if(AC) ctx = new AC(); }
+    if(ctx && ctx.state === 'suspended') ctx.resume();
+  }catch(e){}
+}
+function beep(urgent){
+  if(ctx){
+    var t = ctx.currentTime;
+    [0, 0.2].forEach(function(o){
+      var os = ctx.createOscillator(), g = ctx.createGain();
+      os.type = 'square'; os.frequency.value = urgent ? 1040 : 820;
+      g.gain.setValueAtTime(0.0001, t + o);
+      g.gain.exponentialRampToValueAtTime(0.5, t + o + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + o + 0.15);
+      os.connect(g); g.connect(ctx.destination);
+      os.start(t + o); os.stop(t + o + 0.17);
+    });
+  }
+  try{ if(navigator.vibrate) navigator.vibrate([150, 80, 150]); }catch(e){}
+}
+function speak(txt){
+  try{
+    if(!st.voice || !window.speechSynthesis) return;
+    var u = new SpeechSynthesisUtterance(txt); u.lang = 'es-AR'; u.rate = 1.05;
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+function lockScreen(){
+  try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(function(l){ wl = l; }).catch(function(){ wl = null; }); }catch(e){}
+}
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible' && running) lockScreen(); });
+
+/* ---------- lógica principal ---------- */
+/* Devuelve { kmh, lat, lng, src } con la mejor fuente disponible: GPS del celular, y si no hay, la unidad Geotab. */
+function source(){
+  if($('sim').checked) return { kmh: parseInt($('simSpeed').value, 10) || 0, lat: cur.lat, lng: cur.lng, src: 'sim' };
+  if(!running) return { kmh: null, lat: null, lng: null, src: 'none' };
+  if(cur.t && Date.now() - cur.t <= 6000 && cur.kmh != null) return { kmh: cur.kmh, lat: cur.lat, lng: cur.lng, src: 'gps' };
+  if(unit.got && Date.now() - unit.got <= 45000 && unit.kmh != null) return { kmh: unit.kmh, lat: unit.lat, lng: unit.lng, src: 'unit' };
+  return { kmh: null, lat: cur.lat, lng: cur.lng, src: 'none' };
+}
+function ago(ms){ var s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 90 ? s + ' s' : Math.round(s / 60) + ' min'; }
+
+function tick(){
+  var sim = $('sim').checked;
+  var s = source(), spd = s.kmh;
+  var z = zoneAt(s.lat, s.lng);
+  var limit = z ? z.limit : st.defLimit;
+  var over = spd != null && spd > limit + st.tol;
+  var near = spd != null && !over && spd >= limit - 5;
+
+  $('speed').textContent = spd == null ? '--' : String(Math.round(spd));
+  $('limitNum').textContent = String(limit);
+  $('zone').textContent = z ? z.name : 'Sin zona (límite general)';
+
+  var state = 'idle', msg;
+  if(!running && !sim){ msg = 'Tocá Iniciar para activar el GPS y el sonido'; }
+  else if(spd == null){ msg = gpsErr === 'denegado' ? 'Este entorno no permite usar el GPS del celular' : 'Buscando señal…'; }
+  else if(over){ state = 'bad'; msg = 'Exceso de velocidad: +' + Math.round(spd - limit) + ' km/h sobre el límite'; }
+  else if(near){ state = 'warn'; msg = 'Cerca del límite'; }
+  else { state = 'ok'; msg = 'Velocidad dentro del límite'; }
+  if(s.src === 'unit' && spd != null) msg += ' (dato de la unidad)';
+  document.body.setAttribute('data-s', state);
+  $('msg').textContent = msg;
+
+  var g;
+  if(sim) g = 'Modo prueba';
+  else if(!running) g = 'GPS apagado';
+  else if(gpsErr === 'denegado') g = 'GPS bloqueado';
+  else if(cur.t && Date.now() - cur.t <= 6000) g = 'GPS ±' + Math.round(cur.acc || 0) + ' m';
+  else g = cur.t ? 'GPS sin señal' : 'GPS buscando…';
+  $('gps').textContent = g;
+
+  if(env.device){
+    $('unitline').textContent = unit.got
+      ? 'Unidad Geotab: ' + (unit.kmh == null ? '--' : Math.round(unit.kmh)) + ' km/h · dato de hace ' + ago(unit.at || unit.got)
+      : 'Unidad Geotab: esperando datos…';
+  } else { $('unitline').textContent = ''; }
+
+  handleAlert(over, spd, limit, z, s.src);
+}
+function handleAlert(over, spd, limit, z, src){
+  if(over){
+    if(!ev){
+      ev = { t: new Date().toISOString(), zone: z ? z.name : 'General', limit: limit, max: spd, start: Date.now(), sim: src === 'sim', src: src };
+      beep(spd - limit > 10); speak('Exceso de velocidad. Límite ' + limit);
+      alertTimer = setInterval(function(){ beep(ev && (ev.max - ev.limit) > 10); }, 1400);
+    }
+    if(spd > ev.max) ev.max = spd;
+  } else if(ev){
+    clearInterval(alertTimer); alertTimer = null;
+    if(Date.now() - ev.start >= 3000){
+      st.log.unshift({ t: ev.t, zone: ev.zone, limit: ev.limit, max: Math.round(ev.max), secs: Math.round((Date.now() - ev.start) / 1000), sim: ev.sim, src: ev.src, user: env.user || '' });
+      st.log = st.log.slice(0, 100); save(); renderLog();
+    }
+    ev = null;
+  }
+}
+
+function start(){
+  initAudio();
+  running = true; prev = null; gpsErr = ''; cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
+  if(navigator.geolocation){
+    try{ watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }); }catch(e){ gpsErr = 'no disponible'; }
+  } else { gpsErr = 'denegado'; }
+  lockScreen();
+  tickTimer = setInterval(tick, 1000);
+  pollUnit(); unitTimer = setInterval(pollUnit, 5000);
+  $('btnStart').textContent = 'Detener'; $('btnStart').classList.add('on');
+  tick();
+}
+function stop(){
+  running = false;
+  if(watchId != null){ try{ navigator.geolocation.clearWatch(watchId); }catch(e){} } watchId = null;
+  clearInterval(tickTimer); tickTimer = null; clearInterval(unitTimer); unitTimer = null;
+  clearInterval(alertTimer); alertTimer = null; ev = null;
+  try{ if(wl) wl.release(); }catch(e){} wl = null;
+  $('btnStart').textContent = 'Iniciar'; $('btnStart').classList.remove('on');
+  tick();
+}
+
+/* ---------- zonas, registro y diagnóstico ---------- */
+function renderZones(){
+  var ul = $('zones'); ul.textContent = '';
+  if(!st.zones.length){ var e = document.createElement('li'); e.textContent = 'Todavía no hay zonas guardadas.'; ul.appendChild(e); return; }
+  st.zones.forEach(function(z, i){
+    var li = document.createElement('li'), d = document.createElement('div'), b = document.createElement('button');
+    var n = document.createElement('b'); n.textContent = z.name + ' · ' + z.limit + ' km/h';
+    var s = document.createElement('small'); s.textContent = 'Radio ' + z.r + ' m';
+    d.appendChild(n); d.appendChild(s);
+    b.className = 'sm'; b.textContent = 'Borrar'; b.onclick = function(){ st.zones.splice(i, 1); save(); renderZones(); tick(); };
+    li.appendChild(d); li.appendChild(b); ul.appendChild(li);
+  });
+}
+function renderLog(){
+  var ul = $('log'); ul.textContent = '';
+  if(!st.log.length){ var e = document.createElement('li'); e.textContent = 'Sin excesos registrados.'; ul.appendChild(e); return; }
+  st.log.slice(0, 30).forEach(function(r){
+    var li = document.createElement('li'), d = document.createElement('div');
+    var n = document.createElement('b'); n.textContent = r.max + ' km/h (límite ' + r.limit + ')' + (r.sim ? ' · prueba' : (r.src === 'unit' ? ' · dato de la unidad' : ''));
+    var s = document.createElement('small'); s.textContent = new Date(r.t).toLocaleString('es-AR') + ' · ' + r.zone + ' · ' + r.secs + ' s' + (r.user ? ' · ' + r.user : '');
+    d.appendChild(n); d.appendChild(s); li.appendChild(d); ul.appendChild(li);
+  });
+}
+function renderDiag(){
+  var rows = [
+    ['Dónde se abrió', env.api ? (env.drive ? 'Add-In dentro de Geotab Drive' : 'Add-In dentro de MyGeotab') : 'Navegador común'],
+    ['Chofer / usuario', env.user || 'sin datos'],
+    ['Unidad asignada', env.device || 'sin datos (Drive no la informó)'],
+    ['Permiso de ubicación', env.geoPerm],
+    ['GPS del celular', cur.t ? ('último dato hace ' + ago(cur.t) + ', precisión ±' + Math.round(cur.acc || 0) + ' m') : (gpsErr ? gpsErr : 'sin datos todavía')],
+    ['Velocidad por GPS', cur.kmh == null ? 'sin datos' : Math.round(cur.kmh) + ' km/h'],
+    ['Velocidad Geotab (unidad)', unit.got ? (unit.kmh == null ? '--' : Math.round(unit.kmh) + ' km/h') + ', dato de hace ' + ago(unit.at || unit.got) : 'sin datos'],
+    ['Sonido', ctx ? ('activado (' + ctx.state + ')') : 'sin activar (tocá "Probar sonido")'],
+    ['Vibración', navigator.vibrate ? 'disponible' : 'no disponible'],
+    ['Pantalla siempre encendida', navigator.wakeLock ? (wl ? 'activa' : 'disponible, sin activar') : 'no disponible'],
+    ['Aviso hablado', window.speechSynthesis ? 'disponible' : 'no disponible']
+  ];
+  var tb = $('diag'); tb.textContent = '';
+  rows.forEach(function(r){
+    var tr = document.createElement('tr'), a = document.createElement('td'), b = document.createElement('td');
+    a.textContent = r[0]; b.textContent = r[1]; tr.appendChild(a); tr.appendChild(b); tb.appendChild(tr);
+  });
+}
+function applyTheme(){ if(st.night) document.documentElement.setAttribute('data-theme', 'night'); else document.documentElement.removeAttribute('data-theme'); }
+
+/* ---------- interfaz ---------- */
+$('btnStart').onclick = function(){ if(running) stop(); else start(); };
+$('btnCfg').onclick = function(){ renderDiag(); $('sheet').hidden = false; };
+$('btnClose').onclick = function(){ $('sheet').hidden = true; tick(); };
+$('btnBeep').onclick = function(){ initAudio(); beep(false); speak('Prueba de aviso'); renderDiag(); };
+$('sim').onchange = function(){ if($('sim').checked) initAudio(); tick(); };
+$('simSpeed').oninput = function(){ $('simVal').textContent = $('simSpeed').value; tick(); };
+$('defLimit').onchange = function(){ st.defLimit = Math.max(10, Math.min(130, parseInt($('defLimit').value, 10) || 80)); save(); tick(); };
+$('tol').onchange = function(){ st.tol = Math.max(0, Math.min(15, parseInt($('tol').value, 10) || 0)); save(); tick(); };
+$('voice').onchange = function(){ st.voice = $('voice').checked; save(); };
+$('night').onchange = function(){ st.night = $('night').checked; save(); applyTheme(); };
+$('btnZone').onclick = function(){
+  var lat = cur.lat != null ? cur.lat : unit.lat, lng = cur.lat != null ? cur.lng : unit.lng;
+  if(lat == null){ $('zName').value = ''; $('zName').placeholder = 'Primero iniciá el GPS y esperá la señal'; return; }
+  var name = $('zName').value.trim() || 'Zona ' + (st.zones.length + 1);
+  st.zones.push({ name: name, lat: lat, lng: lng, r: parseInt($('zRadius').value, 10) || 300, limit: parseInt($('zLimit').value, 10) || 20 });
+  save(); renderZones(); $('zName').value = ''; tick();
+};
+$('btnExport').onclick = function(){ $('zJson').value = JSON.stringify(st.zones); };
+$('btnImport').onclick = function(){
+  try{
+    var a = JSON.parse($('zJson').value);
+    if(!Array.isArray(a)) throw new Error('x');
+    st.zones = a.filter(function(z){ return z && typeof z.lat === 'number' && typeof z.lng === 'number' && z.r > 0 && z.limit > 0; }).map(function(z){ return { name: String(z.name || 'Zona'), lat: z.lat, lng: z.lng, r: z.r, limit: z.limit }; });
+    save(); renderZones(); tick();
+  }catch(e){ $('zJson').value = 'El texto no es válido.'; }
+};
+$('btnClear').onclick = function(){ st.log = []; save(); renderLog(); };
+
+/* ---------- arranque como Add-In de Geotab ---------- */
+var booted = false;
+function boot(a, state){
+  if(booted) return; booted = true;
+  api = a || null; env.api = !!a;
+  try{
+    var dev = state && state.device;
+    if(dev){ env.device = typeof dev === 'string' ? dev : (dev.id || null); }
+    env.drive = !!(state && (state.driveApp || state.isDrive || state.device));
+  }catch(e){}
+  if(a && typeof a.getSession === 'function'){
+    try{ a.getSession(function(s){ env.user = s && s.userName ? s.userName : null; $('who').textContent = env.user ? 'Chofer: ' + env.user : 'Chofer sin identificar'; }); }catch(e){}
+  }
+  try{
+    if(navigator.permissions && navigator.permissions.query){
+      navigator.permissions.query({ name: 'geolocation' }).then(function(p){ env.geoPerm = p.state; p.onchange = function(){ env.geoPerm = p.state; }; }).catch(function(){});
+    }
+  }catch(e){}
+  tick();
+}
+window.initialize = function(a, state, cb){ boot(a, state); if(typeof cb === 'function') cb(); };
+if(typeof geotab !== 'undefined' && geotab.addin){
+  geotab.addin.velocimetroTDP = function(){
+    return {
+      initialize: function(a, state, cb){ boot(a, state); if(typeof cb === 'function') cb(); },
+      focus: function(a, state){ if(!booted) boot(a, state); },
+      blur: function(){}
+    };
+  };
+}
+
+st.night = !!st.night; applyTheme();
+$('defLimit').value = st.defLimit; $('tol').value = st.tol; $('voice').checked = !!st.voice; $('night').checked = !!st.night;
+renderZones(); renderLog(); tick();
+setTimeout(function(){ if(!booted) boot(null, null); }, 1500);
+})();
+</script>
+</body>
+</html>
