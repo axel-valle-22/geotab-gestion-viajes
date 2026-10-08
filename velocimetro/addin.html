@@ -132,6 +132,7 @@ function save(){ try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} 
 var running = false, watchId = null, ctx = null, wl = null, tickTimer = null, alertTimer = null, unitTimer = null;
 var cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
 var unit = { kmh: null, lat: null, lng: null, at: 0, got: 0 };
+var unitOk = 0, unitFail = 0, unitErr = '', rawDev = '';
 var prev = null, ev = null, gpsErr = '';
 var env = { api: false, drive: false, device: null, user: null, geoPerm: '?' };
 var api = null;
@@ -172,14 +173,20 @@ function onErr(e){
 function pollUnit(){
   if(!api || !env.device) return;
   try{
-    api.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: env.device } } }, function(res){
+    var asked = env.device;
+    api.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: asked } } }, function(res){
+      if(asked !== env.device) return;
       if(res && res.length){
-        var r = res[0];
+        var r = res[0]; unitOk++; unitErr = '';
         unit = { kmh: typeof r.speed === 'number' ? r.speed : null, lat: r.latitude, lng: r.longitude, at: r.dateTime ? new Date(r.dateTime).getTime() : 0, got: Date.now() };
-        tick();
-      }
-    }, function(){});
-  }catch(e){}
+      } else { unitFail++; unitErr = 'Geotab no devolvió datos para la unidad ' + asked; }
+      tick();
+    }, function(e){
+      unitFail++;
+      try{ unitErr = typeof e === 'string' ? e : (e && (e.message || e.name)) || JSON.stringify(e); }catch(x){ unitErr = 'error desconocido'; }
+      tick();
+    });
+  }catch(e){ unitFail++; unitErr = 'excepción: ' + (e && e.message ? e.message : e); }
 }
 
 /* ---------- sonido, voz, pantalla ---------- */
@@ -354,6 +361,9 @@ function renderDiag(){
     ['Permiso de ubicación', env.geoPerm],
     ['GPS del celular', cur.t ? ('último dato hace ' + ago(cur.t) + ', precisión ±' + Math.round(cur.acc || 0) + ' m') : (gpsErr ? gpsErr : 'sin datos todavía')],
     ['Velocidad por GPS', cur.kmh == null ? 'sin datos' : Math.round(cur.kmh) + ' km/h'],
+    ['Dato de Drive (unidad)', rawDev || 'vacío'],
+    ['Pedidos a Geotab', unitOk + ' bien, ' + unitFail + ' con error'],
+    ['Último error', unitErr || 'ninguno'],
     ['Fuente elegida', useUnit() ? 'GPS de la unidad Geotab' : (st.src === 'phone' ? 'GPS del celular' : 'GPS del celular (no hay unidad asignada)')],
     ['Velocidad Geotab (unidad)', unit.got ? (unit.kmh == null ? '--' : Math.round(unit.kmh) + ' km/h') + ', dato de hace ' + ago(unit.at || unit.got) : 'sin datos'],
     ['Sonido', ctx ? ('activado (' + ctx.state + ')') : 'sin activar (tocá "Probar sonido")'],
@@ -410,14 +420,23 @@ function init(){
 }
 
 /* ---------- datos del entorno Geotab ---------- */
-function boot(a, state){
-  if(booted) return; booted = true;
-  api = a || null; env.api = !!a;
+function syncDevice(state){
   try{
-    var dev = state && state.device;
-    if(dev){ env.device = typeof dev === 'string' ? dev : (dev.id || null); }
-    env.drive = !!(state && (state.driveApp || state.isDrive || state.device));
+    var dev = state && state.device, id = null;
+    if(dev){ id = typeof dev === 'string' ? dev : (dev.id || null); try{ rawDev = typeof dev === 'string' ? dev : JSON.stringify(dev).slice(0, 80); }catch(x){} }
+    if(id && id !== env.device){
+      env.device = id; unit = { kmh: null, lat: null, lng: null, at: 0, got: 0 }; unitErr = '';
+      if(running){ pollUnit(); }
+    }
+    env.drive = env.drive || !!(state && (state.driveApp || state.isDrive || state.device));
   }catch(e){}
+}
+function boot(a, state){
+  if(a){ api = a; env.api = true; }
+  syncDevice(state);
+  if(booted){ tick(); if(env.device && st.src !== 'phone' && !running){ start(); } return; }
+  booted = true;
+  api = a || null; env.api = !!a;
   if(a && typeof a.getSession === 'function'){
     try{ a.getSession(function(s){ env.user = s && s.userName ? s.userName : null; var w = $('who'); if(w) w.textContent = env.user ? 'Chofer: ' + env.user : 'Chofer sin identificar'; }); }catch(e){}
   }
