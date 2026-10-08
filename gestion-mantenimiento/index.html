@@ -397,12 +397,14 @@ function tallerById(id){for(var i=0;i<S.talleres.length;i++)if(S.talleres[i].id=
 function otById(id){for(var i=0;i<S.ots.length;i++)if(S.ots[i].id===id)return S.ots[i];return null}
 function avByNro(n){for(var i=0;i<S.averias.length;i++)if(S.averias[i].nro===n)return S.averias[i];return null}
 function svcLabel(p,sv){return 'Cada '+n0(sv.cada)+(p.tipo==='Km'?' km':p.tipo==='Horas'?' hs':' meses')}
+/* preaviso: el de la unidad (st.pre) gana al del plan (sv.pre) y este al general de Configuración */
+function thrOf(st,sv,def){return st&&st.pre!=null&&!isNaN(st.pre)?+st.pre:sv&&sv.pre!=null&&!isNaN(sv.pre)?+sv.pre:def}
 function svcRows(u){
   var rows=[],T=iso(today());
   (u.planes||[]).forEach(function(pid){var p=planById(pid);if(!p)return;p.servicios.forEach(function(sv,k){
     var st=S.svc[u.id+'|'+pid+'|'+k];if(!st)return;var row={u:u,p:p,k:k,sv:sv,key:u.id+'|'+pid+'|'+k,st:st,unidad:p.tipo==='Km'?'km':p.tipo==='Horas'?'hs':'días'};
-    if(p.tipo==='Meses'){row.next=addMonths(st.f,sv.cada);row.rem=diffDays(row.next,T);row.thr=S.cfg.preDias;row.last=st.f;row.nextTxt=fd(row.next)}
-    else{var cur=p.tipo==='Km'?u.odo:u.horas;if(cur==null)return;row.cur=cur;row.last=st.v;row.next=st.v+sv.cada;row.rem=row.next-cur;row.thr=p.tipo==='Km'?S.cfg.preKm:S.cfg.preHs;row.nextTxt=n0(row.next)+' '+row.unidad}
+    if(p.tipo==='Meses'){row.next=addMonths(st.f,sv.cada);row.rem=diffDays(row.next,T);row.thr=thrOf(st,sv,S.cfg.preDias);row.last=st.f;row.nextTxt=fd(row.next)}
+    else{var cur=p.tipo==='Km'?u.odo:u.horas;if(cur==null)return;row.cur=cur;row.last=st.v;row.next=st.v+sv.cada;row.rem=row.next-cur;row.thr=thrOf(st,sv,p.tipo==='Km'?S.cfg.preKm:S.cfg.preHs);row.nextTxt=n0(row.next)+' '+row.unidad}
     row.estado=row.rem<=0?'Vencido':row.rem<=row.thr?'Preaviso':'Al día';
     row.manualAge=(p.tipo==='Km'&&u.odoFuente==='Manual')?diffDays(T,u.odoFecha):(p.tipo==='Horas'&&u.horasFuente==='Manual')?diffDays(T,u.horasFecha):null;
     rows.push(row)})});
@@ -843,7 +845,7 @@ function dashInd(){
   var od={Bueno:0,Regular:0,'Crítico':0,'Sin dato':0};U.forEach(function(u){if(u.motor){od[dataEstado(u,'odo')]++}});
   var hs={Bueno:0,Regular:0,'Crítico':0,'Sin dato':0};U.forEach(function(u){if(u.motor){hs[dataEstado(u,'hs')]++}});
   var m30=addDays(iso(TD),-30),avn=function(e){return S.averias.filter(function(a){return a.estado===e&&(e!=='Resuelta'||(a.fCierre||a.fecha)>=m30)}).length};
-  var proximos=rows.filter(function(r){return r.estado!=='Al día'}).sort(function(a,b){var ta=a.rem/a.thr,tb=b.rem/b.thr;return ORD[a.estado]-ORD[b.estado]||ta-tb}).slice(0,7);
+  var proximos=rows.filter(function(r){return r.estado!=='Al día'}).sort(function(a,b){var ta=a.rem/(a.thr||1),tb=b.rem/(b.thr||1);return ORD[a.estado]-ORD[b.estado]||ta-tb}).slice(0,7);
   var prox=proximos.length?'<div class="tablewrap"><table class="tbl" style="min-width:420px"><tbody>'+proximos.map(function(r){var o=openOtForSvc(r.key);return '<tr><td>'+ent(r.u)+'</td><td>'+esc(r.p.nombre)+'<div class="muted small">'+esc(svcLabel(r.p,r.sv))+'</div></td><td>'+pill(r.estado)+'<div class="muted small">'+(r.rem<=0?'pasado en ':'faltan ')+n0(Math.abs(r.rem))+' '+r.unidad+'</div></td><td class="r">'+(o?'<button class="btn sm" data-act="otOpen" data-id="'+o.id+'">OT #'+o.nro+'</button>':'<button class="btn sm primary" data-act="otFromSvc" data-key="'+r.key+'">Crear OT</button>')+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">No hay services próximos a vencer.</div>';
   return '<div class="grid g4">'+kpi('Services vencidos',venc.length,'en '+new Set(venc.map(function(r){return r.u.id})).size+' unidades',venc.length?'bad':'ok','go:prev')+kpi('Averías pendientes',avP.length,S.averias.filter(function(a){return a.estado==='Pendiente'&&a.importancia==='CRITICA'}).length+' críticas',avP.length?'warn':'ok','go:corr')+kpi('Órdenes abiertas',otA.length,otA.filter(function(o){return o.estado==='En proceso'}).length+' en proceso','','go:ot')+kpi('Cumplimiento de checklist',cumpl+'%','vigentes o por vencer','','go:flota')+'</div>'+
   '<div class="grid g3">'+donutCard('Estado de la flota',estados,U.length,'unidades')+donutCard('Tipo de flota',tl,U.length,'unidades')+donutCard('Preventivo por unidad',prev,prev[0].v+prev[1].v+prev[2].v,'con plan')+donutCard('Checklist',chk,cumpl+'%','vigente')+donutCard('VTV (Gestión Documental)',vtvD,vc.Vigente+vc.Preaviso+vc.Vencido,'con VTV')+
@@ -897,7 +899,7 @@ function prevCal(){
   var otsU=U?S.ots.filter(function(o){return o.unitId===U}):S.ots,uns=U?S.units.filter(function(u){return u.id===U}):S.units;
   var sinPlan=uns.filter(function(u){return u.motor&&!u.planes.length}).length,otA=otsU.filter(function(o){return o.estado!=='Cerrada'}).length;
   var f=UI.prevFilter,kp='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">'+kpi('Vencidos',c.Vencido,'services','bad','prevF:Vencido',f==='Vencido')+kpi('En preaviso',c.Preaviso,'services','warn','prevF:Preaviso',f==='Preaviso')+kpi('Al día',c['Al día'],'services','ok','prevF:Al día',f==='Al día')+kpi('Sin plan',sinPlan,U?'esta unidad':'unidades con motor','','')+kpi('Órdenes abiertas',otA,'preventivas y correctivas','','go:ot')+'</div>';
-  var uf='<section class="card"><div class="bar"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Unidad <select id="f-pu" data-ui="prevUnit" style="min-width:min(300px,100%)">'+selectOpts(S.units.map(function(u){return [u.id,u.nombre+' · '+u.patente+' · '+u.marca+' '+u.modelo]}),U,'Todas las unidades')+'</select></label>'+(U?'<button class="btn sm" data-act="prevU">Quitar filtro</button>':'')+'<span class="sp"></span><button class="btn primary" data-act="otNew" data-fi="'+UI.calSel+'" data-u="'+U+'">Nueva orden</button></div></section>';
+  var uf='<section class="card"><div class="bar"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Unidad <select id="f-pu" data-ui="prevUnit" style="min-width:min(300px,100%)">'+selectOpts(S.units.map(function(u){return [u.id,u.nombre+' · '+u.patente+' · '+u.marca+' '+u.modelo]}),U,'Todas las unidades')+'</select></label>'+(U?'<button class="btn sm" data-act="prevU">Quitar filtro</button><button class="btn sm primary" data-act="svcEdit" data-u="'+U+'">Último service y preaviso</button>':'<span class="muted small">Elegí una unidad para cargar su último service y preaviso</span>')+'<span class="sp"></span><button class="btn primary" data-act="otNew" data-fi="'+UI.calSel+'" data-u="'+U+'">Nueva orden</button></div></section>';
   var y=UI.calY,m=UI.calM,first=new Date(y,m,1),startOff=(first.getDay()+6)%7,cells='';
   var byDay={};otsU.forEach(function(o){(byDay[o.fInicio]=byDay[o.fInicio]||{o:0,v:0}).o++});
   rows.forEach(function(r){if(r.p.tipo==='Meses'&&r.estado!=='Al día'||(r.p.tipo==='Meses'&&r.rem<=60)){(byDay[r.next]=byDay[r.next]||{o:0,v:0}).v++}});
@@ -909,8 +911,8 @@ function prevCal(){
   var side='<div class="bar" style="margin-bottom:8px"><h3 style="margin:0">'+fd(UI.calSel)+'</h3><span class="sp"></span><span class="muted small">'+sel.length+(sel.length===1?' orden':' órdenes')+'</span></div><button class="btn sm primary" data-act="otNew" data-fi="'+UI.calSel+'" data-u="'+U+'">Nueva orden para este día</button><div style="max-height:380px;overflow:auto;margin-top:8px">'+
     (sel.length||vcs.length?sel.map(function(o){var u=unitById(o.unitId),cer=o.estado==='Cerrada';return '<div class="tarea calrow"><div class="ci"><b>#'+o.nro+' · '+esc(o.titulo)+'</b><div class="muted small">'+esc(u.nombre)+' · '+esc(u.patente)+' · '+esc(o.tipo)+'</div></div>'+pill(o.estado)+(cer?'':'<label class="mv">Mover a <input type="date" value="'+o.fInicio+'" data-act-change="otMove" data-id="'+o.id+'" aria-label="Reprogramar orden '+o.nro+'"></label>')+'<button class="btn xs" data-act="otPrint" data-id="'+o.id+'">Imprimir</button><button class="btn xs primary" data-act="otOpen" data-id="'+o.id+'">'+(cer?'Ver':'Editar')+'</button></div>'}).join('')+vcs.map(function(r){return '<div class="tarea"><div style="flex:1"><b>Vence: '+esc(r.p.nombre)+'</b><div class="muted small">'+esc(r.u.nombre)+' · '+esc(r.u.patente)+'</div></div><button class="btn sm primary" data-act="otFromSvc" data-key="'+r.key+'">Crear OT</button></div>'}).join(''):'<p class="muted">Sin órdenes ni vencimientos este día. Podés crear todas las que necesites.</p>')+'</div>';
   var cal='<section class="card"><header><h2>'+MESES[m]+' '+y+'</h2><button class="btn sm" data-act="calNav" data-n="-1" aria-label="Mes anterior">‹</button><button class="btn sm" data-act="calNav" data-n="0">Hoy</button><button class="btn sm" data-act="calNav" data-n="1" aria-label="Mes siguiente">›</button></header><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px"><div class="cal" style="grid-column:auto">'+cells+'</div><div>'+side+'</div></div></section>';
-  var L=rows.filter(function(r){return f?r.estado===f:(UI.prevAll||r.estado!=='Al día')}).sort(function(a,b){return ORD[a.estado]-ORD[b.estado]||a.rem/a.thr-b.rem/b.thr});
-  var list='<section class="card"><header><h2>Services por unidad'+(f?' · '+esc(f):'')+(U?' · '+esc(unitById(U).nombre):'')+'</h2>'+(f?'<button class="btn sm" data-act="prevF:">Quitar filtro</button>':'<button class="btn sm" data-act="prevAll">'+(UI.prevAll?'Ocultar los que están al día':'Mostrar también los '+c['Al día']+' al día')+'</button>')+'</header>'+tbl(['Unidad','Plan','Último service','Próximo','Restante','Estado',''],L.map(function(r){var o=openOtForSvc(r.key);return '<tr><td>'+ent(r.u)+'</td><td>'+esc(r.p.nombre)+'<div class="muted small">'+esc(svcLabel(r.p,r.sv))+'</div></td><td class="num">'+(r.p.tipo==='Meses'?fd(r.last):n0(r.last)+' '+r.unidad)+'</td><td class="num">'+r.nextTxt+'</td><td class="num">'+(r.rem<0?'−':'')+n0(Math.abs(r.rem))+' '+r.unidad+(r.manualAge>30?'<div class="muted small">Lectura manual de hace '+r.manualAge+' días</div>':'')+'</td><td>'+pill(r.estado)+'</td><td class="r">'+(o?'<button class="btn sm" data-act="otOpen" data-id="'+o.id+'">OT #'+o.nro+'</button>':'<button class="btn sm '+(r.estado!=='Al día'?'primary':'')+'" data-act="otFromSvc" data-key="'+r.key+'">Crear OT</button>')+'</td></tr>'}),U?'Esta unidad no tiene services con este filtro.':'')+'</section>';
+  var L=rows.filter(function(r){return f?r.estado===f:(UI.prevAll||r.estado!=='Al día')}).sort(function(a,b){return ORD[a.estado]-ORD[b.estado]||a.rem/(a.thr||1)-b.rem/(b.thr||1)});
+  var list='<section class="card"><header><h2>Services por unidad'+(f?' · '+esc(f):'')+(U?' · '+esc(unitById(U).nombre):'')+'</h2>'+(f?'<button class="btn sm" data-act="prevF:">Quitar filtro</button>':'<button class="btn sm" data-act="prevAll">'+(UI.prevAll?'Ocultar los que están al día':'Mostrar también los '+c['Al día']+' al día')+'</button>')+'</header>'+tbl(['Unidad','Plan','Último service','Próximo','Restante','Estado',''],L.map(function(r){var o=openOtForSvc(r.key);return '<tr><td>'+ent(r.u)+'</td><td>'+esc(r.p.nombre)+'<div class="muted small">'+esc(svcLabel(r.p,r.sv))+'</div></td><td class="num">'+(r.p.tipo==='Meses'?fd(r.last):n0(r.last)+' '+r.unidad)+'</td><td class="num">'+r.nextTxt+'</td><td class="num">'+(r.rem<0?'−':'')+n0(Math.abs(r.rem))+' '+r.unidad+'<div class="muted small">Alerta a '+n0(r.thr)+' '+r.unidad+'</div>'+(r.manualAge>30?'<div class="muted small">Lectura manual de hace '+r.manualAge+' días</div>':'')+'</td><td>'+pill(r.estado)+'</td><td class="r" style="white-space:nowrap"><button class="btn sm" data-act="svcEdit" data-u="'+r.u.id+'" title="Cargar el último service y el preaviso">Editar</button> '+(o?'<button class="btn sm" data-act="otOpen" data-id="'+o.id+'">OT #'+o.nro+'</button>':'<button class="btn sm '+(r.estado!=='Al día'?'primary':'')+'" data-act="otFromSvc" data-key="'+r.key+'">Crear OT</button>')+'</td></tr>'}),U?'Esta unidad no tiene services con este filtro.':'')+'</section>';
   return uf+cal+kp+list}
 function planRango(p){return 'Cada '+p.servicios.map(function(s){return n0(s.cada)}).join(' · ')+(p.tipo==='Km'?' km':p.tipo==='Horas'?' hs':' meses')}
 function prevPlanes(){
@@ -1009,7 +1011,7 @@ var MAP=[
 function vCfg(){
   var c=S.cfg;
   function num(id,l,v,step){return '<label class="f">'+l+'<input id="'+id+'" type="number" step="'+(step||1)+'" min="0" value="'+v+'"></label>'}
-  return '<div class="grid g2"><section class="card"><header><h2>Avisos de preventivo</h2></header><div class="form">'+num('c-pk','Preaviso por kilómetros (km antes)',c.preKm)+num('c-ph','Preaviso por horas (hs antes)',c.preHs)+num('c-pd','Preaviso por fecha (días antes)',c.preDias)+'</div></section>'+
+  return '<div class="grid g2"><section class="card"><header><h2>Avisos de preventivo</h2></header><div class="form">'+num('c-pk','Preaviso por kilómetros (km antes)',c.preKm)+num('c-ph','Preaviso por horas (hs antes)',c.preHs)+num('c-pd','Preaviso por fecha (días antes)',c.preDias)+'</div><p class="muted small" style="margin:10px 4px 0">Es el preaviso general. Cada plan (Planes → Editar) y cada unidad (Preventivo → Último service y preaviso) puede tener el suyo propio.</p></section>'+
   '<section class="card"><header><h2>Régimen de uso mínimo</h2></header><div class="form">'+num('c-mm','Motor encendido mínimo en 7 días (min)',c.minMotor)+num('c-mk','Movimiento mínimo en 7 días (km)',c.minKm,'0.1')+'</div></section>'+
   '<section class="card"><header><h2>Checklist</h2></header><div class="form">'+num('c-cv','Vigencia del checklist (días)',c.checkVig)+num('c-cp','Aviso previo al vencimiento (días)',c.checkPre)+'</div><p class="muted small">Los checklist se hacen en Geotab Drive. Los defectos y su gravedad (grave, leve, sin regulación) se administran en las listas de defectos de inspección de MyGeotab.</p></section>'+
   '<section class="card"><header><h2>Combustible y ralentí</h2></header><div class="form">'+num('c-pl','Precio por litro ($)',c.precioLitro)+num('c-tr','Tolerancia de rendimiento (%)',c.tolRend)+num('c-rc','Referencia camión (L/100 km)',c.refL100['Camión'],'0.5')+num('c-rp','Referencia camioneta (L/100 km)',c.refL100['Camioneta'],'0.5')+'<label class="f full">Franjas de ralentí (minutos, 4 valores)<input id="c-ru" value="'+c.ralU.join(', ')+'"></label></div></section></div>'+
@@ -1384,14 +1386,14 @@ function planNewModal(){modal(mhead('Nuevo plan de mantenimiento')+'<form class=
 function entModal(id){
   var u=unitById(id),pl=S.planes.map(function(p){return '<label><input class="en-pl" type="checkbox" value="'+p.id+'"'+(u.planes.indexOf(p.id)>=0?' checked':'')+'>'+esc(p.nombre)+'</label>'}).join('');
   modal(mhead('Ficha de mantenimiento · '+esc(u.nombre),orgPill(u))+'<div class="note">Estos datos vienen de MyGeotab y se cambian allá: <b>'+esc(u.gt.name)+'</b> · '+esc(u.patente)+' · '+esc(u.marca+' '+u.modelo)+' · '+esc(gtTipoTxt(u.gt.tipo))+'.</div><div class="note" style="margin-top:10px"><b>VTV Nacional (de Gestión Documental):</b> '+(vtvInfo(u).hasta?fd(vtvInfo(u).hasta)+' · '+esc(vtvInfo(u).e):'sin documento cargado')+'. No se edita acá.</div><form id="enf" class="form" autocomplete="off">'+sel('en-t','Tipo de entidad',['Camión','Camioneta','Grúa','Maquinaria','Autoelevador','Eq de arrastre'],u.tipo)+fld('en-fu','Función',u.funcion)+fld('en-fl','Flota',u.flota)+fld('en-a','Año de fabricación',u.anio,'number')+sel('en-m','Tiene motor',[['1','Sí'],['0','No (remolque, semirremolque)']],u.motor?'1':'0')+
-  (u.tel?'':fld('en-o','Odómetro actual (km, manual)',u.odo,'number','step="1" min="0"')+fld('en-h','Horómetro actual (hs, manual)',u.horas,'number','step="0.1" min="0"'))+'</form><div><div class="muted small" style="margin-bottom:4px">Planes de mantenimiento</div><div class="checks">'+pl+'</div></div><div class="mf"><button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="entSave" data-id="'+id+'">Guardar ficha</button></div>')}
+  (u.tel?'':fld('en-o','Odómetro actual (km, manual)',u.odo,'number','step="1" min="0"')+fld('en-h','Horómetro actual (hs, manual)',u.horas,'number','step="0.1" min="0"'))+'</form><div><div class="muted small" style="margin-bottom:4px">Planes de mantenimiento</div><div class="checks">'+pl+'</div></div><div class="mf">'+(u.planes.length?'<button class="btn" data-act="svcEdit" data-u="'+id+'">Último service y preaviso</button>':'')+'<button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="entSave" data-id="'+id+'">Guardar ficha</button></div>')}
 function entSave(id){
   var u=unitById(id);u.tipo=val('en-t');u.funcion=val('en-fu').trim();u.flota=val('en-fl');u.anio=numv('en-a')||u.anio;u.motor=val('en-m')==='1';
   if(!u.tel){var odo=numv('en-o'),hs=numv('en-h');if(odo!==u.odo){u.odo=odo;if(odo!=null){u.odoFuente='Manual';u.odoFecha=iso(TD)}}if(hs!==u.horas){u.horas=hs;if(hs!=null){u.horasFuente='Manual';u.horasFecha=iso(TD)}}}
   var want=$$('.en-pl').filter(function(c){return c.checked}).map(function(c){return c.value});
   u.planes.filter(function(x){return want.indexOf(x)<0}).forEach(function(pid){planById(pid).servicios.forEach(function(sv,k){delete S.svc[u.id+'|'+pid+'|'+k]})});
   want.forEach(function(pid){if(u.planes.indexOf(pid)>=0)return;var pl=planById(pid);pl.servicios.forEach(function(sv,k){var cur=pl.tipo==='Km'?u.odo:pl.tipo==='Horas'?u.horas:0;if(pl.tipo!=='Meses'&&cur==null)return;S.svc[u.id+'|'+pid+'|'+k]=pl.tipo==='Meses'?{f:iso(TD)}:{v:cur,f:iso(TD)}})});
-  u.planes=want;save();closeModal();render();toast('Ficha guardada.')}
+  u.planes=want;save();closeModal();render();toast(want.some(function(x){return !S.svc[u.id+'|'+x+'|0']||S.svc[u.id+'|'+x+'|0'].f===iso(TD)})?'Ficha guardada. Cargá el último service en Preventivo → Último service y preaviso.':'Ficha guardada.')}
 function syncGeotab(){var n=0;pendingDevices().forEach(function(d){var rem=d.tipo==='Remolque',go=d.tipo==='GO',nm=d.name.split(' - ')[0],cr=/^G/.test(nm),pk=/^L/.test(nm);
   S.units.push({id:'u'+Date.now().toString(36)+n,nombre:nm,patente:d.plate,marca:d.marca,modelo:d.modelo,tipo:rem?'Eq de arrastre':cr?'Grúa':pk?'Camioneta':'Camión',funcion:rem?'Semirremolque':cr?'Grúa móvil':'',flota:rem?'Equipos de arrastre':cr?'Maquinaria':pk?'Livianos':'Pesados',anio:TD.getFullYear()-2,odo:go?4200:null,horas:go&&!pk?160:null,odoFuente:go?'Geotab':null,horasFuente:go&&!pk?'Geotab':null,odoFecha:iso(TD),horasFecha:iso(TD),planes:[],estado:'Habilitado',motor:!rem,tel:go,gt:{id:d.id,name:d.name,tipo:d.tipo},ultRep:go?0:null,motor7:go?320:0,km7:go?900:0,vida:null,comb:{area:35,ruta:32,urb:38,ral:3,l100:40}});n++});
   save();render();toast(n+' entidades nuevas traídas de Geotab. Completá su ficha en la lista.')}
@@ -1529,7 +1531,7 @@ var ACT={
    S.units.forEach(function(u){var has=u.planes.indexOf(p.id)>=0,want=ids.indexOf(u.id)>=0;
      if(want&&!has){u.planes.push(p.id);p.servicios.forEach(function(sv,k){var cur=p.tipo==='Km'?u.odo:p.tipo==='Horas'?u.horas:0;if(p.tipo!=='Meses'&&cur==null)return;S.svc[u.id+'|'+p.id+'|'+k]=p.tipo==='Meses'?{f:iso(TD)}:{v:cur,f:iso(TD)}})}
      if(!want&&has){u.planes=u.planes.filter(function(x){return x!==p.id});p.servicios.forEach(function(sv,k){delete S.svc[u.id+'|'+p.id+'|'+k]})}});
-   save();closeModal();render();toast('Asignación guardada. Los services nuevos empiezan al día desde hoy.')},
+   save();closeModal();render();toast('Asignación guardada. Para cargar el último service de cada unidad usá Preventivo → Último service y preaviso.')},
  cfgSave:function(){var c=S.cfg,g=function(id,d){var v=parseFloat(val(id));return isNaN(v)?d:v};
    c.preKm=g('c-pk',c.preKm);c.preHs=g('c-ph',c.preHs);c.preDias=g('c-pd',c.preDias);c.minMotor=g('c-mm',c.minMotor);c.minKm=g('c-mk',c.minKm);c.checkVig=g('c-cv',c.checkVig);c.checkPre=g('c-cp',c.checkPre);c.precioLitro=g('c-pl',c.precioLitro);c.tolRend=g('c-tr',c.tolRend);c.refL100['Camión']=g('c-rc',c.refL100['Camión']);c.refL100['Camioneta']=g('c-rp',c.refL100['Camioneta']);
    var ru=val('c-ru').split(',').map(function(x){return parseFloat(x)});if(ru.length===4&&ru.every(function(x){return x>0})&&ru[0]<ru[1]&&ru[1]<ru[2]&&ru[2]<ru[3])c.ralU=ru;else toast('Las franjas de ralentí deben ser 4 valores crecientes. Se conservaron las anteriores.');
@@ -1690,13 +1692,14 @@ var PE=null;
 function planEditCollect(){
   if(!PE||!$('#pe-n'))return;PE.nombre=val('pe-n');
   $$('.pe-c').forEach(function(el){PE.sv[+el.dataset.i].cada=+el.value||0});
+  $$('.pe-p').forEach(function(el){PE.sv[+el.dataset.i].pre=el.value===''||isNaN(+el.value)?null:Math.max(0,+el.value)});
   $$('.pe-t').forEach(function(el){PE.sv[+el.dataset.i].tareas=el.value.split('\n').map(function(x){return x.trim()}).filter(Boolean)})}
 function planEditModal(id){
-  if(id){var p0=planById(id);PE={id:id,nombre:p0.nombre,tipo:p0.tipo,sv:p0.servicios.map(function(s,i){return {orig:i,cada:s.cada,tareas:s.tareas.slice()}})}}
+  if(id){var p0=planById(id);PE={id:id,nombre:p0.nombre,tipo:p0.tipo,sv:p0.servicios.map(function(s,i){return {orig:i,cada:s.cada,pre:s.pre!=null?s.pre:null,tareas:s.tareas.slice()}})}}
   var un=PE.tipo==='Km'?'km':PE.tipo==='Horas'?'hs':'meses',nu=S.units.filter(function(u){return u.planes.indexOf(PE.id)>=0}).length;
   modal(mhead('Editar plan de mantenimiento')+'<form class="form" autocomplete="off" onsubmit="return false">'+fld('pe-n','Nombre del plan',PE.nombre,'text','required')+'<label class="f">Se mide en<input value="'+esc(PE.tipo==='Km'?'Kilómetros':PE.tipo==='Horas'?'Horas de motor':'Meses')+'" disabled></label></form>'+
     '<div class="note">Cada servicio tiene un intervalo ('+un+') y su lista de tareas. Un servicio de intervalo mayor incluye a los menores cuando son múltiplos (por ejemplo, el de 20.000 km también hace el de 10.000). Al guardar, los vencimientos de las '+nu+' unidades asignadas se recalculan desde el último service hecho; un servicio nuevo arranca desde hoy.</div>'+
-    PE.sv.map(function(s,i){return '<div style="border:1px solid var(--line);border-radius:var(--rl);padding:14px;background:var(--surface2);display:flex;flex-direction:column;gap:10px"><div class="bar"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Cada <input class="pe-c" data-i="'+i+'" type="number" min="1" step="any" value="'+esc(s.cada)+'" style="width:130px"> '+un+'</label><span class="sp"></span>'+(s.orig==null?'<span class="pill info">Nuevo</span>':'')+'<button type="button" class="btn sm danger" data-act="planEditDel" data-i="'+i+'">Quitar servicio</button></div><label class="f">Tareas (una por línea)<textarea class="pe-t" data-i="'+i+'" rows="6">'+esc(s.tareas.join('\n'))+'</textarea></label></div>'}).join('')+
+    PE.sv.map(function(s,i){return '<div style="border:1px solid var(--line);border-radius:var(--rl);padding:14px;background:var(--surface2);display:flex;flex-direction:column;gap:10px"><div class="bar"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Cada <input class="pe-c" data-i="'+i+'" type="number" min="1" step="any" value="'+esc(s.cada)+'" style="width:130px"> '+un+'</label><label class="f" style="flex-direction:row;align-items:center;gap:8px">Preaviso <input class="pe-p" data-i="'+i+'" type="number" min="0" step="any" value="'+esc(s.pre==null?'':s.pre)+'" placeholder="general: '+n0(PE.tipo==='Km'?S.cfg.preKm:PE.tipo==='Horas'?S.cfg.preHs:S.cfg.preDias)+'" style="width:130px"> '+(PE.tipo==='Meses'?'días':un)+' antes</label><span class="sp"></span>'+(s.orig==null?'<span class="pill info">Nuevo</span>':'')+'<button type="button" class="btn sm danger" data-act="planEditDel" data-i="'+i+'">Quitar servicio</button></div><label class="f">Tareas (una por línea)<textarea class="pe-t" data-i="'+i+'" rows="6">'+esc(s.tareas.join('\n'))+'</textarea></label></div>'}).join('')+
     '<div><button type="button" class="btn sm" data-act="planEditAdd">Agregar servicio</button></div><div class="mf"><button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="planEditSave">Guardar cambios</button></div>',true)}
 function planEditApply(){
   var p=planById(PE.id),oldN=p.servicios.length,sorted=PE.sv.slice().sort(function(a,b){return a.cada-b.cada});
@@ -1708,10 +1711,10 @@ function planEditApply(){
       else{var cur=p.tipo==='Km'?u.odo:u.horas;if(cur!=null)S.svc[key]={v:cur,f:iso(TD)}}})});
   S.ots.forEach(function(o){if(o.planId!==p.id||o.svcIdx==null)return;var j=-1;sorted.forEach(function(s,jj){if(s.orig===o.svcIdx)j=jj});
     if(j<0){o.planId=null;o.svcIdx=null;logA(o,'El servicio vinculado fue quitado del plan')}else o.svcIdx=j});
-  p.nombre=PE.nombre.trim();p.servicios=sorted.map(function(s){return {cada:s.cada,tareas:s.tareas.slice()}})}
+  p.nombre=PE.nombre.trim();p.servicios=sorted.map(function(s){var o={cada:s.cada,tareas:s.tareas.slice()};if(s.pre!=null)o.pre=s.pre;return o})}
 var PLANACT={
  planEdit:function(d){planEditModal(d.id)},
- planEditAdd:function(){planEditCollect();var mx=Math.max.apply(null,PE.sv.map(function(s){return s.cada}).concat([0]));PE.sv.push({orig:null,cada:PE.tipo==='Meses'?mx+6:mx*2||10000,tareas:[]});planEditModal()},
+ planEditAdd:function(){planEditCollect();var mx=Math.max.apply(null,PE.sv.map(function(s){return s.cada}).concat([0]));PE.sv.push({orig:null,pre:null,cada:PE.tipo==='Meses'?mx+6:mx*2||10000,tareas:[]});planEditModal()},
  planEditDel:function(d){planEditCollect();if(PE.sv.length<=1){toast('El plan necesita al menos un servicio.');return}PE.sv.splice(+d.i,1);planEditModal()},
  planEditSave:function(){planEditCollect();
    if(!PE.nombre.trim()){toast('Escribí el nombre del plan.');return}
@@ -1721,6 +1724,49 @@ var PLANACT={
    planEditApply();save();closeModal();render();toast('Plan actualizado. Los vencimientos se recalcularon.')}
 };
 for(var k2_ in PLANACT)ACT[k2_]=PLANACT[k2_];
+
+
+/* ================= último service y preaviso por unidad ================= */
+var SVU=null;
+function svcModal(uid){
+  var u=unitById(uid);if(!u)return;SVU=uid;
+  var pls=(u.planes||[]).map(planById).filter(Boolean);
+  var gs='display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end';
+  var body=pls.length?pls.map(function(p){
+    var ud=p.tipo==='Km'?'km':p.tipo==='Horas'?'hs':'días',mm=p.tipo==='Meses',cur=p.tipo==='Km'?u.odo:p.tipo==='Horas'?u.horas:null,def=p.tipo==='Km'?S.cfg.preKm:p.tipo==='Horas'?S.cfg.preHs:S.cfg.preDias;
+    var all=mm?'':'<div class="bar" style="gap:8px;flex-wrap:wrap"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Mismo último service para todos <input id="sv-all-'+p.id+'" type="number" min="0" step="any" style="width:130px" placeholder="'+ud+'"></label><button type="button" class="btn sm" data-act="svcAll" data-plan="'+p.id+'">Copiar a todos</button></div>';
+    return '<section class="card" style="margin:0"><header><h2 style="font-size:1rem">'+esc(p.nombre)+'</h2><span class="muted small">'+(mm?'Se mide en meses':cur!=null?'Actual: '+n0(cur)+' '+ud:'Sin lectura actual de '+(p.tipo==='Km'?'odómetro':'horómetro'))+'</span></header><div style="display:flex;flex-direction:column;gap:12px">'+all+
+    p.servicios.map(function(sv,k){var key=u.id+'|'+p.id+'|'+k,st=S.svc[key]||{},pre=thrOf(st,sv,def),own=st.pre!=null?'de la unidad':sv.pre!=null?'del plan':'general';
+      return '<div style="border:1px solid var(--line);border-radius:var(--rl);padding:12px;background:var(--surface2)"><div class="bar" style="margin-bottom:8px"><b>'+esc(svcLabel(p,sv))+'</b><span class="sp"></span><span class="muted small">Alerta actual: '+n0(pre)+' '+ud+' antes ('+own+')</span></div><div style="'+gs+'">'+
+      (mm?'<label class="f">Fecha del último service<input class="sv-f" data-key="'+key+'" type="date" value="'+esc(st.f||'')+'"></label>':'<label class="f">Último service a los ('+ud+')<input class="sv-v" data-key="'+key+'" data-plan="'+p.id+'" type="number" min="0" step="any" value="'+esc(st.v==null?'':st.v)+'"></label><label class="f">Fecha (opcional)<input class="sv-f" data-key="'+key+'" type="date" value="'+esc(st.f||'')+'"></label>')+
+      '<label class="f">Preaviso propio ('+ud+' antes)<input class="sv-p" data-key="'+key+'" type="number" min="0" step="any" value="'+esc(st.pre==null?'':st.pre)+'" placeholder="'+(sv.pre!=null?'plan: '+n0(sv.pre):'general: '+n0(def))+'"></label></div></div>'}).join('')+'</div></section>'}).join(''):'<div class="note warn">Esta unidad no tiene planes de mantenimiento. Asignale uno desde la ficha de la entidad o desde Planes.</div>';
+  modal(mhead('Último service y preaviso · '+esc(u.nombre),'<span class="chip">'+esc(u.patente||'')+'</span>')+'<div class="note">Cargá a qué kilómetro (u hora) se hizo el último service de cada intervalo; el próximo vencimiento se calcula desde ahí. El <b>preaviso propio</b> es opcional: si lo dejás vacío se usa el del plan o el general de Configuración.</div>'+body+'<div class="mf"><button class="btn" data-act="close">Cancelar</button>'+(pls.length?'<button class="btn primary" data-act="svcEditDo">Guardar</button>':'')+'</div>',true)}
+var SVCACT={
+ svcEdit:function(d){svcModal(d.u)},
+ svcAll:function(d){var v=val('sv-all-'+d.plan);if(v==='')return;$$('.sv-v').forEach(function(el){if(el.dataset.plan===d.plan)el.value=v})},
+ svcEditDo:function(){var u=unitById(SVU);if(!u)return;
+   var keys={};$$('.sv-v,.sv-f,.sv-p').forEach(function(el){keys[el.dataset.key]=1});
+   var err=null,upd=[];
+   Object.keys(keys).forEach(function(key){if(err)return;var pid=key.split('|')[1],pl=planById(pid);if(!pl)return;
+     var ev=$$('.sv-v').filter(function(e){return e.dataset.key===key})[0],ef=$$('.sv-f').filter(function(e){return e.dataset.key===key})[0],ep=$$('.sv-p').filter(function(e){return e.dataset.key===key})[0];
+     var st=S.svc[key]?JSON.parse(JSON.stringify(S.svc[key])):{},cur=pl.tipo==='Km'?u.odo:pl.tipo==='Horas'?u.horas:null,ud=pl.tipo==='Km'?'km':'hs';
+     if(pl.tipo!=='Meses'){var v=ev&&ev.value!==''?+ev.value:null;
+       if(v!=null){if(isNaN(v)||v<0){err='El último service tiene que ser un número mayor o igual a cero.';return}
+         if(cur!=null&&v>cur){err='El último service ('+n0(v)+' '+ud+') no puede ser mayor al valor actual ('+n0(cur)+' '+ud+'). Actualizá primero el '+(pl.tipo==='Km'?'odómetro':'horómetro')+' de la unidad.';return}
+         var v0=st.v,f0=st.f,fn=ef&&ef.value;st.v=v;if(fn&&fn!==f0)st.f=fn;else if(v!==v0)delete st.f}
+       else if(st.v==null&&!(ef&&ef.value)&&!(ep&&ep.value!==''))return;
+       else if(ef&&ef.value)st.f=ef.value}
+     else{var f=ef&&ef.value;if(f){if(f>iso(TD)){err='La fecha del último service no puede ser futura.';return}st.f=f}else if(!st.f&&!(ep&&ep.value!==''))return}
+     var pr=ep&&ep.value!==''?+ep.value:null;
+     if(pr!=null&&(isNaN(pr)||pr<0)){err='El preaviso tiene que ser un número mayor o igual a cero.';return}
+     if(pr==null)delete st.pre;else st.pre=pr;
+     if(st.v==null&&st.f==null)return;
+     upd.push([key,st])});
+   if(err){toast(err);return}
+   upd.forEach(function(x){S.svc[x[0]]=x[1]});
+   save();closeModal();render();toast('Último service y preaviso guardados. Los vencimientos se recalcularon.')}
+};
+for(var k4_ in SVCACT)ACT[k4_]=SVCACT[k4_];
 
 /* ================= órdenes: pausar, reprogramar e imprimir ================= */
 var OTACT={
