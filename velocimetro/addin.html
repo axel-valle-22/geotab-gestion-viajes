@@ -59,6 +59,7 @@
 #vel .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0}
 #vel label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);flex:1;min-width:110px}
 #vel input[type=text],#vel input[type=number],#vel textarea{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
+#vel select{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
 #vel input[type=range]{width:100%;accent-color:var(--accent)}
 #vel textarea{min-height:80px;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
 #vel .note{color:var(--muted);font-size:.8rem;margin:0 0 10px}
@@ -71,6 +72,59 @@
 #vel td{padding:6px 4px;border-bottom:1px solid var(--border);vertical-align:top}
 #vel td:first-child{color:var(--muted);width:46%}
 @media (prefers-reduced-motion:reduce){#vel[data-s="bad"] #dial{animation:none;background:rgba(217,45,32,.12)}}
+/* ===== Tablero: pantalla principal oscura con la velocidad grande en celeste TDP ===== */
+#vel{background:#0B1014}
+#vel .app{
+  --card:#141C22; --border:#243540; --text:#EEF3F5; --muted:#8FA3AD; --shadow:none;
+  --accent:#00A6E0; --accent-light:#0F2B36; --ok:#00A6E0; --warn:#F5B72E; --bad:#FF4D3F; --idle:#4F6672;
+  color:var(--text);
+}
+#vel[data-s="ok"]{--state:#00A6E0}
+#vel[data-s="idle"]{--state:#4F6672}
+#vel[data-s="warn"]{--state:#F5B72E}
+#vel[data-s="bad"]{--state:#FF4D3F}
+#vel #head{background:#10181D;border-color:#1E2D36}
+#vel #head img{background:#fff;border-radius:10px;padding:4px 8px;height:36px;max-width:34%}
+#vel .pill{font-size:.7rem;padding:4px 10px;background:#0F2B36;color:#5CCBF0;border:1px solid #17475A}
+#vel #dial{
+  min-height:min(60vh,440px);border:1px solid #243540;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 0%,#1B2A33 0%,#10181D 55%,#0A0F13 100%);
+  box-shadow:inset 0 0 0 2px var(--state),0 0 34px -10px var(--state);
+  transition:box-shadow .2s;
+}
+#vel #dial::before{content:"";position:absolute;left:6%;right:6%;top:0;height:38%;border-radius:0 0 60% 60%/0 0 100% 100%;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0));pointer-events:none}
+#vel #dial::after{content:"";position:absolute;inset:0;background:rgba(255,60,45,.30);opacity:0;pointer-events:none}
+#vel[data-s="bad"] #dial{animation:none}
+#vel[data-s="bad"] #dial::after{animation:vel-red .7s steps(2,jump-none) infinite}
+@keyframes vel-red{0%{opacity:0}100%{opacity:1}}
+#vel #speed{
+  font-weight:600;font-size:min(48vw,40vh,270px);letter-spacing:-.03em;color:var(--state);
+  text-shadow:0 0 26px color-mix(in srgb,var(--state) 55%,transparent);position:relative;z-index:1;
+}
+#vel .unit{align-self:flex-end;margin:-4px 9% 0 0;font-size:1.25rem;font-weight:500;letter-spacing:.04em;text-transform:none;color:var(--state);position:relative;z-index:1}
+#vel #zone{position:relative;z-index:1;color:#C9D6DC;font-size:.9rem}
+#vel #msg,#vel #unitline{position:relative;z-index:1}
+#vel #limit{z-index:2}
+#vel #bar button{background:#141C22;border-color:#243540;color:#EEF3F5}
+#vel #bar button.primary{background:#00A6E0;border-color:#00A6E0;color:#fff}
+#vel #bar button.primary.on{background:#FF4D3F;border-color:#FF4D3F}
+@media (orientation:landscape) and (max-height:540px){
+  #vel .app{padding:6px 12px;gap:6px;max-width:none;min-height:0;height:100vh}
+  #vel #head{padding:4px 12px}
+  #vel #head img{height:24px;padding:2px 8px}
+  #vel #head h1{font-size:.9rem}
+  #vel #head p{font-size:.7rem}
+  #vel #dial{min-height:0;flex:1;padding:2px 12px}
+  #vel #speed{font-size:min(30vw,38vh)}
+  #vel .unit{font-size:.95rem;margin:-2px 14% 0 0}
+  #vel #zone{font-size:.78rem;margin-top:2px}
+  #vel #msg{font-size:.8rem;margin-top:2px;min-height:0}
+  #vel #unitline{font-size:.68rem;margin-top:0;min-height:0}
+  #vel #limit{width:min(14vw,70px);top:6px;right:10px}
+  #vel #limitNum{font-size:min(5vw,28px)}
+  #vel #bar button{min-height:38px;padding:6px 16px;font-size:.9rem}
+}
+@media (prefers-reduced-motion:reduce){#vel[data-s="bad"] #dial::after{animation:none;opacity:.5}}
 </style>
 </head>
 <body>
@@ -121,6 +175,12 @@
       <label>Límite fuera de zonas (km/h)<input type="number" id="defLimit" min="10" max="130" inputmode="numeric"></label>
       <label>Tolerancia (km/h)<input type="number" id="tol" min="0" max="15" inputmode="numeric"></label>
     </div>
+    <label>Fuente de la velocidad
+      <select id="srcMode">
+        <option value="unit">GPS de la unidad Geotab (recomendado)</option>
+        <option value="phone">GPS del celular</option>
+      </select>
+    </label>
     <label class="check"><input type="checkbox" id="voice"> Aviso hablado además del sonido</label>
     <label class="check"><input type="checkbox" id="night"> Modo noche</label>
   </div>
@@ -174,7 +234,7 @@ try{
 }catch(e){}
 
 var LS = 'tdp_velocimetro_addin_v1';
-var DEF = { zones: [], log: [], defLimit: 80, tol: 3, voice: false, night: false };
+var DEF = { zones: [], log: [], defLimit: 80, tol: 3, voice: false, night: false, src: 'unit' };
 var st = load();
 function load(){ try{ var j = JSON.parse(localStorage.getItem(LS) || '{}'); return Object.assign({}, DEF, j); }catch(e){ return Object.assign({}, DEF); } }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} }
@@ -269,12 +329,20 @@ function lockScreen(){
 document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible' && running) lockScreen(); });
 
 /* ---------- lógica principal ---------- */
-/* Devuelve { kmh, lat, lng, src } con la mejor fuente disponible: GPS del celular, y si no hay, la unidad Geotab. */
+/* Devuelve { kmh, lat, lng, src }. Por defecto usa el GPS de la unidad Geotab asignada; el celular queda de respaldo
+   solo si no hay unidad asignada (o si se elige "GPS del celular" en Ajustes). */
+var UNIT_MAX_AGE = 120000;
+function unitFresh(){ return unit.kmh != null && unit.at && (Date.now() - unit.at) <= UNIT_MAX_AGE; }
+function phoneFresh(){ return cur.t && Date.now() - cur.t <= 6000 && cur.kmh != null; }
+function useUnit(){ return st.src !== 'phone' && !!env.device; }
 function source(){
-  if($('sim').checked) return { kmh: parseInt($('simSpeed').value, 10) || 0, lat: cur.lat, lng: cur.lng, src: 'sim' };
+  if($('sim').checked) return { kmh: parseInt($('simSpeed').value, 10) || 0, lat: cur.lat != null ? cur.lat : unit.lat, lng: cur.lat != null ? cur.lng : unit.lng, src: 'sim' };
   if(!running) return { kmh: null, lat: null, lng: null, src: 'none' };
-  if(cur.t && Date.now() - cur.t <= 6000 && cur.kmh != null) return { kmh: cur.kmh, lat: cur.lat, lng: cur.lng, src: 'gps' };
-  if(unit.got && Date.now() - unit.got <= 45000 && unit.kmh != null) return { kmh: unit.kmh, lat: unit.lat, lng: unit.lng, src: 'unit' };
+  if(useUnit()){
+    if(unitFresh()) return { kmh: unit.kmh, lat: unit.lat, lng: unit.lng, src: 'unit' };
+    return { kmh: null, lat: unit.lat, lng: unit.lng, src: 'none' };
+  }
+  if(phoneFresh()) return { kmh: cur.kmh, lat: cur.lat, lng: cur.lng, src: 'gps' };
   return { kmh: null, lat: cur.lat, lng: cur.lng, src: 'none' };
 }
 function ago(ms){ var s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 90 ? s + ' s' : Math.round(s / 60) + ' min'; }
@@ -293,18 +361,24 @@ function tick(){
   $('zone').textContent = z ? z.name : 'Sin zona (límite general)';
 
   var state = 'idle', msg;
-  if(!running && !sim){ msg = 'Tocá Iniciar para activar el GPS y el sonido'; }
-  else if(spd == null){ msg = gpsErr === 'denegado' ? 'Este entorno no permite usar el GPS del celular' : 'Buscando señal…'; }
+  if(!running && !sim){ msg = 'Tocá Iniciar para activar el velocímetro y el sonido'; }
+  else if(spd == null){
+    if(useUnit()){ msg = unit.got ? 'Sin datos recientes de la unidad (último dato hace ' + ago(unit.at || unit.got) + ')' : 'Esperando datos de la unidad…'; }
+    else if(st.src !== 'phone' && !env.device){ msg = 'No hay unidad asignada. Asignate un vehículo en Drive, o elegí "GPS del celular" en Configuración.'; }
+    else { msg = gpsErr === 'denegado' ? 'Este entorno no permite usar el GPS del celular' : 'Buscando señal…'; }
+  }
   else if(over){ state = 'bad'; msg = 'Exceso de velocidad: +' + Math.round(spd - limit) + ' km/h sobre el límite'; }
   else if(near){ state = 'warn'; msg = 'Cerca del límite'; }
   else { state = 'ok'; msg = 'Velocidad dentro del límite'; }
-  if(s.src === 'unit' && spd != null) msg += ' (dato de la unidad)';
+  if(s.src === 'unit' && spd != null){ var ageS = Math.round((Date.now() - unit.at) / 1000); msg += ageS > 20 ? ' · dato con ' + ago(unit.at) + ' de demora' : ' · GPS de la unidad'; }
+  else if(s.src === 'gps' && spd != null){ msg += ' · GPS del celular'; }
   $('vel').setAttribute('data-s', state);
   $('msg').textContent = msg;
 
   var g;
   if(sim) g = 'Modo prueba';
   else if(!running) g = 'GPS apagado';
+  else if(useUnit()) g = unitFresh() ? 'Unidad · hace ' + ago(unit.at) : 'Unidad sin datos';
   else if(gpsErr === 'denegado') g = 'GPS bloqueado';
   else if(cur.t && Date.now() - cur.t <= 6000) g = 'GPS ±' + Math.round(cur.acc || 0) + ' m';
   else g = cur.t ? 'GPS sin señal' : 'GPS buscando…';
@@ -315,6 +389,7 @@ function tick(){
       ? 'Unidad Geotab: ' + (unit.kmh == null ? '--' : Math.round(unit.kmh)) + ' km/h · dato de hace ' + ago(unit.at || unit.got)
       : 'Unidad Geotab: esperando datos…';
   } else { $('unitline').textContent = ''; }
+  if(running && (!ctx || ctx.state === 'suspended')){ $('unitline').textContent += (env.device ? ' · ' : '') + 'Tocá la pantalla una vez para activar el sonido'; }
 
   handleAlert(over, spd, limit, z, s.src);
 }
@@ -339,12 +414,12 @@ function handleAlert(over, spd, limit, z, src){
 function start(){
   initAudio();
   running = true; prev = null; gpsErr = ''; cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
-  if(navigator.geolocation){
+  if(!useUnit() && navigator.geolocation){
     try{ watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }); }catch(e){ gpsErr = 'no disponible'; }
-  } else { gpsErr = 'denegado'; }
+  } else if(!useUnit()){ gpsErr = 'denegado'; }
   lockScreen();
   tickTimer = setInterval(tick, 1000);
-  pollUnit(); unitTimer = setInterval(pollUnit, 5000);
+  pollUnit(); unitTimer = setInterval(pollUnit, 3000);
   $('btnStart').textContent = 'Detener'; $('btnStart').classList.add('on');
   tick();
 }
@@ -389,6 +464,7 @@ function renderDiag(){
     ['Permiso de ubicación', env.geoPerm],
     ['GPS del celular', cur.t ? ('último dato hace ' + ago(cur.t) + ', precisión ±' + Math.round(cur.acc || 0) + ' m') : (gpsErr ? gpsErr : 'sin datos todavía')],
     ['Velocidad por GPS', cur.kmh == null ? 'sin datos' : Math.round(cur.kmh) + ' km/h'],
+    ['Fuente elegida', useUnit() ? 'GPS de la unidad Geotab' : (st.src === 'phone' ? 'GPS del celular' : 'GPS del celular (no hay unidad asignada)')],
     ['Velocidad Geotab (unidad)', unit.got ? (unit.kmh == null ? '--' : Math.round(unit.kmh) + ' km/h') + ', dato de hace ' + ago(unit.at || unit.got) : 'sin datos'],
     ['Sonido', ctx ? ('activado (' + ctx.state + ')') : 'sin activar (tocá "Probar sonido")'],
     ['Vibración', navigator.vibrate ? 'disponible' : 'no disponible'],
@@ -416,6 +492,8 @@ function init(){
   $('simSpeed').oninput = function(){ $('simVal').textContent = $('simSpeed').value; tick(); };
   $('defLimit').onchange = function(){ st.defLimit = Math.max(10, Math.min(130, parseInt($('defLimit').value, 10) || 80)); save(); tick(); };
   $('tol').onchange = function(){ st.tol = Math.max(0, Math.min(15, parseInt($('tol').value, 10) || 0)); save(); tick(); };
+  $('srcMode').onchange = function(){ st.src = $('srcMode').value; save(); if(running){ stop(); start(); } else { tick(); } };
+  document.addEventListener('pointerdown', function(){ initAudio(); }, true);
   $('voice').onchange = function(){ st.voice = $('voice').checked; save(); };
   $('night').onchange = function(){ st.night = $('night').checked; save(); applyTheme(); };
   $('btnZone').onclick = function(){
@@ -435,7 +513,7 @@ function init(){
     }catch(e){ $('zJson').value = 'El texto no es válido.'; }
   };
   $('btnClear').onclick = function(){ st.log = []; save(); renderLog(); };
-  $('defLimit').value = st.defLimit; $('tol').value = st.tol; $('voice').checked = !!st.voice; $('night').checked = !!st.night;
+  $('srcMode').value = st.src === 'phone' ? 'phone' : 'unit'; $('defLimit').value = st.defLimit; $('tol').value = st.tol; $('voice').checked = !!st.voice; $('night').checked = !!st.night;
   applyTheme(); renderZones(); renderLog(); tick();
   return true;
 }
@@ -458,6 +536,7 @@ function boot(a, state){
     }
   }catch(e){}
   tick();
+  if(env.device && st.src !== 'phone' && !running){ setTimeout(function(){ if(!running) start(); }, 300); }
 }
 
 /* Si nadie llama a initialize (página abierta en un navegador común), arranca igual. */
