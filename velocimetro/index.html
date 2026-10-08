@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e1316">
+<title>Velocímetro TDP</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;600&display=swap">
+<style>
+/* Una sola pantalla para el tablero del camión: velocidad enorme, límite de la zona y colores de estado. */
+:root{
+  --bg:#0e1316; --panel:#172026; --line:#2a3a43; --fg:#eef3f5; --muted:#8fa2ab;
+  --ok:#2fbf71; --warn:#f2b01e; --bad:#e5483b; --state:var(--muted);
+  --display:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;
+  --body:'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;-webkit-tap-highlight-color:transparent;overflow:hidden}
+body[data-s="ok"]{--state:var(--ok)}
+body[data-s="warn"]{--state:var(--warn)}
+body[data-s="bad"]{--state:var(--bad)}
+#app{height:100%;display:flex;flex-direction:column;padding:max(12px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom))}
+#top{display:flex;justify-content:space-between;gap:12px;font-size:.9rem;color:var(--muted)}
+#top span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#zone{color:var(--fg);font-weight:600;text-align:right}
+#dial{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;border-radius:18px;margin:10px 0;border:3px solid var(--state);transition:border-color .2s}
+body[data-s="bad"] #dial{animation:flash .7s steps(2,jump-none) infinite}
+@keyframes flash{0%{background:rgba(229,72,59,.28)}100%{background:rgba(229,72,59,0)}}
+#speed{font-family:var(--display);font-weight:700;font-size:min(46vw,42vh);line-height:.9;color:var(--state);font-variant-numeric:tabular-nums}
+.unit{font-family:var(--display);font-weight:600;font-size:1.6rem;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+#limit{position:absolute;top:12px;right:12px;width:min(26vw,120px);aspect-ratio:1;border-radius:50%;background:#fff;border:min(1.8vw,8px) solid #d62f26;display:grid;place-items:center;color:#111;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+#limitNum{font-family:var(--display);font-weight:700;font-size:min(11vw,52px);line-height:1}
+#msg{min-height:1.6em;text-align:center;font-weight:600;color:var(--state);margin-bottom:8px}
+#bar{display:flex;gap:10px}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:12px;padding:14px 16px;min-height:52px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+button.primary{flex:1;background:var(--ok);border-color:var(--ok);color:#06210f;font-size:1.1rem}
+button.primary.on{background:var(--bad);border-color:var(--bad);color:#fff}
+#bar button.sec{flex:0 0 auto}
+#sheet{position:fixed;inset:0;background:var(--bg);overflow:auto;padding:max(14px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));z-index:5}
+#sheet[hidden]{display:none}
+#sheet h2{font-family:var(--display);font-size:1.5rem;margin:22px 0 8px;letter-spacing:.03em}
+#sheet h2:first-of-type{margin-top:6px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted);flex:1;min-width:110px}
+input[type=text],input[type=number],textarea{font:inherit;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
+input[type=range]{width:100%}
+textarea{min-height:90px;font-family:ui-monospace,Menlo,monospace;font-size:.8rem}
+ul{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:8px}
+li{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+li small{color:var(--muted);display:block}
+li button{min-height:40px;padding:8px 12px}
+.note{color:var(--muted);font-size:.85rem;margin:6px 0}
+.check{flex-direction:row;align-items:center;color:var(--fg);gap:10px;font-size:1rem}
+.check input{width:22px;height:22px}
+@media (prefers-reduced-motion:reduce){body[data-s="bad"] #dial{animation:none;background:rgba(229,72,59,.2)}}
+</style>
+</head>
+<body data-s="idle">
+<main id="app">
+  <header id="top"><span id="gps">GPS apagado</span><span id="zone">Sin zona</span></header>
+  <section id="dial" aria-live="off">
+    <div id="speed">--</div>
+    <div class="unit">km/h</div>
+    <div id="limit" title="Límite de la zona"><span id="limitNum">80</span></div>
+  </section>
+  <div id="msg" role="status">Tocá Iniciar para activar el GPS y el sonido</div>
+  <nav id="bar">
+    <button id="btnStart" class="primary">Iniciar</button>
+    <button id="btnCfg" class="sec">Configuración</button>
+  </nav>
+</main>
+
+<section id="sheet" hidden aria-label="Configuración">
+  <div class="row"><button id="btnClose" class="primary" style="flex:1">Volver al velocímetro</button></div>
+
+  <h2>Prueba sin moverse</h2>
+  <p class="note">Simula una velocidad para probar los colores y la alarma sin salir del lugar.</p>
+  <label class="check"><input type="checkbox" id="sim"> Usar velocidad simulada</label>
+  <label><span>Velocidad simulada: <b id="simVal">0</b> km/h</span><input type="range" id="simSpeed" min="0" max="140" value="0"></label>
+  <div class="row"><button id="btnBeep">Probar sonido</button></div>
+
+  <h2>Ajustes</h2>
+  <div class="row">
+    <label>Límite fuera de zonas (km/h)<input type="number" id="defLimit" min="10" max="130" inputmode="numeric"></label>
+    <label>Tolerancia (km/h)<input type="number" id="tol" min="0" max="15" inputmode="numeric"></label>
+  </div>
+  <label class="check"><input type="checkbox" id="voice"> Aviso hablado además del sonido</label>
+
+  <h2>Zonas con límite propio</h2>
+  <p class="note">Parate dentro de la zona (por ejemplo en la base o en un yacimiento), iniciá el GPS y tocá "Guardar zona aquí". Se usa la zona más chica que contenga tu posición.</p>
+  <div class="row">
+    <label>Nombre<input type="text" id="zName" placeholder="Base TDP Plottier"></label>
+    <label>Límite (km/h)<input type="number" id="zLimit" value="20" min="5" max="130" inputmode="numeric"></label>
+    <label>Radio (m)<input type="number" id="zRadius" value="300" min="30" max="5000" inputmode="numeric"></label>
+  </div>
+  <div class="row"><button id="btnZone">Guardar zona aquí</button></div>
+  <ul id="zones"></ul>
+  <div class="row">
+    <button id="btnExport">Exportar zonas</button>
+    <button id="btnImport">Importar zonas</button>
+  </div>
+  <textarea id="zJson" placeholder="Acá aparece el texto de las zonas. Para importar, pegá el texto y tocá Importar zonas." aria-label="Texto de zonas"></textarea>
+
+  <h2>Excesos registrados</h2>
+  <ul id="log"></ul>
+  <div class="row"><button id="btnClear">Borrar registro</button></div>
+  <p class="note">Este celular guarda los datos localmente. Mantené esta pantalla abierta y el celular en un soporte mientras manejás.</p>
+</section>
+
+<script>
+(function(){
+'use strict';
+var LS = 'tdp_velocimetro_v1';
+var DEF = { zones: [], log: [], defLimit: 80, tol: 3, voice: false };
+var st = load();
+function load(){ try{ var j = JSON.parse(localStorage.getItem(LS) || '{}'); return Object.assign({}, DEF, j); }catch(e){ return Object.assign({}, DEF); } }
+function save(){ try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} }
+function $(id){ return document.getElementById(id); }
+
+var running = false, watchId = null, ctx = null, wl = null, tickTimer = null, alertTimer = null;
+var cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
+var prev = null;
+var ev = null; /* exceso en curso */
+
+/* ---------- geometría ---------- */
+function dist(aLat, aLng, bLat, bLng){
+  var R = 6371000, rad = Math.PI / 180;
+  var dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  var x = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(aLat*rad)*Math.cos(bLat*rad)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+function zoneAt(lat, lng){
+  if(lat == null) return null;
+  var best = null;
+  st.zones.forEach(function(z){
+    if(dist(lat, lng, z.lat, z.lng) <= z.r && (!best || z.r < best.r)) best = z;
+  });
+  return best;
+}
+
+/* ---------- GPS ---------- */
+function onPos(p){
+  var c = p.coords, kmh = null;
+  if(typeof c.speed === 'number' && !isNaN(c.speed)){ kmh = c.speed * 3.6; }
+  else if(prev){
+    var dt = (p.timestamp - prev.t) / 1000;
+    if(dt > 0.5 && dt < 15) kmh = dist(prev.lat, prev.lng, c.latitude, c.longitude) / dt * 3.6;
+  }
+  if(kmh != null && kmh < 3) kmh = 0; /* ruido del GPS con el camión parado */
+  prev = { lat: c.latitude, lng: c.longitude, t: p.timestamp };
+  cur = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, kmh: kmh, t: Date.now() };
+  tick();
+}
+function onErr(e){
+  var m = e && e.code === 1 ? 'Permiso de ubicación denegado. Habilitalo en el navegador.' : 'No se pudo obtener la ubicación.';
+  $('gps').textContent = 'GPS sin señal';
+  $('msg').textContent = m;
+}
+
+/* ---------- sonido, voz, pantalla ---------- */
+function initAudio(){
+  try{
+    if(!ctx){ var AC = window.AudioContext || window.webkitAudioContext; if(AC) ctx = new AC(); }
+    if(ctx && ctx.state === 'suspended') ctx.resume();
+  }catch(e){}
+}
+function beep(urgent){
+  if(ctx){
+    var t = ctx.currentTime;
+    [0, 0.2].forEach(function(o){
+      var os = ctx.createOscillator(), g = ctx.createGain();
+      os.type = 'square'; os.frequency.value = urgent ? 1040 : 820;
+      g.gain.setValueAtTime(0.0001, t + o);
+      g.gain.exponentialRampToValueAtTime(0.5, t + o + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + o + 0.15);
+      os.connect(g); g.connect(ctx.destination);
+      os.start(t + o); os.stop(t + o + 0.17);
+    });
+  }
+  try{ if(navigator.vibrate) navigator.vibrate([150, 80, 150]); }catch(e){}
+}
+function speak(txt){
+  try{
+    if(!st.voice || !window.speechSynthesis) return;
+    var u = new SpeechSynthesisUtterance(txt); u.lang = 'es-AR'; u.rate = 1.05;
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+function lockScreen(){
+  try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(function(l){ wl = l; }).catch(function(){}); }catch(e){}
+}
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible' && running) lockScreen(); });
+
+/* ---------- lógica principal ---------- */
+function currentSpeed(){
+  if($('sim').checked) return parseInt($('simSpeed').value, 10) || 0;
+  if(!running) return null;
+  if(Date.now() - cur.t > 6000) return null; /* fix viejo */
+  return cur.kmh;
+}
+function tick(){
+  var sim = $('sim').checked;
+  var spd = currentSpeed();
+  var z = zoneAt(cur.lat, cur.lng);
+  var limit = z ? z.limit : st.defLimit;
+  var over = spd != null && spd > limit + st.tol;
+  var near = spd != null && !over && spd >= limit - 5;
+
+  $('speed').textContent = spd == null ? '--' : String(Math.round(spd));
+  $('limitNum').textContent = String(limit);
+  $('zone').textContent = z ? z.name : 'Sin zona (límite general)';
+
+  var s = 'idle', msg;
+  if(!running && !sim){ msg = 'Tocá Iniciar para activar el GPS y el sonido'; }
+  else if(spd == null){ msg = 'Buscando señal GPS…'; s = 'idle'; }
+  else if(over){ s = 'bad'; msg = 'Exceso de velocidad: +' + Math.round(spd - limit) + ' km/h sobre el límite'; }
+  else if(near){ s = 'warn'; msg = 'Cerca del límite'; }
+  else { s = 'ok'; msg = 'Velocidad dentro del límite'; }
+  document.body.setAttribute('data-s', s);
+  $('msg').textContent = msg;
+
+  if(running){
+    var gpsTxt = cur.t ? ('GPS ±' + Math.round(cur.acc || 0) + ' m') : 'GPS buscando…';
+    $('gps').textContent = (Date.now() - cur.t > 6000 && cur.t) ? 'GPS sin señal' : gpsTxt;
+  } else { $('gps').textContent = sim ? 'Modo prueba' : 'GPS apagado'; }
+
+  handleAlert(over, spd, limit, z);
+}
+function handleAlert(over, spd, limit, z){
+  if(over){
+    var by = spd - limit;
+    if(!ev){
+      ev = { t: new Date().toISOString(), zone: z ? z.name : 'General', limit: limit, max: spd, start: Date.now(), sim: $('sim').checked };
+      beep(by > 10); speak('Exceso de velocidad. Límite ' + limit);
+      alertTimer = setInterval(function(){ beep(ev && (ev.max - ev.limit) > 10); }, 1400);
+    }
+    if(spd > ev.max) ev.max = spd;
+  } else if(ev){
+    clearInterval(alertTimer); alertTimer = null;
+    if(Date.now() - ev.start >= 3000){
+      st.log.unshift({ t: ev.t, zone: ev.zone, limit: ev.limit, max: Math.round(ev.max), secs: Math.round((Date.now() - ev.start) / 1000), sim: ev.sim });
+      st.log = st.log.slice(0, 100); save(); renderLog();
+    }
+    ev = null;
+  }
+}
+
+function start(){
+  initAudio();
+  if(!navigator.geolocation){ $('msg').textContent = 'Este navegador no tiene GPS disponible.'; return; }
+  running = true; prev = null; cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
+  watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  lockScreen();
+  tickTimer = setInterval(tick, 1000);
+  $('btnStart').textContent = 'Detener'; $('btnStart').classList.add('on');
+  tick();
+}
+function stop(){
+  running = false;
+  if(watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null;
+  clearInterval(tickTimer); tickTimer = null;
+  clearInterval(alertTimer); alertTimer = null; ev = null;
+  try{ if(wl) wl.release(); }catch(e){} wl = null;
+  $('btnStart').textContent = 'Iniciar'; $('btnStart').classList.remove('on');
+  tick();
+}
+
+/* ---------- zonas y registro ---------- */
+function renderZones(){
+  var ul = $('zones'); ul.textContent = '';
+  if(!st.zones.length){ var e = document.createElement('li'); e.textContent = 'Todavía no hay zonas guardadas.'; ul.appendChild(e); return; }
+  st.zones.forEach(function(z, i){
+    var li = document.createElement('li'), d = document.createElement('div'), b = document.createElement('button');
+    var n = document.createElement('b'); n.textContent = z.name + ' · ' + z.limit + ' km/h';
+    var s = document.createElement('small'); s.textContent = 'Radio ' + z.r + ' m';
+    d.appendChild(n); d.appendChild(s);
+    b.textContent = 'Borrar'; b.onclick = function(){ st.zones.splice(i, 1); save(); renderZones(); tick(); };
+    li.appendChild(d); li.appendChild(b); ul.appendChild(li);
+  });
+}
+function renderLog(){
+  var ul = $('log'); ul.textContent = '';
+  if(!st.log.length){ var e = document.createElement('li'); e.textContent = 'Sin excesos registrados.'; ul.appendChild(e); return; }
+  st.log.slice(0, 30).forEach(function(r){
+    var li = document.createElement('li'), d = document.createElement('div');
+    var n = document.createElement('b'); n.textContent = r.max + ' km/h (límite ' + r.limit + ')' + (r.sim ? ' · prueba' : '');
+    var s = document.createElement('small'); s.textContent = new Date(r.t).toLocaleString('es-AR') + ' · ' + r.zone + ' · ' + r.secs + ' s';
+    d.appendChild(n); d.appendChild(s); li.appendChild(d); ul.appendChild(li);
+  });
+}
+
+/* ---------- eventos de la interfaz ---------- */
+$('btnStart').onclick = function(){ if(running) stop(); else start(); };
+$('btnCfg').onclick = function(){ $('sheet').hidden = false; };
+$('btnClose').onclick = function(){ $('sheet').hidden = true; tick(); };
+$('btnBeep').onclick = function(){ initAudio(); beep(false); speak('Prueba de aviso'); };
+$('sim').onchange = function(){ if($('sim').checked) initAudio(); tick(); };
+$('simSpeed').oninput = function(){ $('simVal').textContent = $('simSpeed').value; tick(); };
+$('defLimit').onchange = function(){ st.defLimit = Math.max(10, Math.min(130, parseInt($('defLimit').value, 10) || 80)); save(); tick(); };
+$('tol').onchange = function(){ st.tol = Math.max(0, Math.min(15, parseInt($('tol').value, 10) || 0)); save(); tick(); };
+$('voice').onchange = function(){ st.voice = $('voice').checked; save(); };
+$('btnZone').onclick = function(){
+  if(cur.lat == null){ $('zName').value = ''; $('zName').placeholder = 'Primero iniciá el GPS y esperá la señal'; return; }
+  var name = $('zName').value.trim() || 'Zona ' + (st.zones.length + 1);
+  st.zones.push({ name: name, lat: cur.lat, lng: cur.lng, r: parseInt($('zRadius').value, 10) || 300, limit: parseInt($('zLimit').value, 10) || 20 });
+  save(); renderZones(); $('zName').value = ''; tick();
+};
+$('btnExport').onclick = function(){ $('zJson').value = JSON.stringify(st.zones); };
+$('btnImport').onclick = function(){
+  try{
+    var a = JSON.parse($('zJson').value);
+    if(!Array.isArray(a)) throw new Error('x');
+    st.zones = a.filter(function(z){ return z && typeof z.lat === 'number' && typeof z.lng === 'number' && z.r > 0 && z.limit > 0; }).map(function(z){ return { name: String(z.name || 'Zona'), lat: z.lat, lng: z.lng, r: z.r, limit: z.limit }; });
+    save(); renderZones(); tick();
+  }catch(e){ $('zJson').value = 'El texto no es válido.'; }
+};
+$('btnClear').onclick = function(){ st.log = []; save(); renderLog(); };
+
+$('defLimit').value = st.defLimit; $('tol').value = st.tol; $('voice').checked = !!st.voice;
+renderZones(); renderLog(); tick();
+})();
+</script>
+</body>
+</html>
