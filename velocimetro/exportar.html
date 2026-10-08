@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Exportar límites de velocidad</title>
+</head>
+<body>
+<div id="vx" style="font-family:Poppins,Arial,sans-serif;max-width:980px;margin:0 auto;padding:16px;color:#20232B">
+  <h2 style="margin:0 0 4px">Límites de velocidad de MyGeotab</h2>
+  <p style="margin:0 0 12px;color:#6B7280;font-size:14px">Solo lectura. Lee las reglas de exceso de velocidad y las zonas para armar la tabla de límites del Velocímetro. No modifica nada.</p>
+  <div id="vxStatus" style="padding:10px 14px;border-radius:12px;background:#E3F5FB;color:#0078A1;font-weight:600;font-size:14px">Esperando a MyGeotab…</div>
+  <h3>Reglas de velocidad</h3>
+  <pre id="vxRules" style="white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid #ECEDF2;border-radius:14px;padding:12px;font-size:12px;max-height:520px;overflow:auto"></pre>
+  <h3>Tipos de zona</h3>
+  <pre id="vxTypes" style="white-space:pre-wrap;background:#fff;border:1px solid #ECEDF2;border-radius:14px;padding:12px;font-size:12px"></pre>
+  <h3>Zonas (para el Velocímetro)</h3>
+  <textarea id="vxZones" readonly style="width:100%;min-height:140px;border:1px solid #ECEDF2;border-radius:14px;padding:10px;font-family:monospace;font-size:11px"></textarea>
+</div>
+<script>
+(function(){
+'use strict';
+function $(id){ return document.getElementById(id); }
+var done = false;
+
+function status(t){ var s = $('vxStatus'); if(s) s.textContent = t; }
+
+function nameMap(list){ var m = {}; (list || []).forEach(function(x){ m[x.id] = x.name || x.id; }); return m; }
+
+/* Reemplaza ids por nombres dentro de la condición y la deja legible */
+function cond(c, maps, depth){
+  if(!c) return '';
+  var pad = new Array((depth || 0) + 1).join('  ');
+  var out = pad + (c.conditionType || '?');
+  if(c.value !== undefined && c.value !== null) out += ' valor=' + c.value;
+  if(c.zone && c.zone.id) out += ' zona/tipo=' + (maps.zone[c.zone.id] || maps.type[c.zone.id] || c.zone.id);
+  if(c.zoneType && c.zoneType.id) out += ' tipo=' + (maps.type[c.zoneType.id] || c.zoneType.id);
+  if(c.device && c.device.id) out += ' unidad=' + c.device.id;
+  if(c.driver && c.driver.id) out += ' chofer=' + c.driver.id;
+  if(c.diagnostic && c.diagnostic.id) out += ' diag=' + c.diagnostic.id;
+  out += '\n';
+  (c.children || []).forEach(function(k){ out += cond(k, maps, (depth || 0) + 1); });
+  return out;
+}
+
+function centroid(pts){
+  var x = 0, y = 0; pts.forEach(function(p){ x += p.x; y += p.y; });
+  return [y / pts.length, x / pts.length];
+}
+function simplify(pts, max){
+  if(pts.length <= max) return pts;
+  var step = pts.length / max, out = [];
+  for(var i = 0; i < max; i++) out.push(pts[Math.floor(i * step)]);
+  return out;
+}
+function r5(n){ return Math.round(n * 100000) / 100000; }
+
+function run(api){
+  if(done) return; done = true;
+  status('Leyendo reglas, zonas y grupos…');
+  api.multiCall([
+    ['Get', { typeName: 'Rule' }],
+    ['Get', { typeName: 'ZoneType' }],
+    ['Get', { typeName: 'Zone' }],
+    ['Get', { typeName: 'Group' }]
+  ], function(res){
+    try{
+      var rules = res[0] || [], types = res[1] || [], zones = res[2] || [], groups = res[3] || [];
+      var maps = { type: nameMap(types), zone: nameMap(zones), group: nameMap(groups) };
+
+      var rx = /exceso|velocidad|zona de \d+ ?kmh|kmh/i;
+      var sel = rules.filter(function(r){ return rx.test(r.name || ''); });
+      var txt = '';
+      sel.forEach(function(r){
+        var gs = (r.groups || []).map(function(g){ return maps.group[g.id] || g.id; }).join(', ');
+        txt += '== ' + r.name + '  [' + (r.baseType || '') + ']' + (gs ? '  grupos: ' + gs : '') + (r.comment ? '  nota: ' + r.comment : '') + '\n';
+        txt += cond(r.condition, maps, 1) + '\n';
+      });
+      $('vxRules').textContent = txt || 'No se encontraron reglas.';
+
+      var cnt = {};
+      zones.forEach(function(z){ (z.zoneTypes || []).forEach(function(t){ var n = maps.type[t.id] || t.id; cnt[n] = (cnt[n] || 0) + 1; }); if(!(z.zoneTypes || []).length){ cnt['(sin tipo)'] = (cnt['(sin tipo)'] || 0) + 1; } });
+      $('vxTypes').textContent = Object.keys(cnt).sort().map(function(k){ return k + ': ' + cnt[k] + ' zonas'; }).join('\n') + '\n\nTotal de zonas: ' + zones.length;
+
+      var out = zones.filter(function(z){ return z.points && z.points.length; }).map(function(z){
+        var pts = z.points, c = centroid(pts), rad = 0;
+        pts.forEach(function(p){
+          var dLat = (p.y - c[0]) * 111320, dLng = (p.x - c[1]) * 111320 * Math.cos(c[0] * Math.PI / 180);
+          rad = Math.max(rad, Math.sqrt(dLat * dLat + dLng * dLng));
+        });
+        return { n: z.name, t: (z.zoneTypes || []).map(function(t){ return maps.type[t.id] || t.id; }), c: [r5(c[0]), r5(c[1])], r: Math.round(rad), p: simplify(pts, 24).map(function(p){ return [r5(p.y), r5(p.x)]; }) };
+      });
+      $('vxZones').value = JSON.stringify(out);
+      status('Listo: ' + sel.length + ' reglas de velocidad, ' + zones.length + ' zonas, ' + types.length + ' tipos de zona.');
+    }catch(e){ status('Error al procesar: ' + (e && e.message ? e.message : e)); }
+  }, function(e){ status('Error al leer de MyGeotab: ' + (e && e.message ? e.message : JSON.stringify(e))); });
+}
+
+try{
+  if(typeof geotab !== 'undefined' && geotab.addin){
+    geotab.addin.velExportTDP = function(){
+      return { initialize: function(api, state, cb){ run(api); if(typeof cb === 'function') cb(); }, focus: function(api){ run(api); }, blur: function(){} };
+    };
+  }
+}catch(e){}
+window.initialize = function(api, state, cb){ run(api); if(typeof cb === 'function') cb(); };
+})();
+</script>
+</body>
+</html>
