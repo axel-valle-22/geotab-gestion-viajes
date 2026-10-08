@@ -50,7 +50,10 @@
   <div class="card sec">
     <h2>Ajustes</h2>
     <div class="row">
-      <label>Límite fuera de zonas (km/h)<input type="number" id="defLimit" min="10" max="130" inputmode="numeric"></label>
+      <label>Tipo de vehículo
+        <select id="vcls"><option value="pesado">Camión</option><option value="liviano">Camioneta</option></select>
+      </label>
+      <label>Límite si no cargan las zonas (km/h)<input type="number" id="defLimit" min="10" max="130" inputmode="numeric"></label>
       <label>Tolerancia (km/h)<input type="number" id="tol" min="0" max="15" inputmode="numeric"></label>
     </div>
     <label>Fuente de la velocidad
@@ -124,7 +127,7 @@ try{
 }catch(e){}
 
 var LS = 'tdp_velocimetro_addin_v1';
-var DEF = { zones: [], log: [], defLimit: 80, tol: 3, voice: false, night: false, src: 'unit' };
+var DEF = { zones: [], log: [], defLimit: 80, tol: 3, voice: false, night: false, src: 'unit', cls: 'pesado' };
 var st = load();
 function load(){ try{ var j = JSON.parse(localStorage.getItem(LS) || '{}'); return Object.assign({}, DEF, j); }catch(e){ return Object.assign({}, DEF); } }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} }
@@ -151,6 +154,72 @@ function zoneAt(lat, lng){
   var best = null;
   st.zones.forEach(function(z){ if(dist(lat, lng, z.lat, z.lng) <= z.r && (!best || z.r < best.r)) best = z; });
   return best;
+}
+
+/* ---------- zonas compartidas de MyGeotab (límite según tipo de zona y tipo de vehículo) ---------- */
+var LSZ = 'tdp_velocimetro_zonas_v1', ZURL = 'https://axel-valle-22.github.io/geotab-gestion-viajes/velocimetro/zonas.json';
+var shared = [], sharedInfo = 'sin cargar';
+function prepZonas(o){
+  var out = [];
+  (o.z || []).forEach(function(q){
+    if(!q.p || q.p.length < 3) return;
+    var a = 90, b = -90, c = 180, d = -180;
+    q.p.forEach(function(x){ if(x[0] < a) a = x[0]; if(x[0] > b) b = x[0]; if(x[1] < c) c = x[1]; if(x[1] > d) d = x[1]; });
+    out.push({ n: q.n, t: String(q.t || '').split(','), p: q.p, bb: [a, b, c, d] });
+  });
+  return out;
+}
+function loadZonas(){
+  try{ var c = JSON.parse(localStorage.getItem(LSZ) || 'null'); if(c && c.z){ shared = prepZonas(c); sharedInfo = shared.length + ' zonas (copia guardada ' + (c.fecha || '') + ')'; } }catch(e){}
+  try{
+    fetch(ZURL + '?t=' + Date.now(), { cache: 'no-store' }).then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }).then(function(t){
+      var o = JSON.parse(t); shared = prepZonas(o); sharedInfo = shared.length + ' zonas (' + (o.fecha || '') + ')';
+      try{ localStorage.setItem(LSZ, t); }catch(e){}
+      tick();
+    }).catch(function(e){ if(!shared.length) sharedInfo = 'no se pudo cargar: ' + (e && e.message ? e.message : e); });
+  }catch(e){ sharedInfo = 'no se pudo cargar'; }
+}
+function inPoly(lat, lng, p){
+  var inside = false;
+  for(var i = 0, j = p.length - 1; i < p.length; j = i++){
+    var yi = p[i][0], xi = p[i][1], yj = p[j][0], xj = p[j][1];
+    if(((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function sharedAt(lat, lng){
+  var types = {}, names = [];
+  shared.forEach(function(q){
+    var b = q.bb;
+    if(lat < b[0] || lat > b[1] || lng < b[2] || lng > b[3]) return;
+    if(inPoly(lat, lng, q.p)){ q.t.forEach(function(t){ types[t] = 1; }); if(names.length < 2) names.push(q.n); }
+  });
+  return { types: types, names: names };
+}
+/* Mismas reglas que las "25_Exceso" de MyGeotab. Si hay varias zonas a la vez, se usa el límite más bajo. */
+function limitFor(T){
+  var liv = st.cls === 'liviano', c = [], lab = [];
+  if(T.K){ c.push(liv ? 110 : 80); lab.push('Zona de control'); }
+  else {
+    if(T.C){ c.push(40); lab.push('Ciudad'); }
+    if(T.Y){ c.push(liv ? 60 : 40); lab.push('Yacimiento'); }
+  }
+  if(T.R){ c.push(60); lab.push('Ripio'); }
+  if(T.R50){ c.push(50); lab.push('Ripio'); }
+  if(T.B){ c.push(15); lab.push('Base'); }
+  ['Z40', 'Z60', 'Z80', 'Z110'].forEach(function(k){ if(T[k]){ c.push(parseInt(k.slice(1), 10)); lab.push('Ruta ' + k.slice(1)); } });
+  if(!c.length) return null;
+  return { limit: Math.min.apply(null, c), lab: lab.join(' / ') };
+}
+function generalLimit(){ return shared.length ? (st.cls === 'liviano' ? 110 : 80) : st.defLimit; }
+function zoneInfo(lat, lng){
+  if(lat == null) return null;
+  var m = zoneAt(lat, lng);
+  if(m) return m;
+  if(!shared.length) return null;
+  var s = sharedAt(lat, lng), r = limitFor(s.types);
+  if(!r) return null;
+  return { name: (s.names[0] ? s.names[0] + ' · ' : '') + r.lab, limit: r.limit };
 }
 
 /* ---------- GPS del celular ---------- */
@@ -273,14 +342,14 @@ function tick(){
   if(!inited) return;
   var sim = $('sim').checked;
   var s = source(), spd = s.kmh;
-  var z = zoneAt(s.lat, s.lng);
-  var limit = z ? z.limit : st.defLimit;
+  var z = zoneInfo(s.lat, s.lng);
+  var limit = z ? z.limit : generalLimit();
   var over = spd != null && spd > limit + st.tol;
   var near = spd != null && !over && spd >= limit - 5;
 
   $('speed').textContent = spd == null ? '--' : String(Math.round(spd));
   $('limitNum').textContent = String(limit);
-  $('zone').textContent = z ? z.name : 'Sin zona (límite general)';
+  $('zone').textContent = z ? z.name : (shared.length ? 'Ruta · fuera de zonas' : 'Sin zona (límite general)');
 
   var state = 'idle', msg;
   if(!running && !sim){ msg = 'Tocá Iniciar para activar el velocímetro y el sonido'; }
@@ -319,8 +388,8 @@ function handleAlert(over, spd, limit, z, src){
   if(over){
     if(!ev){
       ev = { t: new Date().toISOString(), zone: z ? z.name : 'General', limit: limit, max: spd, start: Date.now(), sim: src === 'sim', src: src };
-      beep(spd - limit > 10); speak('Exceso de velocidad. Límite ' + limit);
-      alertTimer = setInterval(function(){ beep(ev && (ev.max - ev.limit) > 10); }, 1400);
+      beep(spd > limit * 1.2); speak('Exceso de velocidad. Límite ' + limit);
+      alertTimer = setInterval(function(){ beep(ev && ev.max > ev.limit * 1.2); }, 1400);
     }
     if(spd > ev.max) ev.max = spd;
   } else if(ev){
@@ -393,6 +462,8 @@ function renderDiag(){
     ['Dato de Drive (unidad)', rawDev || 'vacío'],
     ['Pedidos a Geotab', unitOk + ' bien, ' + unitFail + ' con error'],
     ['Último error', unitErr || 'ninguno'],
+    ['Tipo de vehículo', st.cls === 'liviano' ? 'Camioneta' : 'Camión'],
+    ['Zonas de MyGeotab', sharedInfo],
     ['Fuente elegida', useUnit() ? 'GPS de la unidad Geotab' : (st.src === 'phone' ? 'GPS del celular' : (env.device ? 'GPS del celular (la unidad no responde)' : 'GPS del celular (no hay unidad asignada)'))],
     ['Velocidad Geotab (unidad)', unit.got ? (unit.kmh == null ? '--' : Math.round(unit.kmh) + ' km/h') + ', dato de hace ' + ago(unit.at || unit.got) : 'sin datos'],
     ['Sonido', ctx ? ('activado (' + ctx.state + ')') : 'sin activar (tocá "Probar sonido")'],
@@ -424,6 +495,7 @@ function init(){
   $('tol').onchange = function(){ st.tol = Math.max(0, Math.min(15, parseInt($('tol').value, 10) || 0)); save(); tick(); };
   $('srcMode').onchange = function(){ st.src = $('srcMode').value; save(); if(running){ stop(); start(); } else { tick(); } };
   document.addEventListener('pointerdown', function(){ initAudio(); }, true);
+  $('vcls').onchange = function(){ st.cls = $('vcls').value === 'liviano' ? 'liviano' : 'pesado'; save(); tick(); };
   $('voice').onchange = function(){ st.voice = $('voice').checked; save(); };
   $('night').onchange = function(){ st.night = $('night').checked; save(); applyTheme(); };
   $('btnZone').onclick = function(){
@@ -443,8 +515,8 @@ function init(){
     }catch(e){ $('zJson').value = 'El texto no es válido.'; }
   };
   $('btnClear').onclick = function(){ st.log = []; save(); renderLog(); };
-  $('srcMode').value = st.src === 'phone' ? 'phone' : 'unit'; $('defLimit').value = st.defLimit; $('tol').value = st.tol; $('voice').checked = !!st.voice; $('night').checked = !!st.night;
-  applyTheme(); renderZones(); renderLog(); tick();
+  $('vcls').value = st.cls === 'liviano' ? 'liviano' : 'pesado'; $('srcMode').value = st.src === 'phone' ? 'phone' : 'unit'; $('defLimit').value = st.defLimit; $('tol').value = st.tol; $('voice').checked = !!st.voice; $('night').checked = !!st.night;
+  applyTheme(); renderZones(); renderLog(); loadZonas(); tick();
   return true;
 }
 
