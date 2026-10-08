@@ -132,7 +132,9 @@ function save(){ try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} 
 var running = false, watchId = null, ctx = null, wl = null, tickTimer = null, alertTimer = null, unitTimer = null;
 var cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
 var unit = { kmh: null, lat: null, lng: null, at: 0, got: 0 };
-var unitOk = 0, unitFail = 0, unitErr = '', rawDev = '';
+var unitOk = 0, unitFail = 0, unitErr = '', rawDev = '', unitVar = 0, unitLock = false, unitErrs = [];
+var UV = ['Estado', 'Registro', 'Velocidad'];
+function unitDead(){ return unitOk === 0 && unitFail >= 4; }
 var prev = null, ev = null, gpsErr = '';
 var env = { api: false, drive: false, device: null, user: null, geoPerm: '?' };
 var api = null;
@@ -172,21 +174,44 @@ function onErr(e){
 /* ---------- velocidad que informa Geotab para la unidad asignada ---------- */
 function pollUnit(){
   if(!api || !env.device) return;
+  var asked = env.device, vi = unitVar;
+  function good(n){
+    if(asked !== env.device) return;
+    unitOk++; unitErr = ''; unitLock = true;
+    if(n) unit = { kmh: n.kmh, lat: n.lat != null ? n.lat : unit.lat, lng: n.lng != null ? n.lng : unit.lng, at: n.at, got: Date.now() };
+    tick();
+  }
+  function bad(e){
+    if(asked !== env.device) return;
+    unitFail++;
+    var m; try{ m = typeof e === 'string' ? e : (e && (e.message || e.name)) || JSON.stringify(e); }catch(x){ m = 'error desconocido'; }
+    unitErrs[vi] = UV[vi] + ': ' + m; unitErr = unitErrs.filter(Boolean).join(' | ');
+    if(!unitLock) unitVar = (unitVar + 1) % UV.length;
+    if(unitDead()) startGps();
+    tick();
+  }
   try{
-    var asked = env.device;
-    api.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: asked } } }, function(res){
-      if(asked !== env.device) return;
-      if(res && res.length){
-        var r = res[0]; unitOk++; unitErr = '';
-        unit = { kmh: typeof r.speed === 'number' ? r.speed : null, lat: r.latitude, lng: r.longitude, at: r.dateTime ? new Date(r.dateTime).getTime() : 0, got: Date.now() };
-      } else { unitFail++; unitErr = 'Geotab no devolvió datos para la unidad ' + asked; }
-      tick();
-    }, function(e){
-      unitFail++;
-      try{ unitErr = typeof e === 'string' ? e : (e && (e.message || e.name)) || JSON.stringify(e); }catch(x){ unitErr = 'error desconocido'; }
-      tick();
-    });
-  }catch(e){ unitFail++; unitErr = 'excepción: ' + (e && e.message ? e.message : e); }
+    if(vi === 0){
+      api.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: asked } } }, function(res){
+        if(res && res.length){ var r = res[0]; good({ kmh: typeof r.speed === 'number' ? r.speed : null, lat: r.latitude, lng: r.longitude, at: r.dateTime ? new Date(r.dateTime).getTime() : 0 }); }
+        else { good(null); }
+      }, bad);
+    } else if(vi === 1){
+      api.call('Get', { typeName: 'LogRecord', search: { deviceSearch: { id: asked }, fromDate: new Date(Date.now() - 180000).toISOString() } }, function(res){
+        if(res && res.length){
+          var r = res[res.length - 1]; res.forEach(function(x){ if(new Date(x.dateTime) > new Date(r.dateTime)) r = x; });
+          good({ kmh: typeof r.speed === 'number' ? r.speed : null, lat: r.latitude, lng: r.longitude, at: new Date(r.dateTime).getTime() });
+        } else { good(null); }
+      }, bad);
+    } else {
+      api.call('Get', { typeName: 'StatusData', search: { deviceSearch: { id: asked }, diagnosticSearch: { id: 'DiagnosticSpeedId' }, fromDate: new Date(Date.now() - 180000).toISOString() } }, function(res){
+        if(res && res.length){
+          var r = res[res.length - 1]; res.forEach(function(x){ if(new Date(x.dateTime) > new Date(r.dateTime)) r = x; });
+          good({ kmh: typeof r.data === 'number' ? r.data : null, lat: null, lng: null, at: new Date(r.dateTime).getTime() });
+        } else { good(null); }
+      }, bad);
+    }
+  }catch(e){ bad('excepción: ' + (e && e.message ? e.message : e)); }
 }
 
 /* ---------- sonido, voz, pantalla ---------- */
@@ -231,7 +256,7 @@ document.addEventListener('visibilitychange', function(){ if(document.visibility
 var UNIT_MAX_AGE = 120000;
 function unitFresh(){ return unit.kmh != null && unit.at && (Date.now() - unit.at) <= UNIT_MAX_AGE; }
 function phoneFresh(){ return cur.t && Date.now() - cur.t <= 6000 && cur.kmh != null; }
-function useUnit(){ return st.src !== 'phone' && !!env.device; }
+function useUnit(){ return st.src !== 'phone' && !!env.device && !unitDead(); }
 function source(){
   if($('sim').checked) return { kmh: parseInt($('simSpeed').value, 10) || 0, lat: cur.lat != null ? cur.lat : unit.lat, lng: cur.lat != null ? cur.lng : unit.lng, src: 'sim' };
   if(!running) return { kmh: null, lat: null, lng: null, src: 'none' };
@@ -268,7 +293,7 @@ function tick(){
   else if(near){ state = 'warn'; msg = 'Cerca del límite'; }
   else { state = 'ok'; msg = 'Velocidad dentro del límite'; }
   if(s.src === 'unit' && spd != null){ var ageS = Math.round((Date.now() - unit.at) / 1000); msg += ageS > 20 ? ' · dato con ' + ago(unit.at) + ' de demora' : ' · GPS de la unidad'; }
-  else if(s.src === 'gps' && spd != null){ msg += ' · GPS del celular'; }
+  else if(s.src === 'gps' && spd != null){ msg += (env.device && st.src !== 'phone') ? ' · GPS del celular (la unidad no responde)' : ' · GPS del celular'; }
   $('vel').setAttribute('data-s', state);
   $('msg').textContent = msg;
 
@@ -308,12 +333,16 @@ function handleAlert(over, spd, limit, z, src){
   }
 }
 
+function startGps(){
+  if(watchId != null) return;
+  if(navigator.geolocation){
+    try{ watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }); }catch(e){ gpsErr = 'no disponible'; }
+  } else { gpsErr = 'denegado'; }
+}
 function start(){
   initAudio();
   running = true; prev = null; gpsErr = ''; cur = { lat: null, lng: null, acc: null, kmh: null, t: 0 };
-  if(!useUnit() && navigator.geolocation){
-    try{ watchId = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }); }catch(e){ gpsErr = 'no disponible'; }
-  } else if(!useUnit()){ gpsErr = 'denegado'; }
+  if(!useUnit()) startGps();
   lockScreen();
   tickTimer = setInterval(tick, 1000);
   pollUnit(); unitTimer = setInterval(pollUnit, 3000);
@@ -364,7 +393,7 @@ function renderDiag(){
     ['Dato de Drive (unidad)', rawDev || 'vacío'],
     ['Pedidos a Geotab', unitOk + ' bien, ' + unitFail + ' con error'],
     ['Último error', unitErr || 'ninguno'],
-    ['Fuente elegida', useUnit() ? 'GPS de la unidad Geotab' : (st.src === 'phone' ? 'GPS del celular' : 'GPS del celular (no hay unidad asignada)')],
+    ['Fuente elegida', useUnit() ? 'GPS de la unidad Geotab' : (st.src === 'phone' ? 'GPS del celular' : (env.device ? 'GPS del celular (la unidad no responde)' : 'GPS del celular (no hay unidad asignada)'))],
     ['Velocidad Geotab (unidad)', unit.got ? (unit.kmh == null ? '--' : Math.round(unit.kmh) + ' km/h') + ', dato de hace ' + ago(unit.at || unit.got) : 'sin datos'],
     ['Sonido', ctx ? ('activado (' + ctx.state + ')') : 'sin activar (tocá "Probar sonido")'],
     ['Vibración', navigator.vibrate ? 'disponible' : 'no disponible'],
@@ -425,7 +454,7 @@ function syncDevice(state){
     var dev = state && state.device, id = null;
     if(dev){ id = typeof dev === 'string' ? dev : (dev.id || null); try{ rawDev = typeof dev === 'string' ? dev : JSON.stringify(dev).slice(0, 80); }catch(x){} }
     if(id && id !== env.device){
-      env.device = id; unit = { kmh: null, lat: null, lng: null, at: 0, got: 0 }; unitErr = '';
+      env.device = id; unit = { kmh: null, lat: null, lng: null, at: 0, got: 0 }; unitErr = ''; unitErrs = []; unitOk = 0; unitFail = 0; unitVar = 0; unitLock = false;
       if(running){ pollUnit(); }
     }
     env.drive = env.drive || !!(state && (state.driveApp || state.isDrive || state.device));
