@@ -4,128 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Velocímetro TDP</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
-/* Mismo lenguaje visual que Gestión de Viajes y Gestión Documental: Poppins, celeste Transporte Dolores Parra, tarjetas blancas sobre fondo gris claro.
-   Todos los estilos cuelgan de #vel para no tocar la pantalla de Drive que aloja este módulo. */
-#vel{
-  --accent:#00A6E0; --accent-dark:#0078A1; --accent-light:#E3F5FB;
-  --page:#F4F5F8; --card:#FFFFFF; --border:#ECEDF2; --text:#20232B; --muted:#6B7280;
-  --ok:#1F9D55; --warn:#E8A100; --bad:#D92D20; --idle:#8A93A6; --state:var(--idle);
-  --shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);
-  --radius:14px; --radius-lg:18px;
-  --font:"Poppins",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  position:relative;background:var(--page);color:var(--text);font-family:var(--font);font-size:15px;min-height:100vh;box-sizing:border-box;
-}
-#vel[data-theme="night"]{
-  --accent:#2BB8EA; --accent-dark:#2BB8EA; --accent-light:#12303B;
-  --page:#0E1316; --card:#172026; --border:#2A3A43; --text:#EEF3F5; --muted:#9AAAB2;
-  --ok:#36C97C; --warn:#F5B72E; --bad:#FF5A4D; --idle:#7F8E96;
-  --shadow:none; color-scheme:dark;
-}
-#vel[data-s="ok"]{--state:var(--ok)}
-#vel[data-s="warn"]{--state:var(--warn)}
-#vel[data-s="bad"]{--state:var(--bad)}
-#vel *{box-sizing:border-box}
-#vel .app{max-width:640px;margin:0 auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px;min-height:100vh}
-#vel .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-#vel #head{display:flex;align-items:center;gap:12px;padding:12px 16px}
-#vel #head img{height:34px;width:auto;max-width:38%;object-fit:contain;flex:0 0 auto}
-#vel #head .ttl{min-width:0;flex:1}
-#vel #head h1{margin:0;font-size:1.05rem;font-weight:700;line-height:1.2;color:var(--text)}
-#vel #head p{margin:0;font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#vel .pill{font-size:.75rem;font-weight:600;padding:5px 12px;border-radius:999px;background:var(--accent-light);color:var(--accent-dark);white-space:nowrap}
-#vel #dial{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:min(58vh,420px);padding:18px 12px;border:4px solid var(--state);transition:border-color .2s}
-#vel[data-s="bad"] #dial{animation:vel-flash .7s steps(2,jump-none) infinite}
-@keyframes vel-flash{0%{background:rgba(217,45,32,.16)}100%{background:var(--card)}}
-#vel #zone{font-size:.95rem;font-weight:600;color:var(--text);text-align:center;margin-top:10px;max-width:90%}
-#vel #speed{font-weight:800;font-size:min(38vw,34vh,220px);line-height:1;color:var(--state);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-#vel .unit{font-weight:600;font-size:1.1rem;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
-#vel #limit{position:absolute;top:12px;right:12px;width:min(24vw,104px);aspect-ratio:1;border-radius:50%;background:#fff;border:min(1.6vw,7px) solid #D62F26;display:grid;place-items:center;color:#111;box-shadow:0 2px 8px rgba(17,24,39,.25)}
-#vel #limitNum{font-weight:700;font-size:min(9.5vw,44px);line-height:1}
-#vel #msg{font-weight:600;color:var(--state);text-align:center;min-height:1.5em;margin-top:8px}
-#vel #unitline{font-size:.78rem;color:var(--muted);text-align:center;margin-top:6px;min-height:1.2em}
-#vel #bar{display:flex;gap:10px}
-#vel button{font:inherit;font-weight:600;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:13px 20px;min-height:50px;cursor:pointer;box-shadow:var(--shadow)}
-#vel button:focus-visible,#vel input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-#vel button.primary{flex:1;background:var(--accent);border-color:var(--accent);color:#fff;font-size:1.05rem}
-#vel button.primary.on{background:var(--bad);border-color:var(--bad)}
-#vel button.sm{min-height:38px;padding:7px 14px;font-size:.85rem}
-#vel #sheet{position:fixed;left:0;top:0;right:0;bottom:0;background:var(--page);overflow:auto;padding:14px 16px 28px;z-index:99999}
-#vel #sheet[hidden]{display:none}
-#vel .wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
-#vel .sec{padding:16px}
-#vel .sec h2{margin:0 0 6px;font-size:1rem;font-weight:700;color:var(--text)}
-#vel .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0}
-#vel label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);flex:1;min-width:110px}
-#vel input[type=text],#vel input[type=number],#vel textarea{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
-#vel select{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
-#vel input[type=range]{width:100%;accent-color:var(--accent)}
-#vel textarea{min-height:80px;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
-#vel .note{color:var(--muted);font-size:.8rem;margin:0 0 10px}
-#vel .check{flex-direction:row;align-items:center;gap:10px;font-size:.95rem;color:var(--text)}
-#vel .check input{width:20px;height:20px;accent-color:var(--accent)}
-#vel ul{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:8px}
-#vel li{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:.9rem}
-#vel li small{color:var(--muted);display:block;font-size:.78rem}
-#vel table{width:100%;border-collapse:collapse;font-size:.82rem}
-#vel td{padding:6px 4px;border-bottom:1px solid var(--border);vertical-align:top}
-#vel td:first-child{color:var(--muted);width:46%}
-@media (prefers-reduced-motion:reduce){#vel[data-s="bad"] #dial{animation:none;background:rgba(217,45,32,.12)}}
-/* ===== Tablero: pantalla principal oscura con la velocidad grande en celeste TDP ===== */
-#vel{background:#0B1014}
-#vel .app{
-  --card:#141C22; --border:#243540; --text:#EEF3F5; --muted:#8FA3AD; --shadow:none;
-  --accent:#00A6E0; --accent-light:#0F2B36; --ok:#00A6E0; --warn:#F5B72E; --bad:#FF4D3F; --idle:#4F6672;
-  color:var(--text);
-}
-#vel[data-s="ok"]{--state:#00A6E0}
-#vel[data-s="idle"]{--state:#4F6672}
-#vel[data-s="warn"]{--state:#F5B72E}
-#vel[data-s="bad"]{--state:#FF4D3F}
-#vel #head{background:#10181D;border-color:#1E2D36}
-#vel #head img{background:#fff;border-radius:10px;padding:4px 8px;height:36px;max-width:34%}
-#vel .pill{font-size:.7rem;padding:4px 10px;background:#0F2B36;color:#5CCBF0;border:1px solid #17475A}
-#vel #dial{
-  min-height:min(60vh,440px);border:1px solid #243540;overflow:hidden;
-  background:radial-gradient(120% 90% at 50% 0%,#1B2A33 0%,#10181D 55%,#0A0F13 100%);
-  box-shadow:inset 0 0 0 2px var(--state),0 0 34px -10px var(--state);
-  transition:box-shadow .2s;
-}
-#vel #dial::before{content:"";position:absolute;left:6%;right:6%;top:0;height:38%;border-radius:0 0 60% 60%/0 0 100% 100%;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0));pointer-events:none}
-#vel #dial::after{content:"";position:absolute;inset:0;background:rgba(255,60,45,.30);opacity:0;pointer-events:none}
-#vel[data-s="bad"] #dial{animation:none}
-#vel[data-s="bad"] #dial::after{animation:vel-red .7s steps(2,jump-none) infinite}
-@keyframes vel-red{0%{opacity:0}100%{opacity:1}}
-#vel #speed{
-  font-weight:600;font-size:min(48vw,40vh,270px);letter-spacing:-.03em;color:var(--state);
-  text-shadow:0 0 26px color-mix(in srgb,var(--state) 55%,transparent);position:relative;z-index:1;
-}
-#vel .unit{align-self:flex-end;margin:-4px 9% 0 0;font-size:1.25rem;font-weight:500;letter-spacing:.04em;text-transform:none;color:var(--state);position:relative;z-index:1}
-#vel #zone{position:relative;z-index:1;color:#C9D6DC;font-size:.9rem}
-#vel #msg,#vel #unitline{position:relative;z-index:1}
-#vel #limit{z-index:2}
-#vel #bar button{background:#141C22;border-color:#243540;color:#EEF3F5}
-#vel #bar button.primary{background:#00A6E0;border-color:#00A6E0;color:#fff}
-#vel #bar button.primary.on{background:#FF4D3F;border-color:#FF4D3F}
-@media (orientation:landscape) and (max-height:540px){
-  #vel .app{padding:6px 12px;gap:6px;max-width:none;min-height:0;height:100vh}
-  #vel #head{padding:4px 12px}
-  #vel #head img{height:24px;padding:2px 8px}
-  #vel #head h1{font-size:.9rem}
-  #vel #head p{font-size:.7rem}
-  #vel #dial{min-height:0;flex:1;padding:2px 12px}
-  #vel #speed{font-size:min(30vw,38vh)}
-  #vel .unit{font-size:.95rem;margin:-2px 14% 0 0}
-  #vel #zone{font-size:.78rem;margin-top:2px}
-  #vel #msg{font-size:.8rem;margin-top:2px;min-height:0}
-  #vel #unitline{font-size:.68rem;margin-top:0;min-height:0}
-  #vel #limit{width:min(14vw,70px);top:6px;right:10px}
-  #vel #limitNum{font-size:min(5vw,28px)}
-  #vel #bar button{min-height:38px;padding:6px 16px;font-size:.9rem}
-}
-@media (prefers-reduced-motion:reduce){#vel[data-s="bad"] #dial::after{animation:none;opacity:.5}}
-</style>
 </head>
 <body>
 <div id="vel" data-s="idle">
@@ -213,6 +91,18 @@
 (function(){
 'use strict';
 function $(id){ return document.getElementById(id); }
+
+/* Los estilos viajan dentro del script: Drive puede descartar el <style> del <head> al insertar esta pantalla. */
+var VEL_CSS = "\n@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');\n/* Mismo lenguaje visual que Gestión de Viajes y Gestión Documental: Poppins, celeste Transporte Dolores Parra, tarjetas blancas sobre fondo gris claro.\n   Todos los estilos cuelgan de #vel para no tocar la pantalla de Drive que aloja este módulo. */\n#vel{\n  --accent:#00A6E0; --accent-dark:#0078A1; --accent-light:#E3F5FB;\n  --page:#F4F5F8; --card:#FFFFFF; --border:#ECEDF2; --text:#20232B; --muted:#6B7280;\n  --ok:#1F9D55; --warn:#E8A100; --bad:#D92D20; --idle:#8A93A6; --state:var(--idle);\n  --shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);\n  --radius:14px; --radius-lg:18px;\n  --font:\"Poppins\",-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;\n  position:relative;background:var(--page);color:var(--text);font-family:var(--font);font-size:15px;min-height:100vh;box-sizing:border-box;\n}\n#vel[data-theme=\"night\"]{\n  --accent:#2BB8EA; --accent-dark:#2BB8EA; --accent-light:#12303B;\n  --page:#0E1316; --card:#172026; --border:#2A3A43; --text:#EEF3F5; --muted:#9AAAB2;\n  --ok:#36C97C; --warn:#F5B72E; --bad:#FF5A4D; --idle:#7F8E96;\n  --shadow:none; color-scheme:dark;\n}\n#vel[data-s=\"ok\"]{--state:var(--ok)}\n#vel[data-s=\"warn\"]{--state:var(--warn)}\n#vel[data-s=\"bad\"]{--state:var(--bad)}\n#vel *{box-sizing:border-box}\n#vel .app{max-width:640px;margin:0 auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px;min-height:100vh}\n#vel .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}\n#vel #head{display:flex;align-items:center;gap:12px;padding:12px 16px}\n#vel #head img{height:34px;width:auto;max-width:38%;object-fit:contain;flex:0 0 auto}\n#vel #head .ttl{min-width:0;flex:1}\n#vel #head h1{margin:0;font-size:1.05rem;font-weight:700;line-height:1.2;color:var(--text)}\n#vel #head p{margin:0;font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#vel .pill{font-size:.75rem;font-weight:600;padding:5px 12px;border-radius:999px;background:var(--accent-light);color:var(--accent-dark);white-space:nowrap}\n#vel #dial{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:min(58vh,420px);padding:18px 12px;border:4px solid var(--state);transition:border-color .2s}\n#vel[data-s=\"bad\"] #dial{animation:vel-flash .7s steps(2,jump-none) infinite}\n@keyframes vel-flash{0%{background:rgba(217,45,32,.16)}100%{background:var(--card)}}\n#vel #zone{font-size:.95rem;font-weight:600;color:var(--text);text-align:center;margin-top:10px;max-width:90%}\n#vel #speed{font-weight:800;font-size:min(38vw,34vh,220px);line-height:1;color:var(--state);font-variant-numeric:tabular-nums;letter-spacing:-.02em}\n#vel .unit{font-weight:600;font-size:1.1rem;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}\n#vel #limit{position:absolute;top:12px;right:12px;width:min(24vw,104px);aspect-ratio:1;border-radius:50%;background:#fff;border:min(1.6vw,7px) solid #D62F26;display:grid;place-items:center;color:#111;box-shadow:0 2px 8px rgba(17,24,39,.25)}\n#vel #limitNum{font-weight:700;font-size:min(9.5vw,44px);line-height:1}\n#vel #msg{font-weight:600;color:var(--state);text-align:center;min-height:1.5em;margin-top:8px}\n#vel #unitline{font-size:.78rem;color:var(--muted);text-align:center;margin-top:6px;min-height:1.2em}\n#vel #bar{display:flex;gap:10px}\n#vel button{font:inherit;font-weight:600;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:13px 20px;min-height:50px;cursor:pointer;box-shadow:var(--shadow)}\n#vel button:focus-visible,#vel input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}\n#vel button.primary{flex:1;background:var(--accent);border-color:var(--accent);color:#fff;font-size:1.05rem}\n#vel button.primary.on{background:var(--bad);border-color:var(--bad)}\n#vel button.sm{min-height:38px;padding:7px 14px;font-size:.85rem}\n#vel #sheet{position:fixed;left:0;top:0;right:0;bottom:0;background:var(--page);overflow:auto;padding:14px 16px 28px;z-index:99999}\n#vel #sheet[hidden]{display:none}\n#vel .wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px}\n#vel .sec{padding:16px}\n#vel .sec h2{margin:0 0 6px;font-size:1rem;font-weight:700;color:var(--text)}\n#vel .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0}\n#vel label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);flex:1;min-width:110px}\n#vel input[type=text],#vel input[type=number],#vel textarea{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}\n#vel select{font:inherit;background:var(--page);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0;width:100%}\n#vel input[type=range]{width:100%;accent-color:var(--accent)}\n#vel textarea{min-height:80px;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}\n#vel .note{color:var(--muted);font-size:.8rem;margin:0 0 10px}\n#vel .check{flex-direction:row;align-items:center;gap:10px;font-size:.95rem;color:var(--text)}\n#vel .check input{width:20px;height:20px;accent-color:var(--accent)}\n#vel ul{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:8px}\n#vel li{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:.9rem}\n#vel li small{color:var(--muted);display:block;font-size:.78rem}\n#vel table{width:100%;border-collapse:collapse;font-size:.82rem}\n#vel td{padding:6px 4px;border-bottom:1px solid var(--border);vertical-align:top}\n#vel td:first-child{color:var(--muted);width:46%}\n@media (prefers-reduced-motion:reduce){#vel[data-s=\"bad\"] #dial{animation:none;background:rgba(217,45,32,.12)}}\n/* ===== Tablero: pantalla principal oscura con la velocidad grande en celeste TDP ===== */\n#vel{background:#0B1014}\n#vel .app{\n  --card:#141C22; --border:#243540; --text:#EEF3F5; --muted:#8FA3AD; --shadow:none;\n  --accent:#00A6E0; --accent-light:#0F2B36; --ok:#00A6E0; --warn:#F5B72E; --bad:#FF4D3F; --idle:#4F6672;\n  color:var(--text);\n}\n#vel[data-s=\"ok\"]{--state:#00A6E0}\n#vel[data-s=\"idle\"]{--state:#4F6672}\n#vel[data-s=\"warn\"]{--state:#F5B72E}\n#vel[data-s=\"bad\"]{--state:#FF4D3F}\n#vel #head{background:#10181D;border-color:#1E2D36}\n#vel #head img{background:#fff;border-radius:10px;padding:4px 8px;height:36px;max-width:34%}\n#vel .pill{font-size:.7rem;padding:4px 10px;background:#0F2B36;color:#5CCBF0;border:1px solid #17475A}\n#vel #dial{\n  min-height:min(60vh,440px);border:1px solid #243540;overflow:hidden;\n  background:radial-gradient(120% 90% at 50% 0%,#1B2A33 0%,#10181D 55%,#0A0F13 100%);\n  box-shadow:inset 0 0 0 2px var(--state),0 0 34px -10px var(--state);\n  transition:box-shadow .2s;\n}\n#vel #dial::before{content:\"\";position:absolute;left:6%;right:6%;top:0;height:38%;border-radius:0 0 60% 60%/0 0 100% 100%;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0));pointer-events:none}\n#vel #dial::after{content:\"\";position:absolute;inset:0;background:rgba(255,60,45,.30);opacity:0;pointer-events:none}\n#vel[data-s=\"bad\"] #dial{animation:none}\n#vel[data-s=\"bad\"] #dial::after{animation:vel-red .7s steps(2,jump-none) infinite}\n@keyframes vel-red{0%{opacity:0}100%{opacity:1}}\n#vel #speed{\n  font-weight:600;font-size:min(48vw,40vh,270px);letter-spacing:-.03em;color:var(--state);\n  text-shadow:0 0 26px color-mix(in srgb,var(--state) 55%,transparent);position:relative;z-index:1;\n}\n#vel .unit{align-self:flex-end;margin:-4px 9% 0 0;font-size:1.25rem;font-weight:500;letter-spacing:.04em;text-transform:none;color:var(--state);position:relative;z-index:1}\n#vel #zone{position:relative;z-index:1;color:#C9D6DC;font-size:.9rem}\n#vel #msg,#vel #unitline{position:relative;z-index:1}\n#vel #limit{z-index:2}\n#vel #bar button{background:#141C22;border-color:#243540;color:#EEF3F5}\n#vel #bar button.primary{background:#00A6E0;border-color:#00A6E0;color:#fff}\n#vel #bar button.primary.on{background:#FF4D3F;border-color:#FF4D3F}\n@media (orientation:landscape) and (max-height:540px){\n  #vel .app{padding:6px 12px;gap:6px;max-width:none;min-height:0;height:100vh}\n  #vel #head{padding:4px 12px}\n  #vel #head img{height:24px;padding:2px 8px}\n  #vel #head h1{font-size:.9rem}\n  #vel #head p{font-size:.7rem}\n  #vel #dial{min-height:0;flex:1;padding:2px 12px}\n  #vel #speed{font-size:min(30vw,38vh)}\n  #vel .unit{font-size:.95rem;margin:-2px 14% 0 0}\n  #vel #zone{font-size:.78rem;margin-top:2px}\n  #vel #msg{font-size:.8rem;margin-top:2px;min-height:0}\n  #vel #unitline{font-size:.68rem;margin-top:0;min-height:0}\n  #vel #limit{width:min(14vw,70px);top:6px;right:10px}\n  #vel #limitNum{font-size:min(5vw,28px)}\n  #vel #bar button{min-height:38px;padding:6px 16px;font-size:.9rem}\n}\n@media (prefers-reduced-motion:reduce){#vel[data-s=\"bad\"] #dial::after{animation:none;opacity:.5}}\n";
+function putCss(){
+  try{
+    if(document.getElementById('velStyle')) return;
+    var el = document.createElement('style'); el.id = 'velStyle'; el.textContent = VEL_CSS;
+    var host = document.head || document.documentElement;
+    host.appendChild(el);
+  }catch(e){}
+}
+putCss();
 
 /* ---------- registro del Add-In: va primero y no depende de la pantalla ---------- */
 var booted = false, inited = false;
@@ -484,6 +374,7 @@ function init(){
   if(inited) return true;
   if(!$('btnStart') || !$('vel')) return false;
   inited = true;
+  try{ if(!document.getElementById('velStyle') || !document.getElementById('velStyle').isConnected){ var e2 = document.createElement('style'); e2.id = 'velStyle'; e2.textContent = VEL_CSS; $('vel').insertBefore(e2, $('vel').firstChild); } }catch(e){}
   $('btnStart').onclick = function(){ if(running) stop(); else start(); };
   $('btnCfg').onclick = function(){ renderDiag(); $('sheet').hidden = false; };
   $('btnClose').onclick = function(){ $('sheet').hidden = true; tick(); };
