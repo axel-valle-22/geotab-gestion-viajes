@@ -101,10 +101,11 @@ var CSS = [
 "#tpn .t-sin{background:#9AA1AC}#tpn .t-bajo{background:#1F9D55}#tpn .t-medio{background:#C49A00}#tpn .t-alto{background:#D92D20}#tpn .t-extremo{background:#8E44C8}",
 "#tpn .e-nueva{background:#E3F5FB;color:#0078A1}#tpn .e-revision{background:#FFF1D6;color:#7A4E00}#tpn .e-cerrada{background:#E4F5EA;color:#14703C}",
 "#tpn .e{display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}",
-"#tpn .mod{position:fixed;inset:0;background:rgba(17,24,39,.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}",
+"#tpn .mod{position:fixed;inset:0;background:rgba(17,24,39,.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:84px 12px 24px}",
 "#tpn .mod[hidden],#tpn [hidden]{display:none!important}",
-"#tpn .box{width:100%;max-width:720px}",
+"#tpn .box{width:100%;max-width:720px;max-height:calc(100vh - 110px);overflow:auto;padding-top:0}",
 "#tpn .lh{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}",
+"#tpn .box .lh{position:sticky;top:0;background:#fff;z-index:2;padding:14px 0 10px;margin:0 0 6px}",
 "#tpn .kv{display:grid;grid-template-columns:34% 1fr;gap:6px 10px;font-size:.86rem}",
 "#tpn .kv span:nth-child(odd){color:var(--muted)}#tpn .kv span:nth-child(even){word-break:break-word}",
 "#tpn .gal{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}",
@@ -281,6 +282,8 @@ function init(){
   $('bClr').onclick = function(){ ['fDesde', 'fHasta', 'fRiesgo', 'fTipo', 'fEstado', 'fBase', 'fCliente', 'fChofer', 'fTxt'].forEach(function(i){ $(i).value = ''; }); apply(); };
   ['fDesde', 'fHasta', 'fRiesgo', 'fTipo', 'fEstado', 'fBase', 'fCliente', 'fChofer'].forEach(function(i){ $(i).onchange = apply; });
   $('fTxt').oninput = apply;
+  $('mod').onclick = function(e){ if(e.target === $('mod')) $('bClose').onclick(); };
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !$('mod').hidden) $('bClose').onclick(); });
   return true;
 }
 setTimeout(function(){ ready(function(){ if(!loaded){ loaded = true; load(); } }); }, 1500);
