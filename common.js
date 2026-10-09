@@ -880,6 +880,7 @@ GV.pickLocation = function(opts){
 
       var marker = null;
       var current = null;
+      var __ultimaPos = null; /* se llena solo cuando el punto salio del boton "Usar ultima posicion del camion" */
       var shapeMode = 'circulo'; var manualPoly = []; var manualPolyLayer = null;
       function redrawManualPoly(){
         if(manualPolyLayer){ try{ manualPolyLayer.setMap(null); }catch(e){} manualPolyLayer = null; }
@@ -944,6 +945,7 @@ GV.pickLocation = function(opts){
       }
 
       function onPoint(lat, lng){
+        __ultimaPos = null;
         var __prevPoligono = current && current.poligono;
         current = { lat: lat, lng: lng, direccion: 'Buscando direccion...' };
         if(__prevPoligono) current.poligono = __prevPoligono;
@@ -1046,6 +1048,7 @@ GV.pickLocation = function(opts){
               map.setZoom(16);
               setShapeMode('circulo');
               onPoint(res[0].latitude, res[0].longitude);
+              __ultimaPos = { lat: res[0].latitude, lng: res[0].longitude, vel: (res[0].speed > 0 ? res[0].speed : (res[0].isDriving === true ? 5 : 0)) };
             } else {
               alert('No se pudo obtener la ultima posicion del vehiculo.');
             }
@@ -1076,6 +1079,15 @@ GV.pickLocation = function(opts){
         if(!current) return;
         var result = { lat: current.lat, lng: current.lng, direccion: current.direccion };
         if(current.poligono) result.poligono = current.poligono;
+        /* Origen = ultima posicion del camion: se deja marcado para que el viaje nazca "en curso" (ver Guardar Viaje). */
+        if(opts.vehiculoId){
+          var __esUltPos = (__ultimaPos && __ultimaPos.lat === current.lat && __ultimaPos.lng === current.lng) ||
+            (opts.initial && opts.initial.ultimaPos && opts.initial.ultimaPosVeh === opts.vehiculoId && opts.initial.lat === current.lat && opts.initial.lng === current.lng);
+          if(__esUltPos){
+            result.ultimaPos = true; result.ultimaPosVeh = opts.vehiculoId;
+            result.ultimaPosVel = (__ultimaPos && __ultimaPos.lat === current.lat && __ultimaPos.lng === current.lng) ? __ultimaPos.vel : ((opts.initial && opts.initial.ultimaPosVel) || 0);
+          }
+        }
         if(opts.withStopFields){
           result.tipo = tipo;
           result.duracionMin = parseInt(document.getElementById('gv-map-duracion').value, 10) || 0;

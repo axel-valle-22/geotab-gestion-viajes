@@ -1659,9 +1659,12 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
       return;
     }
 
+    /* Origen = ultima posicion del camion: si la unidad esta circulando, el viaje nace EN CURSO. Se vuelve a
+       consultar la velocidad en el momento de guardar (la lectura de cuando se eligio el origen puede ser vieja). */
+    var __guardarViaje = function(__ultPos){
     var __fechaSalidaNv = fEl.value + 'T' + hEl.value + ':00';
     var __atrasoMin = Math.round((Date.now() - new Date(__fechaSalidaNv).getTime()) / 60000);
-    if(__atrasoMin > 20 && !window.confirm('La hora de salida cargada (' + hEl.value + ' del ' + fEl.value.split('-').reverse().join('/') + ') ya paso hace ' + GV.fmtDurMin(__atrasoMin * 60000) + ', asi que el viaje va a aparecer DEMORADO apenas se guarde.\n\nAceptar = guardarlo igual con esa hora.\nCancelar = volver y corregir la hora.')){ return; }
+    if(!__ultPos && __atrasoMin > 20 && !window.confirm('La hora de salida cargada (' + hEl.value + ' del ' + fEl.value.split('-').reverse().join('/') + ') ya paso hace ' + GV.fmtDurMin(__atrasoMin * 60000) + ', asi que el viaje va a aparecer DEMORADO apenas se guarde.\n\nAceptar = guardarlo igual con esa hora.\nCancelar = volver y corregir la hora.')){ return; }
     var viaje = {
       id: GV.genId(),
       conductorId: cSel.value, conductor: cSel.options[cSel.selectedIndex].text,
@@ -1681,9 +1684,23 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
         desde: __fechaSalidaNv, hasta: null, motivo: null, motivoDetalle: ''
       }]
     };
+    if(__ultPos){
+      var __ahoraUp = new Date().toISOString();
+      viaje.estado = 'en_curso';
+      viaje.iniciadoEn = __ahoraUp;
+      viaje.autoIniciado = true;
+      viaje.origenUltimaPos = true;
+      /* El origen figura como cumplido (egreso sellado) para que Seguimiento diga "En camino a: <primer sitio>". */
+      viaje.sitiosReal = { origen: { egreso: __ahoraUp } };
+    }
 
     GV.Storage.addViaje(viaje).then(function(){
-      if(msg){ msg.style.display='block'; msg.style.background='#d1fae5'; msg.style.color='#065f46'; msg.textContent='Viaje guardado. El chofer vera la notificacion en su app y debera completar el gerenciamiento antes de iniciar.'; }
+      if(__ultPos){
+        try{
+          GV.Storage.addAlerta({ id: 'al_' + viaje.id + '_autoinicio', tipo: 'info', mensaje: viaje.conductor + ' - ' + viaje.vehiculo + ': viaje en curso desde la ultima posicion del camion, en camino a ' + GV.siteNameFor((viaje.paradas && viaje.paradas[0]) || viaje.destino || viaje.origen) + '.' + (puedeIniciar(viaje) ? '' : ' El gerenciamiento de riesgos todavia no fue aprobado.'), fecha: new Date().toISOString(), viajeId: viaje.id });
+        }catch(__eUp){}
+      }
+      if(msg){ msg.style.display='block'; msg.style.background='#d1fae5'; msg.style.color='#065f46'; msg.textContent = __ultPos ? 'Viaje guardado y EN CURSO: el origen es la ultima posicion del camion. El chofer debe completar el gerenciamiento de riesgos.' : 'Viaje guardado. El chofer vera la notificacion en su app y debera completar el gerenciamiento antes de iniciar.'; }
       resetForm();
       renderStats(); renderTrips();
       /* Si el camion ya venia moviendose antes de que se cargara este viaje (Coordinacion lo carga
@@ -1692,6 +1709,20 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
       checkJornadas();
       setTimeout(function(){ showTab('panel'); }, 1400);
     });
+    };
+    var __candUp = !!(gOrigen && gOrigen.ultimaPos && gOrigen.ultimaPosVeh === vSel.value);
+    if(__candUp && gApi){
+      var __btnGv = document.getElementById('gv-btn-guardar'); if(__btnGv) __btnGv.disabled = true;
+      var __velPick = gOrigen.ultimaPosVel || 0, __hecho = false;
+      var __una = function(mov){ if(__hecho) return; __hecho = true; if(__btnGv) __btnGv.disabled = false; __guardarViaje(mov); };
+      try{
+        gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: vSel.value } } }, function(res){
+          var r = res && res[0];
+          __una(r ? (r.isDriving === true || (r.speed || 0) >= 5) : __velPick >= 5);
+        }, function(){ __una(__velPick >= 5); });
+      }catch(__eUp2){ __una(__velPick >= 5); }
+    } else if(__candUp){ __guardarViaje((gOrigen.ultimaPosVel || 0) >= 5); }
+    else { __guardarViaje(false); }
   });
 
   document.getElementById('gv-trip-list').addEventListener('click', function(e){
@@ -1863,7 +1894,7 @@ salir. Se muestra "Por salir a: <primer sitio del recorrido despues del origen>"
    fisicamente en el origen (menos de 400 m, lectura GPS de los ultimos 15 min) y sin ningun otro sitio
    avanzado: todavia no salio, asi que corresponde 'Por salir a' y no 'En camino a'. */
 try{
-  if(v && v.estado === 'en_curso' && v.origen && typeof v.origen.lat === 'number' && gLivePos[v.id] && (Date.now() - gLivePos[v.id].t) < 900000){
+  if(v && v.estado === 'en_curso' && !v.origenUltimaPos && v.origen && typeof v.origen.lat === 'number' && gLivePos[v.id] && (Date.now() - gLivePos[v.id].t) < 900000){
     var __avz = false;
     Object.keys(sr).forEach(function(k){ if(k === 'origen' || k === 'destino') return; if(sr[k] && (sr[k].ingreso || sr[k].egreso)) __avz = true; });
     var __dO = GV.distKm(v.origen, gLivePos[v.id]);
