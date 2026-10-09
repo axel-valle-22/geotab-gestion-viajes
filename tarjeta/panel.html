@@ -37,7 +37,7 @@
 
     <section class="card">
       <p id="msg" class="hint"></p>
-      <div class="tw"><table id="tbl"><thead><tr><th>Fecha</th><th>Chofer</th><th>Tipo</th><th>Riesgo</th><th>Zona / sitio</th><th>Base</th><th>Cliente</th><th>Estado</th><th>Fotos</th></tr></thead><tbody id="tb"></tbody></table></div>
+      <div class="tw"><table id="tbl"><thead><tr><th>Fecha</th><th>Chofer</th><th>Unidad</th><th>Tipo</th><th>Riesgo</th><th>Zona / sitio</th><th>Base</th><th>Cliente</th><th>Estado</th><th>Fotos</th></tr></thead><tbody id="tb"></tbody></table></div>
     </section>
   </main>
 
@@ -128,6 +128,7 @@ function ready(fn){
   var n = 0, t = setInterval(function(){ n++; if(init()){ clearInterval(t); fn(); } else if(n > 100){ clearInterval(t); } }, 100);
 }
 function boot(a){
+  syncUnits(a);
   if(a && typeof a.getSession === 'function'){ try{ a.getSession(function(s){ me = (s && s.userName) || ''; }); }catch(e){} }
   if(!loaded){ loaded = true; load(); }
 }
@@ -157,6 +158,19 @@ function getDb(){
     var app = (f.apps || []).filter(function(a){ return a.name === 'tdp-panel'; })[0] || f.initializeApp(window.FIREBASE_CONFIG || {}, 'tdp-panel');
     db = app.firestore(); return db;
   });
+}
+
+function syncUnits(a){
+  if(!a || typeof a.call !== 'function') return;
+  try{
+    a.call('Get', { typeName: 'Device', resultsLimit: 5000 }, function(list){
+      var now = new Date().toISOString();
+      var arr = (list || []).filter(function(d){ return d && d.name && (!d.activeTo || d.activeTo > now); }).map(function(d){ return { id: d.id, n: String(d.name) }; });
+      arr.sort(function(x, y){ return x.n.localeCompare(y.n, 'es', { numeric: true }); });
+      if(!arr.length) return;
+      getDb().then(function(d){ return d.collection(COL).doc('_unidades').set({ lista: arr, act: now, total: arr.length }); }).catch(function(){});
+    }, function(){});
+  }catch(e){}
 }
 
 function fmt(iso){ try{ return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); }catch(e){ return iso || ''; } }
@@ -203,7 +217,7 @@ function apply(){
   view.forEach(function(r){
     var tr = document.createElement('tr');
     function td(t){ var c = document.createElement('td'); c.textContent = t || ''; tr.appendChild(c); return c; }
-    td(fmt(r.fechaObs)); td(r.chofer); td(TIPOS[r.tipo] || r.tipo);
+    td(fmt(r.fechaObs)); td(r.chofer); td(r.unidad); td(TIPOS[r.tipo] || r.tipo);
     var c = document.createElement('td'); c.appendChild(el('span', 'tag t-' + r.riesgo, RIESGOS[r.riesgo] || r.riesgo)); tr.appendChild(c);
     td(r.area || r.sitio); td(r.base); td(r.cliente);
     var e = document.createElement('td'); var st = r.estado || 'nueva'; e.appendChild(el('span', 'e e-' + st, ESTADOS[st] || st)); tr.appendChild(e);
