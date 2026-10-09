@@ -51,15 +51,16 @@
           <label>Sitio o coordenada geográfica<input type="text" id="fSitio" placeholder="Nombre del sitio o coordenadas"></label>
         </fieldset>
 
+        <label>Unidad <b>*</b><select id="fUnidad"></select></label>
+        <label id="lblUnidadO" hidden>Escribí la unidad<input type="text" id="fUnidadO" placeholder="Número o patente de la unidad"></label>
+        <label>Cliente <b>*</b><select id="fCliente"></select></label>
+        <label id="lblClienteO" hidden>Escribí el cliente<input type="text" id="fClienteO" placeholder="Nombre del cliente"></label>
         <div class="row2">
           <label>Gerencia<input type="text" id="fGerencia" list="dlGerencia"></label>
           <label>Base<input type="text" id="fBase" list="dlBase"></label>
         </div>
-        <div class="row2">
-          <label>Cliente<input type="text" id="fCliente" list="dlCliente"></label>
-          <label>Tipo de operación<input type="text" id="fOperacion" list="dlOperacion"></label>
-        </div>
-        <datalist id="dlGerencia"></datalist><datalist id="dlBase"></datalist><datalist id="dlCliente"></datalist><datalist id="dlOperacion"></datalist>
+        <label>Tipo de operación<input type="text" id="fOperacion" list="dlOperacion"></label>
+        <datalist id="dlGerencia"></datalist><datalist id="dlBase"></datalist><datalist id="dlOperacion"></datalist>
 
         <label>Descripción / observación <b>*</b><textarea id="fDesc" rows="4" placeholder="Qué viste o qué pasó"></textarea></label>
 
@@ -139,7 +140,7 @@ function $(id){ return document.getElementById(id); }
 var CAT = {
   gerencia: [],   /* ej.: ['Operaciones', 'Seguridad'] */
   base: [],       /* ej.: ['Base Plottier'] */
-  cliente: [],    /* ej.: ['YPF', 'Pluspetrol'] */
+  cliente: ['SLB', 'SHELL', 'TENARIS/OILFIELD', 'SIDERCA', 'TOTAL', 'PAN AMERICAN', 'PLUSPETROL', 'CHEVRON', 'CAPEX', 'HASA', 'SPI', 'WTF', 'H&P', 'SAI', 'TACKER', 'BAKER', 'MARBAR', 'AESA', 'PECOM', 'CALFRAC'],
   operacion: []   /* ej.: ['Transporte de personal', 'Carga'] */
 };
 var COL = 'tdp_observaciones', COLF = 'tdp_observaciones_fotos';
@@ -180,6 +181,7 @@ var CSS = [
 "#tob b{color:var(--bad)}",
 "#tob input[type=text],#tob input[type=date],#tob input[type=time],#tob textarea{font:inherit;font-weight:400;color:var(--text);background:var(--page);border:1px solid var(--border);border-radius:12px;padding:11px 12px;width:100%;min-width:0}",
 "#tob textarea{resize:vertical}",
+"#tob select{font:inherit;font-weight:400;color:var(--text);background:var(--page);border:1px solid var(--border);border-radius:12px;padding:11px 12px;width:100%;min-width:0}",
 "#tob .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
 "#tob .row2.btns{grid-template-columns:1fr 1fr}",
 "@media (max-width:360px){#tob .row2{grid-template-columns:1fr}}",
@@ -427,11 +429,30 @@ function seg(boxId, key, multi){
 }
 function resetForm(){
   form = { tipo: '', riesgo: '', susp: '', lat: null, lng: null, fotos: [] };
-  $('f').reset(); var _n = localInput(new Date()); $('fFecha').value = _n.slice(0, 10); $('fHora').value = _n.slice(11); $('gpsMsg').textContent = ''; $('err').hidden = true; $('lblAut').hidden = true;
+  $('f').reset(); var _n = localInput(new Date()); $('fFecha').value = _n.slice(0, 10); $('fHora').value = _n.slice(11); $('gpsMsg').textContent = ''; $('err').hidden = true; $('lblAut').hidden = true; $('lblUnidadO').hidden = true; $('lblClienteO').hidden = true; preDevice();
   ['segTipo', 'segRiesgo', 'segSusp'].forEach(function(id){ [].forEach.call($(id).querySelectorAll('button'), function(b){ b.classList.remove('on'); }); });
   drawThumbs();
 }
 function fillList(id, arr){ var dl = $(id); dl.textContent = ''; (arr || []).forEach(function(v){ var o = document.createElement('option'); o.value = v; dl.appendChild(o); }); }
+
+var OTRA = '__otra', units = [];
+function fillSel(id, items, ph, keep){
+  var s = $(id), cur = keep === undefined ? s.value : keep; s.textContent = '';
+  var o0 = document.createElement('option'); o0.value = ''; o0.textContent = ph; s.appendChild(o0);
+  items.forEach(function(it){ var o = document.createElement('option'); o.value = it.v; o.textContent = it.t; s.appendChild(o); });
+  var oo = document.createElement('option'); oo.value = OTRA; oo.textContent = 'Otro (escribir)…'; s.appendChild(oo);
+  s.value = cur; if(s.value !== cur) s.value = '';
+}
+function selVal(id, idO){ var v = $(id).value; if(v === OTRA) return { t: $(idO).value.trim(), id: '' }; var o = $(id).selectedOptions[0]; return { t: v && o ? o.textContent : '', id: v }; }
+function fillUnits(keep){ fillSel('fUnidad', units.map(function(u){ return { v: u.id, t: u.n }; }), 'Elegí la unidad…', keep); }
+function preDevice(){ if(env.device && !$('fUnidad').value){ var ok = units.some(function(u){ return u.id === env.device; }); if(ok) $('fUnidad').value = env.device; } }
+function loadUnits(){
+  try{ var c = JSON.parse(localStorage.getItem('tdp_obs_units') || 'null'); if(c && c.length){ units = c; fillUnits(); preDevice(); } }catch(e){}
+  getDb().then(function(d){ return d.collection(COL).doc('_unidades').get(); }).then(function(s){
+    var l = s && s.exists ? (s.data() || {}).lista : null;
+    if(l && l.length){ units = l; try{ localStorage.setItem('tdp_obs_units', JSON.stringify(l)); }catch(e){} fillUnits(); preDevice(); }
+  }).catch(function(){});
+}
 
 function save(ev){
   if(ev) ev.preventDefault();
@@ -442,15 +463,17 @@ function save(ev){
   if(!form.riesgo) miss.push('el riesgo');
   if(!form.susp) miss.push('si se aplicó la suspensión de tareas');
   if(form.susp === 'si' && !$('fAut').value.trim()) miss.push('la autoridad notificada');
+  var un = selVal('fUnidad', 'fUnidadO'), cl = selVal('fCliente', 'fClienteO');
+  if(!un.t) miss.push('la unidad'); if(!cl.t) miss.push('el cliente');
   if(miss.length){ err.textContent = 'Falta completar: ' + miss.join(', ') + '.'; err.hidden = false; try{ err.scrollIntoView({ block: 'center' }); }catch(e){} return; }
   err.hidden = true;
   var id = uid();
   var doc = {
     v: 1, creada: new Date().toISOString(), fechaObs: new Date($('fFecha').value + 'T' + $('fHora').value).toISOString(),
     tipo: form.tipo, riesgo: form.riesgo, area: $('fArea').value.trim(), sitio: $('fSitio').value.trim(), lat: form.lat, lng: form.lng,
-    gerencia: $('fGerencia').value.trim(), base: $('fBase').value.trim(), cliente: $('fCliente').value.trim(), operacion: $('fOperacion').value.trim(),
+    gerencia: $('fGerencia').value.trim(), base: $('fBase').value.trim(), cliente: cl.t, operacion: $('fOperacion').value.trim(),
     descripcion: $('fDesc').value.trim(), accion: $('fAccion').value.trim(), suspension: form.susp, autoridad: form.susp === 'si' ? $('fAut').value.trim() : '',
-    adicional: $('fAdic').value.trim(), fotos: form.fotos.length, chofer: env.user || ($('who').getAttribute('data-n') || ''), unidad: env.device || '',
+    adicional: $('fAdic').value.trim(), fotos: form.fotos.length, chofer: env.user || ($('who').getAttribute('data-n') || ''), unidad: un.t, unidadId: un.id,
     origen: env.api ? 'drive' : 'web', estado: 'nueva', notas: []
   };
   var q = qLoad(); q.push({ id: id, doc: doc, fotos: form.fotos.slice() });
@@ -488,7 +511,7 @@ function openDet(r){
   show('Det'); var box = $('det'); box.textContent = '';
   var g = document.createElement('div'); g.className = 'kv';
   kv(g, 'Tipo', TIPOS[r.tipo] || r.tipo); kv(g, 'Riesgo', RIESGOS[r.riesgo] || r.riesgo); kv(g, 'Fecha', fmt(r.fechaObs)); kv(g, 'Zona', r.area); kv(g, 'Sitio', r.sitio);
-  kv(g, 'Gerencia', r.gerencia); kv(g, 'Base', r.base); kv(g, 'Cliente', r.cliente); kv(g, 'Operación', r.operacion); kv(g, 'Descripción', r.descripcion);
+  kv(g, 'Gerencia', r.gerencia); kv(g, 'Base', r.base); kv(g, 'Unidad', r.unidad); kv(g, 'Cliente', r.cliente); kv(g, 'Operación', r.operacion); kv(g, 'Descripción', r.descripcion);
   kv(g, 'Acción inmediata', r.accion); kv(g, 'Suspensión de tareas', r.suspension === 'si' ? 'Sí' + (r.autoridad ? ' · ' + r.autoridad : '') : 'No'); kv(g, 'Adicional', r.adicional);
   kv(g, 'Estado', r._pend ? 'Pendiente de envío' : ({ nueva: 'Nueva', revision: 'En revisión', cerrada: 'Cerrada' }[r.estado] || r.estado));
   box.appendChild(g);
@@ -506,7 +529,10 @@ function init(){
   if(inited) return true;
   if(!$('vHome') || !$('tob')) return false;
   inited = true;
-  fillList('dlGerencia', CAT.gerencia); fillList('dlBase', CAT.base); fillList('dlCliente', CAT.cliente); fillList('dlOperacion', CAT.operacion);
+  fillList('dlGerencia', CAT.gerencia); fillList('dlBase', CAT.base); fillList('dlOperacion', CAT.operacion);
+  fillSel('fCliente', CAT.cliente.slice().sort(function(a, b){ return a.localeCompare(b, 'es'); }).map(function(c){ return { v: c, t: c }; }), 'Elegí el cliente…'); fillUnits('');
+  $('fUnidad').onchange = function(){ $('lblUnidadO').hidden = this.value !== OTRA; };
+  $('fCliente').onchange = function(){ $('lblClienteO').hidden = this.value !== OTRA; };
   seg('segTipo', 'tipo'); seg('segRiesgo', 'riesgo'); seg('segSusp', 'susp');
   $('btnNew').onclick = function(){ resetForm(); show('Form'); };
   $('btnMine').onclick = openMine;
@@ -524,12 +550,13 @@ function init(){
   window.addEventListener('online', function(){ updPend(); flush(); });
   window.addEventListener('offline', updPend);
   setInterval(flush, 30000);
-  resetForm(); updPend(); show('Home');
+  resetForm(); updPend(); show('Home'); loadUnits();
   return true;
 }
 function boot(a, state){
   if(a){ env.api = a; }
   try{ var dev = state && state.device; if(dev){ env.device = typeof dev === 'string' ? dev : (dev.id || null); } }catch(e){}
+  preDevice();
   if(booted) return; booted = true;
   if(a && typeof a.getSession === 'function'){
     try{ a.getSession(function(s){ env.user = s && s.userName ? s.userName : null; $('who').textContent = env.user ? 'Chofer: ' + env.user : 'Chofer sin identificar'; if(env.user) $('who').setAttribute('data-n', env.user); }); }catch(e){}
