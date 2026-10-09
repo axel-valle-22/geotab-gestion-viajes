@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tarjeta de observación</title>
+</head>
+<body>
+<div id="tob" data-v="home">
+  <main class="app">
+    <header id="head" class="card">
+      <img src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transporte Dolores Parra">
+      <div class="ttl"><h1>Tarjeta de observación</h1><p id="who">Chofer sin identificar</p></div>
+      <span class="pill" id="net">En línea</span>
+    </header>
+
+    <div id="pend" class="warn" hidden></div>
+
+    <!-- Inicio -->
+    <section id="vHome" class="view">
+      <div class="card hero">
+        <h2>Observaciones preventivas, informativas o de mejoras</h2>
+        <p>Dá de alta una observación para mantener informados a tus supervisores.</p>
+        <button id="btnNew" class="primary big">Crear nueva observación</button>
+        <p class="sep">Mirá las observaciones que creaste en los últimos 12 meses.</p>
+        <button id="btnMine" class="big">Ver tus observaciones</button>
+      </div>
+    </section>
+
+    <!-- Formulario -->
+    <section id="vForm" class="view" hidden>
+      <form id="f" class="card form" autocomplete="off" novalidate>
+        <h2>Nueva alta de observación</h2>
+
+        <fieldset>
+          <legend>Tipo de observación <b>*</b></legend>
+          <div class="seg" id="segTipo">
+            <button type="button" data-v="preventiva">Preventiva</button>
+            <button type="button" data-v="informativa">Informativa</button>
+            <button type="button" data-v="mejora">De mejora</button>
+          </div>
+        </fieldset>
+
+        <label>Fecha y hora aproximada <b>*</b><input type="datetime-local" id="fFecha"></label>
+
+        <fieldset>
+          <legend>Ubicación geográfica</legend>
+          <button type="button" id="btnGps" class="soft">Usar mi ubicación actual</button>
+          <p class="hint" id="gpsMsg"></p>
+          <label>Área o zona donde transcurrió<input type="text" id="fArea" placeholder="Ej.: Yacimiento, ruta, base"></label>
+          <label>Sitio o coordenada geográfica<input type="text" id="fSitio" placeholder="Nombre del sitio o coordenadas"></label>
+        </fieldset>
+
+        <div class="row2">
+          <label>Gerencia<input type="text" id="fGerencia" list="dlGerencia"></label>
+          <label>Base<input type="text" id="fBase" list="dlBase"></label>
+        </div>
+        <div class="row2">
+          <label>Cliente<input type="text" id="fCliente" list="dlCliente"></label>
+          <label>Tipo de operación<input type="text" id="fOperacion" list="dlOperacion"></label>
+        </div>
+        <datalist id="dlGerencia"></datalist><datalist id="dlBase"></datalist><datalist id="dlCliente"></datalist><datalist id="dlOperacion"></datalist>
+
+        <label>Descripción / observación <b>*</b><textarea id="fDesc" rows="4" placeholder="Qué viste o qué pasó"></textarea></label>
+
+        <fieldset>
+          <legend>Calificá según tu criterio el riesgo del evento <b>*</b></legend>
+          <div class="risk" id="segRiesgo">
+            <button type="button" data-v="sin" class="r-sin">Sin riesgo</button>
+            <button type="button" data-v="bajo" class="r-bajo">Bajo</button>
+            <button type="button" data-v="medio" class="r-medio">Medio</button>
+            <button type="button" data-v="alto" class="r-alto">Alto</button>
+            <button type="button" data-v="extremo" class="r-extremo">Extremo</button>
+          </div>
+        </fieldset>
+
+        <label>Acción inmediata tomada<textarea id="fAccion" rows="3"></textarea></label>
+
+        <fieldset>
+          <legend>¿Se aplicó la política de suspensión de tareas? <b>*</b></legend>
+          <div class="seg two" id="segSusp">
+            <button type="button" data-v="no">No</button>
+            <button type="button" data-v="si">Sí</button>
+          </div>
+          <label id="lblAut" hidden>Autoridad competente notificada para la suspensión de tareas<input type="text" id="fAut"></label>
+        </fieldset>
+
+        <label>Observación adicional<textarea id="fAdic" rows="3"></textarea></label>
+
+        <fieldset>
+          <legend>Fotos</legend>
+          <div class="row2 btns">
+            <button type="button" id="btnCam" class="soft">Sacar foto</button>
+            <button type="button" id="btnGal" class="soft">Elegir de la galería</button>
+          </div>
+          <input type="file" id="inCam" accept="image/*" capture="environment" hidden>
+          <input type="file" id="inGal" accept="image/*" multiple hidden>
+          <div id="thumbs" class="thumbs"></div>
+          <p class="hint">Hasta 4 fotos. Se reducen automáticamente para que se envíen rápido.</p>
+        </fieldset>
+
+        <p id="err" class="err" role="alert" hidden></p>
+        <div class="bar">
+          <button type="button" id="btnCancel">Cancelar</button>
+          <button type="submit" id="btnSave" class="primary">Aceptar y guardar</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Mis observaciones -->
+    <section id="vList" class="view" hidden>
+      <div class="card">
+        <div class="lh"><h2>Tus observaciones</h2><button id="btnBack1" class="sm">Volver</button></div>
+        <p class="hint" id="listMsg"></p>
+        <ul id="list" class="list"></ul>
+      </div>
+    </section>
+
+    <!-- Detalle -->
+    <section id="vDet" class="view" hidden>
+      <div class="card">
+        <div class="lh"><h2>Observación</h2><button id="btnBack2" class="sm">Volver</button></div>
+        <div id="det"></div>
+      </div>
+    </section>
+
+    <div id="toast" role="status" hidden></div>
+  </main>
+</div>
+
+<script>
+(function(){
+'use strict';
+function $(id){ return document.getElementById(id); }
+
+/* ====== CONFIGURACIÓN (editable) ====== */
+var CAT = {
+  gerencia: [],   /* ej.: ['Operaciones', 'Seguridad'] */
+  base: [],       /* ej.: ['Base Plottier'] */
+  cliente: [],    /* ej.: ['YPF', 'Pluspetrol'] */
+  operacion: []   /* ej.: ['Transporte de personal', 'Carga'] */
+};
+var COL = 'tdp_observaciones', COLF = 'tdp_observaciones_fotos';
+var BASE_URL = 'https://axel-valle-22.github.io/geotab-gestion-viajes/';
+var QKEY = 'tdp_obs_queue_v1', MAXF = 4;
+
+/* ====== ESTILOS: viajan en el script (Drive descarta el <style> del <head>) ====== */
+var CSS = [
+"@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');",
+"#tob{--accent:#00A6E0;--accent-dark:#0078A1;--accent-light:#E3F5FB;--page:#F4F5F8;--card:#fff;--border:#ECEDF2;--text:#20232B;--muted:#6B7280;--ok:#1F9D55;--bad:#D92D20;--shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);position:relative;background:var(--page);color:var(--text);font-family:Poppins,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;min-height:100vh;box-sizing:border-box}",
+"#tob *{box-sizing:border-box}",
+"#tob .app{max-width:640px;margin:0 auto;padding:14px 16px 90px;display:flex;flex-direction:column;gap:14px}",
+"#tob .card{background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);padding:16px}",
+"#tob #head{display:flex;align-items:center;gap:12px;padding:12px 16px}",
+"#tob #head img{height:34px;width:auto;max-width:34%;object-fit:contain;flex:0 0 auto}",
+"#tob #head .ttl{min-width:0;flex:1}",
+"#tob #head h1{margin:0;font-size:1.02rem;font-weight:700;line-height:1.2}",
+"#tob #head p{margin:0;font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+"#tob .pill{font-size:.72rem;font-weight:600;padding:5px 12px;border-radius:999px;background:var(--accent-light);color:var(--accent-dark);white-space:nowrap}",
+"#tob .pill.off{background:#FFF1D6;color:#8A5A00}",
+"#tob .warn{background:#FFF1D6;color:#7A4E00;border-radius:14px;padding:10px 14px;font-weight:600;font-size:.85rem}",
+"#tob .view[hidden],#tob [hidden]{display:none!important}",
+"#tob h2{margin:0 0 6px;font-size:1.05rem;font-weight:700}",
+"#tob .hero{text-align:center;display:flex;flex-direction:column;gap:12px;padding:22px 16px}",
+"#tob .hero p{margin:0;color:var(--muted);font-size:.9rem}",
+"#tob .hero .sep{margin-top:8px}",
+"#tob button{font:inherit;font-weight:600;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:12px 18px;min-height:46px;cursor:pointer;box-shadow:var(--shadow)}",
+"#tob button.primary{background:var(--accent);border-color:var(--accent);color:#fff}",
+"#tob button.big{min-height:54px;font-size:1.02rem}",
+"#tob button.soft{background:var(--accent-light);border-color:#CBEAF6;color:var(--accent-dark);box-shadow:none}",
+"#tob button.sm{min-height:36px;padding:6px 14px;font-size:.85rem}",
+"#tob button:focus-visible,#tob input:focus-visible,#tob textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}",
+"#tob button[disabled]{opacity:.55}",
+"#tob .form{display:flex;flex-direction:column;gap:14px}",
+"#tob fieldset{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;min-width:0}",
+"#tob legend,#tob label{font-size:.8rem;font-weight:600;color:var(--muted);padding:0}",
+"#tob label{display:flex;flex-direction:column;gap:5px;min-width:0}",
+"#tob b{color:var(--bad)}",
+"#tob input[type=text],#tob input[type=datetime-local],#tob textarea{font:inherit;font-weight:400;color:var(--text);background:var(--page);border:1px solid var(--border);border-radius:12px;padding:11px 12px;width:100%;min-width:0}",
+"#tob textarea{resize:vertical}",
+"#tob .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
+"#tob .row2.btns{grid-template-columns:1fr 1fr}",
+"@media (max-width:360px){#tob .row2{grid-template-columns:1fr}}",
+"#tob .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}",
+"#tob .seg.two{grid-template-columns:repeat(2,1fr)}",
+"#tob .seg button,#tob .risk button{box-shadow:none;padding:10px 6px;font-size:.88rem}",
+"#tob .seg button.on{background:var(--accent);border-color:var(--accent);color:#fff}",
+"#tob .risk{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}",
+"#tob .risk button{border-width:2px;font-size:.74rem;padding:10px 2px;border-radius:14px}",
+"#tob .risk .r-sin{border-color:#9AA1AC;color:#4B5563}#tob .risk .r-sin.on{background:#9AA1AC;color:#fff}",
+"#tob .risk .r-bajo{border-color:#1F9D55;color:#14703C}#tob .risk .r-bajo.on{background:#1F9D55;color:#fff}",
+"#tob .risk .r-medio{border-color:#C49A00;color:#7A5F00}#tob .risk .r-medio.on{background:#C49A00;color:#fff}",
+"#tob .risk .r-alto{border-color:#D92D20;color:#A8231A}#tob .risk .r-alto.on{background:#D92D20;color:#fff}",
+"#tob .risk .r-extremo{border-color:#8E44C8;color:#6A2C9C}#tob .risk .r-extremo.on{background:#8E44C8;color:#fff}",
+"#tob .hint{margin:0;font-size:.78rem;color:var(--muted);font-weight:400}",
+"#tob .err{margin:0;color:var(--bad);font-weight:600;font-size:.88rem}",
+"#tob .thumbs{display:flex;gap:8px;flex-wrap:wrap}",
+"#tob .th{position:relative;width:72px;height:72px;border-radius:12px;overflow:hidden;border:1px solid var(--border)}",
+"#tob .th img{width:100%;height:100%;object-fit:cover}",
+"#tob .th button{position:absolute;top:2px;right:2px;min-height:24px;width:24px;padding:0;border-radius:50%;font-size:.8rem;line-height:1;background:rgba(0,0,0,.6);color:#fff;border:0}",
+"#tob .bar{position:sticky;bottom:0;display:flex;gap:10px;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 40%);padding:12px 0 2px}",
+"#tob .bar .primary{flex:1}",
+"#tob .lh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}",
+"#tob .lh h2{margin:0}",
+"#tob .list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}",
+"#tob .list li{border:1px solid var(--border);border-radius:14px;padding:11px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between;cursor:pointer}",
+"#tob .list li b{color:var(--text);font-size:.9rem}",
+"#tob .list li small{display:block;color:var(--muted);font-size:.76rem;font-weight:400}",
+"#tob .tag{font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:999px;color:#fff;white-space:nowrap}",
+"#tob .t-sin{background:#9AA1AC}#tob .t-bajo{background:#1F9D55}#tob .t-medio{background:#C49A00}#tob .t-alto{background:#D92D20}#tob .t-extremo{background:#8E44C8}",
+"#tob .kv{display:grid;grid-template-columns:38% 1fr;gap:6px 10px;font-size:.86rem}",
+"#tob .kv span:nth-child(odd){color:var(--muted)}",
+"#tob .kv span:nth-child(even){word-break:break-word}",
+"#tob .gal{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}",
+"#tob .gal img{width:96px;height:96px;object-fit:cover;border-radius:12px;border:1px solid var(--border)}",
+"#tob #toast{position:fixed;left:16px;right:16px;bottom:18px;max-width:608px;margin:0 auto;background:#20232B;color:#fff;border-radius:14px;padding:12px 16px;font-weight:600;font-size:.9rem;z-index:99999;text-align:center}"
+].join('\n');
+(function putCss(){
+  try{
+    if(document.getElementById('tobStyle')) return;
+    var el = document.createElement('style'); el.id = 'tobStyle'; el.textContent = CSS;
+    (document.head || document.documentElement).appendChild(el);
+  }catch(e){}
+})();
+
+/* ====== ESTADO ====== */
+var env = { api: null, user: null, device: null };
+var booted = false, inited = false, fb = null, db = null, fbErr = '', sending = false;
+var form = { tipo: '', riesgo: '', susp: '', lat: null, lng: null, fotos: [] };
+var zonas = null;
+
+/* ====== REGISTRO DEL ADD-IN (va primero; no depende de que exista la pantalla) ====== */
+function ready(fn){
+  if(init()){ fn(); return; }
+  var n = 0, t = setInterval(function(){ n++; if(init()){ clearInterval(t); fn(); } else if(n > 100){ clearInterval(t); } }, 100);
+}
+window.initialize = function(a, state, cb){ ready(function(){ boot(a, state); }); if(typeof cb === 'function') cb(); };
+try{
+  if(typeof geotab !== 'undefined' && geotab.addin){
+    geotab.addin.tarjetaObsTDP = function(){
+      return {
+        initialize: function(a, state, cb){ ready(function(){ boot(a, state); }); if(typeof cb === 'function') cb(); },
+        focus: function(a, state){ ready(function(){ boot(a, state); }); },
+        blur: function(){}
+      };
+    };
+  }
+}catch(e){}
+
+/* ====== UTILIDADES ====== */
+function toast(m){ var t = $('toast'); t.textContent = m; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(function(){ t.hidden = true; }, 3800); }
+function uid(){ return 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function pad(n){ return (n < 10 ? '0' : '') + n; }
+function localInput(d){ return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+function fmt(iso){ try{ return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); }catch(e){ return iso || ''; } }
+var TIPOS = { preventiva: 'Preventiva', informativa: 'Informativa', mejora: 'De mejora' };
+var RIESGOS = { sin: 'Sin riesgo', bajo: 'Bajo', medio: 'Medio', alto: 'Alto', extremo: 'Extremo' };
+function qLoad(){ try{ return JSON.parse(localStorage.getItem(QKEY) || '[]'); }catch(e){ return []; } }
+function qSave(q){ try{ localStorage.setItem(QKEY, JSON.stringify(q)); return true; }catch(e){ return false; } }
+
+/* ====== FIREBASE ====== */
+function loadScript(src){ return new Promise(function(res, rej){ var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function(){ rej(new Error('No se pudo cargar ' + src)); }; document.head.appendChild(s); }); }
+function getDb(){
+  if(db) return Promise.resolve(db);
+  return Promise.resolve().then(function(){
+    if(window.firebase && window.firebase.firestore) return;
+    return loadScript(BASE_URL + 'gestion-documental/js/firebase-config.js')
+      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'); })
+      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'); });
+  }).then(function(){
+    var f = window.firebase;
+    var app = (f.apps || []).filter(function(a){ return a.name === 'tdp-obs'; })[0] || f.initializeApp(window.FIREBASE_CONFIG || {}, 'tdp-obs');
+    db = app.firestore();
+    return db;
+  });
+}
+
+/* ====== COLA DE ENVÍO (funciona sin señal) ====== */
+function updPend(){
+  var q = qLoad(), p = $('pend');
+  if(q.length){ p.hidden = false; p.textContent = q.length + (q.length === 1 ? ' observación pendiente de envío' : ' observaciones pendientes de envío') + (navigator.onLine === false ? ' · sin señal' : ''); }
+  else { p.hidden = true; }
+  var net = $('net'); net.textContent = navigator.onLine === false ? 'Sin señal' : 'En línea'; net.className = 'pill' + (navigator.onLine === false ? ' off' : '');
+}
+function flush(){
+  if(sending) return Promise.resolve();
+  var q = qLoad(); if(!q.length){ updPend(); return Promise.resolve(); }
+  sending = true;
+  return getDb().then(function(d){
+    var chain = Promise.resolve();
+    q.forEach(function(item){
+      chain = chain.then(function(){
+        var batch = d.batch();
+        batch.set(d.collection(COL).doc(item.id), item.doc);
+        (item.fotos || []).forEach(function(u, i){ batch.set(d.collection(COLF).doc(item.id + '_' + i), { obsId: item.id, idx: i, dataUrl: u }); });
+        return batch.commit().then(function(){ var cur = qLoad().filter(function(x){ return x.id !== item.id; }); qSave(cur); });
+      });
+    });
+    return chain;
+  }).then(function(){ fbErr = ''; }).catch(function(e){
+    fbErr = (e && (e.code || e.message)) || 'error';
+  }).then(function(){ sending = false; updPend(); });
+}
+
+/* ====== ZONA POR GPS (usa las zonas de MyGeotab ya exportadas) ====== */
+function inPoly(lat, lng, p){
+  var inside = false;
+  for(var i = 0, j = p.length - 1; i < p.length; j = i++){
+    var yi = p[i][0], xi = p[i][1], yj = p[j][0], xj = p[j][1];
+    if(((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function zonaDe(lat, lng, cb){
+  function look(){
+    var hit = null;
+    (zonas || []).forEach(function(z){ if(!hit && z.p && z.p.length > 2 && inPoly(lat, lng, z.p)) hit = z.n; });
+    cb(hit);
+  }
+  if(zonas) return look();
+  try{
+    fetch(BASE_URL + 'velocimetro/zonas.json').then(function(r){ return r.json(); }).then(function(o){ zonas = o.z || []; look(); }).catch(function(){ zonas = []; cb(null); });
+  }catch(e){ cb(null); }
+}
+function useGps(){
+  var msg = $('gpsMsg');
+  if(!navigator.geolocation){ msg.textContent = 'Este celular no permite usar la ubicación.'; return; }
+  msg.textContent = 'Buscando ubicación…';
+  navigator.geolocation.getCurrentPosition(function(p){
+    form.lat = Math.round(p.coords.latitude * 100000) / 100000; form.lng = Math.round(p.coords.longitude * 100000) / 100000;
+    if(!$('fSitio').value) $('fSitio').value = form.lat + ', ' + form.lng;
+    msg.textContent = 'Ubicación tomada (±' + Math.round(p.coords.accuracy) + ' m).';
+    zonaDe(form.lat, form.lng, function(n){ if(n){ if(!$('fArea').value) $('fArea').value = n; msg.textContent += ' Zona: ' + n + '.'; } });
+  }, function(){ msg.textContent = 'No se pudo tomar la ubicación. Podés escribir el sitio a mano.'; }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+}
+
+/* ====== FOTOS ====== */
+function compress(file){
+  return new Promise(function(res, rej){
+    var fr = new FileReader();
+    fr.onerror = function(){ rej(new Error('lectura')); };
+    fr.onload = function(){
+      var img = new Image();
+      img.onerror = function(){ rej(new Error('imagen')); };
+      img.onload = function(){
+        var M = 1024, w = img.width, h = img.height, k = Math.min(1, M / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+function addFiles(list){
+  var files = [].slice.call(list || []);
+  var chain = Promise.resolve();
+  files.forEach(function(f){
+    chain = chain.then(function(){
+      if(form.fotos.length >= MAXF){ toast('Máximo ' + MAXF + ' fotos'); return; }
+      return compress(f).then(function(u){ form.fotos.push(u); drawThumbs(); }).catch(function(){ toast('No se pudo leer una foto'); });
+    });
+  });
+}
+function drawThumbs(){
+  var box = $('thumbs'); box.textContent = '';
+  form.fotos.forEach(function(u, i){
+    var d = document.createElement('div'); d.className = 'th';
+    var im = document.createElement('img'); im.src = u; im.alt = 'Foto ' + (i + 1);
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = '×'; b.setAttribute('aria-label', 'Quitar foto');
+    b.onclick = function(){ form.fotos.splice(i, 1); drawThumbs(); };
+    d.appendChild(im); d.appendChild(b); box.appendChild(d);
+  });
+}
+
+/* ====== PANTALLAS ====== */
+function show(v){
+  ['Home', 'Form', 'List', 'Det'].forEach(function(n){ $('v' + n).hidden = (n !== v); });
+  $('tob').setAttribute('data-v', v);
+  try{ window.scrollTo(0, 0); }catch(e){}
+}
+function seg(boxId, key, multi){
+  var box = $(boxId);
+  [].forEach.call(box.querySelectorAll('button'), function(b){
+    b.onclick = function(){
+      form[key] = b.getAttribute('data-v');
+      [].forEach.call(box.querySelectorAll('button'), function(x){ x.classList.toggle('on', x === b); });
+      if(key === 'susp') $('lblAut').hidden = form.susp !== 'si';
+    };
+  });
+}
+function resetForm(){
+  form = { tipo: '', riesgo: '', susp: '', lat: null, lng: null, fotos: [] };
+  $('f').reset(); $('fFecha').value = localInput(new Date()); $('gpsMsg').textContent = ''; $('err').hidden = true; $('lblAut').hidden = true;
+  ['segTipo', 'segRiesgo', 'segSusp'].forEach(function(id){ [].forEach.call($(id).querySelectorAll('button'), function(b){ b.classList.remove('on'); }); });
+  drawThumbs();
+}
+function fillList(id, arr){ var dl = $(id); dl.textContent = ''; (arr || []).forEach(function(v){ var o = document.createElement('option'); o.value = v; dl.appendChild(o); }); }
+
+function save(ev){
+  if(ev) ev.preventDefault();
+  var err = $('err'), miss = [];
+  if(!form.tipo) miss.push('el tipo de observación');
+  if(!$('fFecha').value) miss.push('la fecha y hora');
+  if(!$('fDesc').value.trim()) miss.push('la descripción');
+  if(!form.riesgo) miss.push('el riesgo');
+  if(!form.susp) miss.push('si se aplicó la suspensión de tareas');
+  if(form.susp === 'si' && !$('fAut').value.trim()) miss.push('la autoridad notificada');
+  if(miss.length){ err.textContent = 'Falta completar: ' + miss.join(', ') + '.'; err.hidden = false; try{ err.scrollIntoView({ block: 'center' }); }catch(e){} return; }
+  err.hidden = true;
+  var id = uid();
+  var doc = {
+    v: 1, creada: new Date().toISOString(), fechaObs: new Date($('fFecha').value).toISOString(),
+    tipo: form.tipo, riesgo: form.riesgo, area: $('fArea').value.trim(), sitio: $('fSitio').value.trim(), lat: form.lat, lng: form.lng,
+    gerencia: $('fGerencia').value.trim(), base: $('fBase').value.trim(), cliente: $('fCliente').value.trim(), operacion: $('fOperacion').value.trim(),
+    descripcion: $('fDesc').value.trim(), accion: $('fAccion').value.trim(), suspension: form.susp, autoridad: form.susp === 'si' ? $('fAut').value.trim() : '',
+    adicional: $('fAdic').value.trim(), fotos: form.fotos.length, chofer: env.user || ($('who').getAttribute('data-n') || ''), unidad: env.device || '',
+    origen: env.api ? 'drive' : 'web', estado: 'nueva', notas: []
+  };
+  var q = qLoad(); q.push({ id: id, doc: doc, fotos: form.fotos.slice() });
+  if(!qSave(q)){ err.textContent = 'No hay espacio en el celular para guardar las fotos. Probá con menos fotos.'; err.hidden = false; return; }
+  $('btnSave').disabled = true;
+  flush().then(function(){
+    $('btnSave').disabled = false;
+    var pending = qLoad().some(function(x){ return x.id === id; });
+    if(pending){ toast(fbErr === 'permission-denied' ? 'Guardada en el celular. El servidor no la aceptó todavía (permisos).' : 'Guardada en el celular. Se envía sola cuando haya señal.'); }
+    else { toast('Observación enviada. ¡Gracias!'); }
+    resetForm(); show('Home');
+  });
+}
+
+function tagEl(r){ var s = document.createElement('span'); s.className = 'tag t-' + r; s.textContent = RIESGOS[r] || r; return s; }
+function openMine(){
+  show('List'); var ul = $('list'); ul.textContent = ''; var msg = $('listMsg'); msg.textContent = 'Cargando…';
+  var name = env.user || $('who').getAttribute('data-n') || '';
+  if(!name){ msg.textContent = 'No se pudo identificar al chofer.'; return; }
+  var since = Date.now() - 365 * 86400000;
+  getDb().then(function(d){ return d.collection(COL).where('chofer', '==', name).limit(200).get(); }).then(function(snap){
+    var rows = []; snap.forEach(function(s){ var x = s.data(); x._id = s.id; rows.push(x); });
+    rows = rows.filter(function(r){ return new Date(r.creada).getTime() >= since; }).sort(function(a, b){ return a.creada < b.creada ? 1 : -1; });
+    qLoad().forEach(function(p){ rows.unshift(Object.assign({ _id: p.id, _pend: true }, p.doc)); });
+    msg.textContent = rows.length ? '' : 'Todavía no creaste observaciones.';
+    rows.forEach(function(r){
+      var li = document.createElement('li'), d = document.createElement('div'), b = document.createElement('b'), s = document.createElement('small');
+      b.textContent = (TIPOS[r.tipo] || r.tipo) + (r._pend ? ' · pendiente de envío' : ''); s.textContent = fmt(r.fechaObs) + ' · ' + (r.area || r.sitio || 'sin ubicación');
+      d.appendChild(b); d.appendChild(s); li.appendChild(d); li.appendChild(tagEl(r.riesgo)); li.onclick = function(){ openDet(r); }; ul.appendChild(li);
+    });
+  }).catch(function(e){ msg.textContent = 'No se pudieron traer tus observaciones (' + ((e && (e.code || e.message)) || 'error') + ').'; });
+}
+function kv(box, k, v){ if(v === undefined || v === null || v === '') return; var a = document.createElement('span'), b = document.createElement('span'); a.textContent = k; b.textContent = v; box.appendChild(a); box.appendChild(b); }
+function openDet(r){
+  show('Det'); var box = $('det'); box.textContent = '';
+  var g = document.createElement('div'); g.className = 'kv';
+  kv(g, 'Tipo', TIPOS[r.tipo] || r.tipo); kv(g, 'Riesgo', RIESGOS[r.riesgo] || r.riesgo); kv(g, 'Fecha', fmt(r.fechaObs)); kv(g, 'Zona', r.area); kv(g, 'Sitio', r.sitio);
+  kv(g, 'Gerencia', r.gerencia); kv(g, 'Base', r.base); kv(g, 'Cliente', r.cliente); kv(g, 'Operación', r.operacion); kv(g, 'Descripción', r.descripcion);
+  kv(g, 'Acción inmediata', r.accion); kv(g, 'Suspensión de tareas', r.suspension === 'si' ? 'Sí' + (r.autoridad ? ' · ' + r.autoridad : '') : 'No'); kv(g, 'Adicional', r.adicional);
+  kv(g, 'Estado', r._pend ? 'Pendiente de envío' : ({ nueva: 'Nueva', revision: 'En revisión', cerrada: 'Cerrada' }[r.estado] || r.estado));
+  box.appendChild(g);
+  if(r.fotos && !r._pend){
+    var gal = document.createElement('div'); gal.className = 'gal'; box.appendChild(gal);
+    getDb().then(function(d){ return d.collection(COLF).where('obsId', '==', r._id).get(); }).then(function(snap){
+      var arr = []; snap.forEach(function(s){ arr.push(s.data()); }); arr.sort(function(a, b){ return a.idx - b.idx; });
+      arr.forEach(function(f){ var im = document.createElement('img'); im.src = f.dataUrl; im.alt = 'Foto'; gal.appendChild(im); });
+    }).catch(function(){});
+  }
+}
+
+/* ====== INICIO ====== */
+function init(){
+  if(inited) return true;
+  if(!$('vHome') || !$('tob')) return false;
+  inited = true;
+  fillList('dlGerencia', CAT.gerencia); fillList('dlBase', CAT.base); fillList('dlCliente', CAT.cliente); fillList('dlOperacion', CAT.operacion);
+  seg('segTipo', 'tipo'); seg('segRiesgo', 'riesgo'); seg('segSusp', 'susp');
+  $('btnNew').onclick = function(){ resetForm(); show('Form'); };
+  $('btnMine').onclick = openMine;
+  $('btnCancel').onclick = function(){ show('Home'); };
+  $('btnBack1').onclick = function(){ show('Home'); };
+  $('btnBack2').onclick = function(){ openMine(); };
+  $('btnGps').onclick = useGps;
+  $('btnCam').onclick = function(){ $('inCam').click(); };
+  $('btnGal').onclick = function(){ $('inGal').click(); };
+  $('inCam').onchange = function(){ addFiles(this.files); this.value = ''; };
+  $('inGal').onchange = function(){ addFiles(this.files); this.value = ''; };
+  $('f').onsubmit = save;
+  window.addEventListener('online', function(){ updPend(); flush(); });
+  window.addEventListener('offline', updPend);
+  setInterval(flush, 30000);
+  resetForm(); updPend(); show('Home');
+  return true;
+}
+function boot(a, state){
+  if(a){ env.api = a; }
+  try{ var dev = state && state.device; if(dev){ env.device = typeof dev === 'string' ? dev : (dev.id || null); } }catch(e){}
+  if(booted) return; booted = true;
+  if(a && typeof a.getSession === 'function'){
+    try{ a.getSession(function(s){ env.user = s && s.userName ? s.userName : null; $('who').textContent = env.user ? 'Chofer: ' + env.user : 'Chofer sin identificar'; if(env.user) $('who').setAttribute('data-n', env.user); }); }catch(e){}
+  }
+  flush();
+}
+/* Si nadie llama a initialize (abierto en un navegador común) */
+setTimeout(function(){
+  ready(function(){
+    if(!booted){
+      booted = true;
+      var n = ''; try{ n = localStorage.getItem('tdp_obs_nombre') || ''; }catch(e){}
+      if(!n){ n = (window.prompt ? window.prompt('Escribí tu nombre y apellido para identificar la observación') : '') || ''; try{ localStorage.setItem('tdp_obs_nombre', n); }catch(e){} }
+      if(n){ $('who').textContent = 'Chofer: ' + n; $('who').setAttribute('data-n', n); }
+      flush();
+    }
+  });
+}, 1500);
+})();
+</script>
+</body>
+</html>
