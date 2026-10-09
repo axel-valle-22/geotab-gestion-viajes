@@ -41,7 +41,7 @@
           </div>
         </fieldset>
 
-        <label>Fecha y hora aproximada <b>*</b><input type="datetime-local" id="fFecha"></label>
+        <div class="row2"><label>Fecha <b>*</b><input type="date" id="fFecha"></label><label>Hora <b>*</b><input type="time" id="fHora"></label></div>
 
         <fieldset>
           <legend>Ubicación geográfica</legend>
@@ -124,6 +124,8 @@
       </div>
     </section>
 
+    <div id="cam" hidden><video id="camV" autoplay playsinline muted></video><div id="camBar"><button type="button" id="camX">Cerrar</button><span id="camN"></span><button type="button" id="camSnap" class="primary">Sacar foto</button></div></div>
+
     <div id="toast" role="status" hidden></div>
   </main>
 </div>
@@ -176,7 +178,7 @@ var CSS = [
 "#tob legend,#tob label{font-size:.8rem;font-weight:600;color:var(--muted);padding:0}",
 "#tob label{display:flex;flex-direction:column;gap:5px;min-width:0}",
 "#tob b{color:var(--bad)}",
-"#tob input[type=text],#tob input[type=datetime-local],#tob textarea{font:inherit;font-weight:400;color:var(--text);background:var(--page);border:1px solid var(--border);border-radius:12px;padding:11px 12px;width:100%;min-width:0}",
+"#tob input[type=text],#tob input[type=date],#tob input[type=time],#tob textarea{font:inherit;font-weight:400;color:var(--text);background:var(--page);border:1px solid var(--border);border-radius:12px;padding:11px 12px;width:100%;min-width:0}",
 "#tob textarea{resize:vertical}",
 "#tob .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}",
 "#tob .row2.btns{grid-template-columns:1fr 1fr}",
@@ -213,6 +215,10 @@ var CSS = [
 "#tob .kv span:nth-child(even){word-break:break-word}",
 "#tob .gal{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}",
 "#tob .gal img{width:96px;height:96px;object-fit:cover;border-radius:12px;border:1px solid var(--border)}",
+"#tob #cam{position:fixed;left:0;top:0;right:0;bottom:0;z-index:100000;background:#000;display:flex;flex-direction:column}",
+"#tob #cam video{flex:1;min-height:0;width:100%;object-fit:cover;background:#000}",
+"#tob #camBar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;background:#000}",
+"#tob #camN{color:#fff;font-size:.85rem}",
 "#tob #toast{position:fixed;left:16px;right:16px;bottom:18px;max-width:608px;margin:0 auto;background:#20232B;color:#fff;border-radius:14px;padding:12px 16px;font-weight:600;font-size:.9rem;z-index:99999;text-align:center}"
 ].join('\n');
 (function putCss(){
@@ -374,8 +380,37 @@ function drawThumbs(){
   });
 }
 
+/* ====== CÁMARA PROPIA (Drive abre la galería con el selector común; esto abre la cámara directo) ====== */
+var camStream = null;
+function camStop(){
+  try{ if(camStream) camStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+  camStream = null;
+  try{ $('camV').srcObject = null; }catch(e){}
+  $('cam').hidden = true;
+}
+function openCam(){
+  if(form.fotos.length >= MAXF){ toast('Máximo ' + MAXF + ' fotos'); return; }
+  var md = navigator.mediaDevices;
+  if(!md || !md.getUserMedia){ $('inCam').click(); return; }
+  md.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false }).then(function(s){
+    camStream = s; var v = $('camV'); v.srcObject = s; $('cam').hidden = false; $('camN').textContent = form.fotos.length + ' de ' + MAXF;
+    var p = v.play && v.play(); if(p && p.catch) p.catch(function(){});
+  }).catch(function(){ toast('No se pudo abrir la cámara. Elegí la foto desde el celular.'); $('inCam').click(); });
+}
+function snap(){
+  var v = $('camV'); if(!v.videoWidth) return;
+  if(form.fotos.length >= MAXF){ toast('Máximo ' + MAXF + ' fotos'); camStop(); return; }
+  var k = Math.min(1, 1024 / Math.max(v.videoWidth, v.videoHeight));
+  var c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  form.fotos.push(c.toDataURL('image/jpeg', 0.6)); drawThumbs();
+  $('camN').textContent = form.fotos.length + ' de ' + MAXF;
+  if(form.fotos.length >= MAXF){ camStop(); toast('Fotos completas'); }
+}
+
 /* ====== PANTALLAS ====== */
 function show(v){
+  camStop();
   ['Home', 'Form', 'List', 'Det'].forEach(function(n){ $('v' + n).hidden = (n !== v); });
   $('tob').setAttribute('data-v', v);
   try{ window.scrollTo(0, 0); }catch(e){}
@@ -392,7 +427,7 @@ function seg(boxId, key, multi){
 }
 function resetForm(){
   form = { tipo: '', riesgo: '', susp: '', lat: null, lng: null, fotos: [] };
-  $('f').reset(); $('fFecha').value = localInput(new Date()); $('gpsMsg').textContent = ''; $('err').hidden = true; $('lblAut').hidden = true;
+  $('f').reset(); var _n = localInput(new Date()); $('fFecha').value = _n.slice(0, 10); $('fHora').value = _n.slice(11); $('gpsMsg').textContent = ''; $('err').hidden = true; $('lblAut').hidden = true;
   ['segTipo', 'segRiesgo', 'segSusp'].forEach(function(id){ [].forEach.call($(id).querySelectorAll('button'), function(b){ b.classList.remove('on'); }); });
   drawThumbs();
 }
@@ -402,7 +437,7 @@ function save(ev){
   if(ev) ev.preventDefault();
   var err = $('err'), miss = [];
   if(!form.tipo) miss.push('el tipo de observación');
-  if(!$('fFecha').value) miss.push('la fecha y hora');
+  if(!$('fFecha').value || !$('fHora').value) miss.push('la fecha y hora');
   if(!$('fDesc').value.trim()) miss.push('la descripción');
   if(!form.riesgo) miss.push('el riesgo');
   if(!form.susp) miss.push('si se aplicó la suspensión de tareas');
@@ -411,7 +446,7 @@ function save(ev){
   err.hidden = true;
   var id = uid();
   var doc = {
-    v: 1, creada: new Date().toISOString(), fechaObs: new Date($('fFecha').value).toISOString(),
+    v: 1, creada: new Date().toISOString(), fechaObs: new Date($('fFecha').value + 'T' + $('fHora').value).toISOString(),
     tipo: form.tipo, riesgo: form.riesgo, area: $('fArea').value.trim(), sitio: $('fSitio').value.trim(), lat: form.lat, lng: form.lng,
     gerencia: $('fGerencia').value.trim(), base: $('fBase').value.trim(), cliente: $('fCliente').value.trim(), operacion: $('fOperacion').value.trim(),
     descripcion: $('fDesc').value.trim(), accion: $('fAccion').value.trim(), suspension: form.susp, autoridad: form.susp === 'si' ? $('fAut').value.trim() : '',
@@ -479,11 +514,13 @@ function init(){
   $('btnBack1').onclick = function(){ show('Home'); };
   $('btnBack2').onclick = function(){ openMine(); };
   $('btnGps').onclick = useGps;
-  $('btnCam').onclick = function(){ $('inCam').click(); };
+  $('btnCam').onclick = openCam;
   $('btnGal').onclick = function(){ $('inGal').click(); };
   $('inCam').onchange = function(){ addFiles(this.files); this.value = ''; };
   $('inGal').onchange = function(){ addFiles(this.files); this.value = ''; };
   $('f').onsubmit = save;
+  ['fFecha', 'fHora'].forEach(function(id){ var i = $(id); i.onclick = function(){ try{ if(i.showPicker) i.showPicker(); }catch(e){} }; });
+  $('camSnap').onclick = snap; $('camX').onclick = camStop;
   window.addEventListener('online', function(){ updPend(); flush(); });
   window.addEventListener('offline', updPend);
   setInterval(flush, 30000);
