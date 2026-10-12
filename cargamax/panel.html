@@ -92,8 +92,8 @@
       </section>
       <section class="card">
         <div class="acts" style="margin-top:0"><button id="pNew" class="primary">Nuevo permiso</button><button id="pCsv" class="sm">Exportar CSV</button><span id="pMsg" class="hint"></span></div>
-        <div class="tw"><table id="pTbl"><thead><tr><th>Jur.</th><th>Servicio</th><th>Formación</th><th>Carga</th><th>N°</th><th>Tramo</th><th>Vence</th><th>Renov.</th><th class="n">Largo</th><th class="n">PBT</th><th>Estado</th><th></th></tr></thead><tbody id="pTb"></tbody></table></div>
-        <p class="hint">El PBT autorizado es opcional: solo se carga cuando el permiso fija un peso. Si se carga, la calculadora lo ofrece como permiso de esa formación.</p>
+        <div class="tw"><table id="pTbl"><thead><tr><th>Jur.</th><th>Servicio</th><th>Formación</th><th>Carga</th><th>N°</th><th>Tramo</th><th>Vence</th><th>Renov.</th><th>Dimensiones</th><th>Estado</th><th></th></tr></thead><tbody id="pTb"></tbody></table></div>
+        <p class="hint">Estos permisos son para cargas sobredimensionadas (largo, ancho o alto). Las dimensiones son opcionales: cargá las que figuren en el permiso.</p>
       </section>
     </section>
 
@@ -663,6 +663,7 @@ function saveFicha(u){
 function closeMod(){ $('mod').hidden = true; $('modBox').innerHTML = ''; }
 
 /* ===================== PERMISOS ===================== */
+function dimTxt(p){ var a = []; if(p.largo > 0) a.push('Largo ' + ft(p.largo) + ' m'); if(p.ancho > 0) a.push('Ancho ' + ft(p.ancho) + ' m'); if(p.alto > 0) a.push('Alto ' + ft(p.alto) + ' m'); return a.join(' · '); }
 function uName(id, txt){ var u = id ? UBY[id] : null; return u ? u.nombre : (txt || ''); }
 function formName(p){ var t = uName(p.tractorId, p.tractorTxt || p.tractorPat), s1 = uName(p.semiId, p.semiTxt || p.semiPat), s2 = uName(p.semi2Id, ''); return t + (s1 ? ' + ' + s1 : '') + (s2 ? ' + ' + s2 : ''); }
 function pFiltrados(){
@@ -700,8 +701,7 @@ function renderPermisos(){
     if(p.vigHasta){ var bg = el('span', 'bdg ' + (v === 'vencido' ? 'vcd' : v === 'porvencer' ? 'vpv' : 'vvg'), v === 'vencido' ? 'vencido hace ' + (-d) + ' d' : (d === 0 ? 'vence hoy' : 'en ' + d + ' d')); tv.appendChild(bg); }
     tr.appendChild(tv);
     tr.appendChild(el('td', '', p.renov || ''));
-    tr.appendChild(el('td', 'n', p.largo > 0 ? ft(p.largo) + ' m' : ''));
-    tr.appendChild(el('td', 'n', p.pbtc > 0 ? ft(p.pbtc / 1000) + ' t' : ''));
+    tr.appendChild(el('td', '', dimTxt(p)));
     var te = el('td'); if(p.estado) te.appendChild(el('span', 'bdg st', EST_PERM[p.estado] || p.estado)); if(p.activo === false) te.appendChild(el('span', 'bdg', 'inactivo')); tr.appendChild(te);
     var tb2 = el('td'), b = el('button', 'sm', 'Editar'); b.onclick = function(){ openPermiso(p); }; tb2.appendChild(b); tr.appendChild(tb2);
     tb.appendChild(tr);
@@ -727,9 +727,11 @@ function openPermiso(p){
   '<label>Vigencia desde<input id="xVd" type="date"></label>' +
   '<label>Vigencia hasta<input id="xVh" type="date"></label>' +
   '<label>Largo de la formación (m)<input id="xLargo" type="number" step="0.05" min="0"></label>' +
+  '<label>Ancho con la carga (m)<input id="xAncho" type="number" step="0.05" min="0"></label>' +
+  '<label>Alto con la carga (m)<input id="xAlto" type="number" step="0.05" min="0"></label>' +
   '<label>Tramo desde<input id="xTd" list="dlTramo" autocomplete="off"></label>' +
   '<label>Tramo hasta<input id="xTh" list="dlTramo" autocomplete="off"></label>' +
-  '<label>PBT autorizado (kg, opcional)<input id="xPbtc" type="number" inputmode="numeric" min="0"></label>' +
+  '<label>Peso autorizado (kg) — solo si el permiso lo fija<input id="xPbtc" type="number" inputmode="numeric" min="0"></label>' +
   '</div>' +
   dlHtml('dlSrv', distinct('servicio')) + dlHtml('dlCarga', distinct('carga')) + dlHtml('dlTramo', distinct('tramoDesde').concat(distinct('tramoHasta')).filter(function(x, i, a){ return a.indexOf(x) === i; })) +
   '<label>Observaciones<textarea id="xObs" rows="2"></textarea></label>' +
@@ -740,7 +742,7 @@ function openPermiso(p){
   $('xJur').value = p.jur || 'nqn'; $('xSrv').value = p.servicio || ''; $('xEst').value = p.estado || '';
   $('xT').value = uName(p.tractorId, p.tractorTxt); $('xS1').value = uName(p.semiId, p.semiTxt); $('xS2').value = uName(p.semi2Id, '');
   $('xCarga').value = p.carga || ''; $('xNum').value = p.numero || ''; $('xRen').value = p.renov || '';
-  $('xVd').value = p.vigDesde || ''; $('xVh').value = p.vigHasta || ''; $('xLargo').value = p.largo || '';
+  $('xVd').value = p.vigDesde || ''; $('xVh').value = p.vigHasta || ''; $('xLargo').value = p.largo || ''; $('xAncho').value = p.ancho || ''; $('xAlto').value = p.alto || '';
   $('xTd').value = p.tramoDesde || ''; $('xTh').value = p.tramoHasta || ''; $('xPbtc').value = p.pbtc || '';
   $('xObs').value = p.obs || ''; $('xExc').checked = !!p.excesoEje; $('xAct').checked = nuevo ? true : p.activo !== false;
   $('xClose').onclick = closeMod;
@@ -753,7 +755,7 @@ function openPermiso(p){
     var d = { jur: $('xJur').value, servicio: $('xSrv').value.trim(), estado: $('xEst').value,
       tractorId: t.id, tractorTxt: t.nombre, semiId: s1 ? s1.id : '', semiTxt: s1 ? s1.nombre : '', semi2Id: s2 ? s2.id : '',
       carga: $('xCarga').value.trim(), numero: $('xNum').value.trim(), renov: $('xRen').value.trim(),
-      vigDesde: $('xVd').value, vigHasta: $('xVh').value, largo: num($('xLargo').value) || 0,
+      vigDesde: $('xVd').value, vigHasta: $('xVh').value, largo: num($('xLargo').value) || 0, ancho: num($('xAncho').value) || 0, alto: num($('xAlto').value) || 0,
       tramoDesde: $('xTd').value.trim(), tramoHasta: $('xTh').value.trim(), pbtc: pb || 0,
       obs: $('xObs').value.trim(), excesoEje: $('xExc').checked, activo: $('xAct').checked, editPor: me || '', editFecha: nowIso() };
     var id = p.id || ('p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
@@ -769,11 +771,11 @@ function openPermiso(p){
   $('mod').hidden = false; box.scrollTop = 0;
 }
 function exportPermCsv(){
-  var cols = ['Jurisdicción', 'Servicio', 'Tractor / camión', 'Semirremolque', 'Carga', 'N° expediente / web', 'Tramo desde', 'Tramo hasta', 'Vigencia desde', 'Vigencia hasta', 'Renovación', 'Largo (m)', 'PBT autorizado (kg)', 'Estado', 'Activo', 'Observaciones'];
+  var cols = ['Jurisdicción', 'Servicio', 'Tractor / camión', 'Semirremolque', 'Carga', 'N° expediente / web', 'Tramo desde', 'Tramo hasta', 'Vigencia desde', 'Vigencia hasta', 'Renovación', 'Largo (m)', 'Ancho (m)', 'Alto (m)', 'Peso autorizado (kg)', 'Estado', 'Activo', 'Observaciones'];
   var out = [cols.join(';')];
   function q(v){ v = (v === null || v === undefined) ? '' : String(v); return '"' + v.replace(/"/g, '""') + '"'; }
   pFiltrados().forEach(function(p){
-    out.push([JUR_TXT[p.jur] || '', p.servicio, uName(p.tractorId, p.tractorTxt), uName(p.semiId, p.semiTxt) + (p.semi2Id ? ' + ' + uName(p.semi2Id, '') : ''), p.carga, p.numero, p.tramoDesde, p.tramoHasta, p.vigDesde, p.vigHasta, p.renov, p.largo || '', p.pbtc || '', EST_PERM[p.estado || ''] || '', p.activo === false ? 'no' : 'sí', p.obs].map(q).join(';'));
+    out.push([JUR_TXT[p.jur] || '', p.servicio, uName(p.tractorId, p.tractorTxt), uName(p.semiId, p.semiTxt) + (p.semi2Id ? ' + ' + uName(p.semi2Id, '') : ''), p.carga, p.numero, p.tramoDesde, p.tramoHasta, p.vigDesde, p.vigHasta, p.renov, p.largo || '', p.ancho || '', p.alto || '', p.pbtc || '', EST_PERM[p.estado || ''] || '', p.activo === false ? 'no' : 'sí', p.obs].map(q).join(';'));
   });
   var blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'permisos-' + today() + '.csv';
