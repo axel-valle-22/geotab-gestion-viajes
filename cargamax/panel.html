@@ -86,7 +86,7 @@
         <label class="wide">Buscar<input type="text" id="pTxt" placeholder="Unidad, patente, número, carga o tramo"></label>
         <label>Jurisdicción<select id="pJur"><option value="">Todas</option><option value="nqn">Neuquén</option><option value="nac">Nacional</option></select></label>
         <label>Servicio<select id="pSrv"><option value="">Todos</option></select></label>
-        <label>Vigencia<select id="pVenc"><option value="">Todas</option><option value="vigente">Vigentes</option><option value="porvencer">Por vencer</option><option value="vencido">Vencidos</option><option value="sinfecha">Sin vigencia</option><option value="inactivo">Inactivos</option></select></label>
+        <label>Vigencia<select id="pVenc"><option value="">Todas</option><option value="vigente">Vigentes</option><option value="porvencer">Por vencer</option><option value="vencido">Vencidos</option><option value="sinfecha">Sin vigencia</option><option value="inactivo">Inactivos</option><option value="eliminado">Eliminados</option></select></label>
         <label>Estado del trámite<select id="pEst"></select></label>
         <label>Ordenar por<select id="pOrd"><option value="venc">Vencimiento</option><option value="form">Formación</option></select></label>
         <label>Archivo PDF<select id="pPdf"><option value="">Todos</option><option value="con">Con PDF</option><option value="sin">Sin PDF</option></select></label>
@@ -401,9 +401,9 @@ function syncGeotab(a){
 
 /* ===================== CALCULADORA (UI) ===================== */
 function byName(v){ v = String(v || '').trim().toLowerCase(); if(!v) return null; for(var i = 0; i < U.length; i++){ if(U[i].activo !== false && String(U[i].nombre).toLowerCase() === v) return U[i]; } return null; }
-function vig(p){ var t = today(); if(p.activo === false) return false; if(p.vigDesde && t < p.vigDesde) return false; if(p.vigHasta && t > p.vigHasta) return false; return true; }
+function vig(p){ var t = today(); if(p.activo === false || p.eliminado) return false; if(p.vigDesde && t < p.vigDesde) return false; if(p.vigHasta && t > p.vigHasta) return false; return true; }
 function dias(iso){ if(!iso) return null; var a = new Date(iso + 'T00:00:00'), b = new Date(today() + 'T00:00:00'); return Math.round((a - b) / 86400000); }
-function vencEst(p){ if(p.activo === false) return 'inactivo'; var d = dias(p.vigHasta); if(d === null) return 'sinfecha'; if(d < 0) return 'vencido'; if(d <= VENC_DIAS) return 'porvencer'; return 'vigente'; }
+function vencEst(p){ if(p.eliminado) return 'eliminado'; if(p.activo === false) return 'inactivo'; var d = dias(p.vigHasta); if(d === null) return 'sinfecha'; if(d < 0) return 'vencido'; if(d <= VENC_DIAS) return 'porvencer'; return 'vigente'; }
 function fday(iso){ if(!iso) return ''; var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso); return m ? m[3] + '/' + m[2] + '/' + m[1] : iso; }
 function fillLists(){
   var a = $('dlTrac'), b = $('dlRem'), c = $('dlAll'); a.innerHTML = ''; b.innerHTML = ''; c.innerHTML = '';
@@ -421,7 +421,7 @@ function selCalc(){
 function permisosDe(s){
   if(!s.u1) return [];
   return P.filter(function(p){
-    if(!(p.pbtc > 0)) return false;
+    if(p.eliminado || !(p.pbtc > 0)) return false;
     if(p.tractorId !== s.u1.id) return false;
     if(p.semiId && (!s.u2 || p.semiId !== s.u2.id)) return false;
     if(p.semi2Id && (!s.u3 || p.semi2Id !== s.u3.id)) return false;
@@ -673,6 +673,7 @@ function pFiltrados(){
     if(jur && p.jur !== jur) return false;
     if(sv && p.servicio !== sv) return false;
     if(es && (p.estado || '') !== (es === '_sin' ? '' : es)) return false;
+    if(p.eliminado && ve !== 'eliminado') return false;
     if(ve && vencEst(p) !== ve) return false;
     if(pf === 'con' && !p.pdf) return false;
     if(pf === 'sin' && p.pdf) return false;
@@ -687,7 +688,7 @@ function renderPermisos(){
   var es = $('pEst'), se = es.value; if(!es.options.length){ var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Todos'; es.appendChild(o0); var o1 = document.createElement('option'); o1.value = '_sin'; o1.textContent = 'Sin estado'; es.appendChild(o1); ESTADOS.slice(1).forEach(function(e){ var o = document.createElement('option'); o.value = e[0]; o.textContent = e[1]; es.appendChild(o); }); } es.value = se;
   /* resumen */
   var c = { vigente: 0, porvencer: 0, vencido: 0, sinfecha: 0 }; P.forEach(function(p){ var v = vencEst(p); if(c[v] !== undefined) c[v]++; });
-  $('pkVig').textContent = c.vigente; $('pkPv').textContent = c.porvencer; $('pkVen').textContent = c.vencido; $('pkSin').textContent = c.sinfecha; $('pkTot').textContent = P.length;
+  $('pkVig').textContent = c.vigente; $('pkPv').textContent = c.porvencer; $('pkVen').textContent = c.vencido; $('pkSin').textContent = c.sinfecha; var nP = P.filter(function(q){ return !q.eliminado; }).length; $('pkTot').textContent = nP;
   var list = pFiltrados();
   if($('pOrd').value === 'form') list.sort(function(a, b){ return formName(a).localeCompare(formName(b), 'es', { numeric: true }) || (a.orden || 0) - (b.orden || 0); });
   else list.sort(function(a, b){ return String(a.vigHasta || '9999').localeCompare(String(b.vigHasta || '9999')) || formName(a).localeCompare(formName(b), 'es', { numeric: true }); });
@@ -701,16 +702,16 @@ function renderPermisos(){
     tr.appendChild(el('td', '', p.numero || '–'));
     tr.appendChild(el('td', '', (p.tramoDesde || p.tramoHasta) ? (p.tramoDesde || '?') + ' → ' + (p.tramoHasta || '?') : ''));
     var tv = el('td'); tv.appendChild(document.createTextNode(p.vigHasta ? fday(p.vigHasta) + ' ' : '–'));
-    if(p.vigHasta){ var bg = el('span', 'bdg ' + (v === 'vencido' ? 'vcd' : v === 'porvencer' ? 'vpv' : 'vvg'), v === 'vencido' ? 'vencido hace ' + (-d) + ' d' : (d === 0 ? 'vence hoy' : 'en ' + d + ' d')); tv.appendChild(bg); }
+    if(p.vigHasta && !p.eliminado){ var bg = el('span', 'bdg ' + (v === 'vencido' ? 'vcd' : v === 'porvencer' ? 'vpv' : 'vvg'), v === 'vencido' ? 'vencido hace ' + (-d) + ' d' : (d === 0 ? 'vence hoy' : 'en ' + d + ' d')); tv.appendChild(bg); }
     tr.appendChild(tv);
     tr.appendChild(el('td', '', p.renov || ''));
     tr.appendChild(el('td', '', dimTxt(p)));
-    var te = el('td'); if(p.estado) te.appendChild(el('span', 'bdg st', EST_PERM[p.estado] || p.estado)); if(p.activo === false) te.appendChild(el('span', 'bdg', 'inactivo')); tr.appendChild(te);
+    var te = el('td'); if(p.estado) te.appendChild(el('span', 'bdg st', EST_PERM[p.estado] || p.estado)); if(p.eliminado) te.appendChild(el('span', 'bdg vcd', 'eliminado')); else if(p.activo === false) te.appendChild(el('span', 'bdg', 'inactivo')); tr.appendChild(te);
     var tp = el('td'); if(p.pdf){ var bv = el('button', 'sm', 'Ver'), bd = el('button', 'sm', 'Descargar'); bv.onclick = function(){ abrirPdf(p, false, $('pMsg')); }; bd.onclick = function(){ abrirPdf(p, true, $('pMsg')); }; tp.appendChild(bv); tp.appendChild(bd); } else tp.appendChild(document.createTextNode('–')); tr.appendChild(tp);
     var tb2 = el('td'), b = el('button', 'sm', 'Editar'); b.onclick = function(){ openPermiso(p); }; tb2.appendChild(b); tr.appendChild(tb2);
     tb.appendChild(tr);
   });
-  $('pMsg').textContent = !P.length ? 'Todavía no hay permisos cargados.' : (list.length + ' de ' + P.length + ' permisos' + (list.length > MAX ? ' (se muestran los primeros ' + MAX + ': filtrá para ver el resto)' : '') + '. Con PDF cargado: ' + P.filter(function(q){ return q.pdf; }).length + '.');
+  $('pMsg').textContent = !P.length ? 'Todavía no hay permisos cargados.' : (list.length + ' de ' + nP + ' permisos' + (list.length > MAX ? ' (se muestran los primeros ' + MAX + ': filtrá para ver el resto)' : '') + '. Con PDF cargado: ' + P.filter(function(q){ return q.pdf && !q.eliminado; }).length + '.');
 }
 /* ---- PDF del permiso: se guarda en Firestore en partes (cm_archivos), porque Firebase Storage no está habilitado en este proyecto ---- */
 function leerArchivoB64(f){ return new Promise(function(ok, ko){ var r = new FileReader(); r.onload = function(){ var s = String(r.result || ''); ok(s.slice(s.indexOf(',') + 1)); }; r.onerror = function(){ ko(new Error('No se pudo leer el archivo.')); }; r.readAsDataURL(f); }); }
@@ -734,6 +735,16 @@ function abrirPdf(p, bajar, msgEl){
   }).catch(function(e){ if(w){ try{ w.close(); }catch(x){} } msgEl.textContent = errTxt(e); });
 }
 function pdfInfo(p){ var q = p.pdf; return q.nombre + ' (' + Math.round((q.tam || 0) / 1024) + ' KB' + (q.fecha ? ', cargado el ' + fday(String(q.fecha).slice(0, 10)) : '') + (q.por ? ' por ' + q.por : '') + ')'; }
+/* "eliminar" = ocultar (las reglas de Firebase no permiten borrar documentos); se recupera con el filtro Eliminados */
+function setEliminado(p, val, m){
+  m.textContent = 'Guardando…';
+  var d = { eliminado: val, editPor: me || '', editFecha: nowIso() };
+  getDb().then(function(x){ return x.collection(COL_P).doc(p.id).set(d, { merge: true }); }).then(function(){
+    for(var k in d) p[k] = d[k];
+    logReg(uName(p.tractorId, p.tractorTxt), (val ? 'Eliminó' : 'Restauró') + ' el permiso ' + (p.numero || 'sin número') + ' (' + (JUR_TXT[p.jur] || '') + (p.carga ? ', ' + p.carga : '') + ')');
+    permKey = ''; renderPermisos(); recalc(); m.textContent = val ? 'Eliminado.' : 'Restaurado.'; setTimeout(closeMod, 500);
+  }).catch(function(e){ m.textContent = errTxt(e); });
+}
 function distinct(k){ var o = {}; P.forEach(function(p){ if(p[k]) o[p[k]] = 1; }); return Object.keys(o).sort(); }
 function dlHtml(id, arr){ return '<datalist id="' + id + '">' + arr.map(function(x){ return '<option value="' + String(x).replace(/"/g, '&quot;') + '">'; }).join('') + '</datalist>'; }
 function openPermiso(p){
@@ -766,7 +777,7 @@ function openPermiso(p){
   (p.pdf ? '<label class="chk"><input type="checkbox" id="xPdfDel"> Quitar el PDF actual</label>' : '') + '</div>' +
   '<label class="chk"><input type="checkbox" id="xExc"> El permiso autoriza exceso por eje (la calculadora no aplica la suma de límites por eje)</label>' +
   '<label class="chk"><input type="checkbox" id="xAct"> Permiso activo</label>' +
-  '<div class="acts"><button id="xSave" class="primary">Guardar</button><span id="xMsg" class="hint"></span></div>';
+  '<div class="acts"><button id="xSave" class="primary">Guardar</button>' + (!nuevo ? (p.eliminado ? '<button id="xRes" class="sm" type="button">Restaurar permiso</button>' : '<button id="xDel" class="sm" type="button" style="color:var(--bad);border-color:var(--bad)">Eliminar permiso</button>') : '') + '<span id="xMsg" class="hint"></span></div>';
   var xe = $('xEst'); ESTADOS.forEach(function(e){ var o = document.createElement('option'); o.value = e[0]; o.textContent = e[1]; xe.appendChild(o); });
   $('xJur').value = p.jur || 'nqn'; $('xSrv').value = p.servicio || ''; $('xEst').value = p.estado || '';
   $('xT').value = uName(p.tractorId, p.tractorTxt); $('xS1').value = uName(p.semiId, p.semiTxt); $('xS2').value = uName(p.semi2Id, '');
@@ -781,6 +792,11 @@ function openPermiso(p){
     pv.onclick = function(){ abrirPdf(p, false, $('xMsg')); }; pd.onclick = function(){ abrirPdf(p, true, $('xMsg')); };
     pc.appendChild(pv); pc.appendChild(document.createTextNode(' ')); pc.appendChild(pd);
   } else $('xPdfCur').textContent = 'Todavía no hay PDF cargado para este permiso.';
+  if($('xDel')) $('xDel').onclick = function(){
+    if(!window.confirm('¿Eliminar el permiso ' + (p.numero || 'sin número') + ' de ' + formName(p) + '?\n\nDeja de verse en la lista y en los contadores. Se puede recuperar con el filtro "Eliminados".')) return;
+    setEliminado(p, true, $('xMsg'));
+  };
+  if($('xRes')) $('xRes').onclick = function(){ setEliminado(p, false, $('xMsg')); };
   $('xSave').onclick = function(){
     var m = $('xMsg'), t = byName($('xT').value), s1 = $('xS1').value.trim() ? byName($('xS1').value) : null, s2 = $('xS2').value.trim() ? byName($('xS2').value) : null;
     if(!t){ m.textContent = 'Elegí el tractor o camión de la lista (si no está, agregalo primero en Unidades).'; return; }
