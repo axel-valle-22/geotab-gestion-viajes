@@ -333,8 +333,16 @@ function syncGeotab(a){
   function get(tn){ return new Promise(function(res){ try{ a.call('Get', { typeName: tn, resultsLimit: 5000 }, function(l){ res(l || []); }, function(){ res([]); }); }catch(e){ res([]); } }); }
   return Promise.all([get('Device'), get('Trailer')]).then(function(r){
     var items = [];
-    r[0].forEach(function(d){ if(d && d.name && (!d.activeTo || d.activeTo > now)) items.push({ id: 'd_' + d.id, gid: d.id, kind: 'device', nombre: String(d.name), pat: d.licensePlate || '' }); });
-    r[1].forEach(function(t){ if(t && t.name && (!t.activeTo || t.activeTo > now)) items.push({ id: 't_' + t.id, gid: t.id, kind: 'trailer', nombre: String(t.name), pat: '' }); });
+    var tnames = {};
+    r[1].forEach(function(t){ if(t && t.name && (!t.activeTo || t.activeTo > now)){ tnames[String(t.name).trim().toLowerCase()] = 1; items.push({ id: 't_' + t.id, gid: t.id, kind: 'trailer', nombre: String(t.name), pat: '' }); } });
+    /* Cada remolque suele tener ademas un equipo GO con el mismo nombre: se queda solo el remolque para no duplicarlo
+       (salvo que ese equipo ya tenga datos cargados, para no perderlos). */
+    r[0].forEach(function(d){
+      if(!(d && d.name && (!d.activeTo || d.activeTo > now))) return;
+      var id = 'd_' + d.id, ex = UBY[id];
+      if(tnames[String(d.name).trim().toLowerCase()] && !(ex && (ex.tara > 0 || (ex.ejes && ex.ejes.length) || ex.tipo))) return;
+      items.push({ id: id, gid: d.id, kind: 'device', nombre: String(d.name), pat: d.licensePlate || '' });
+    });
     if(!items.length) return;
     var ops = [], seen = {}, nuevas = 0;
     items.forEach(function(it){
