@@ -109,7 +109,6 @@
           <label>Configuración de la tabla<select id="sPre"></select></label>
           <label>Carrocería (solo es dibujo)<select id="sCar"><option value="furgon">Furgón (caja cerrada)</option><option value="plataforma">Plataforma con caños</option><option value="cisterna">Cisterna</option></select></label>
           <label>Potencia del tractor o camión (CV, opcional)<input id="sCv" type="number" inputmode="numeric" min="0" placeholder="Ej.: 450"></label>
-          <label>Tara de la formación (kg, opcional)<input id="sTara" type="number" inputmode="numeric" min="0" placeholder="Para ver la carga útil"></label>
         </div>
         <div id="sUnits" class="sunits"></div>
       </div>
@@ -878,7 +877,8 @@ var KEY_CODE = { s1: 'S1', w1: 'S1', d1: 'D1', ss: 'S2', ds: 'M2', dw: 'M2', ww:
 var CODE_KEY = { S1: 's1', D1: 'd1', D2: 'dd', D3: 'ddd', S2: 'ss' };
 var SIM_NOM = { rigido: ['Camión'], acoplado: ['Camión', 'Acoplado'], semi: ['Tractor', 'Semirremolque'], bitren: ['Tractor', '1.er semirremolque', '2.º semirremolque'] };
 var SIM_DEF = { rigido: 'S1-D2', semi: 'S1-D2-D2', acoplado: 'S1-D2-D2-D2', bitren: 'S1-D2-D2-D2' };
-var SIM = { norma: 'nqn', comp: 'semi', car: 'furgon', sus: ['mec', 'mec', 'mec'], cv: '', tara: '', us: [['s1', 'dd'], ['dd']] };
+var SIM = { norma: 'nqn', comp: 'semi', car: 'furgon', sus: ['mec', 'mec', 'mec'], cv: '', us: [['s1', 'dd'], ['dd']], g: [] };
+var SIM_M = 34, SIM_PT = 44, SIM_X0 = 18;
 
 function simCap(s){ s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
 function simSplit(code, comp){
@@ -888,12 +888,67 @@ function simSplit(code, comp){
   return [p.slice(0, 2), p.slice(2)];
 }
 function simPreset(code){ SIM.us = simSplit(code, SIM.comp); }
+/* medidas y taras de referencia de cada unidad (se pueden cambiar en el simulador) */
+function simGDef(comp){
+  var d = {
+    rigido: [{ tara: 9000, fs: 45, wb: 5.0, gap: 2.6, cola: 2.2, cg: 50 }],
+    acoplado: [{ tara: 9000, fs: 45, wb: 5.0, gap: 2.6, cola: 2.2, cg: 50 }, { tara: 6500, largo: 10.4, cola: 1.8, gap: 5.6, cg: 50 }],
+    semi: [{ tara: 8500, fs: 50, wb: 3.8, gap: 2.6, plato: 0.4 }, { tara: 7000, largo: 12, cola: 1.75, gap: 2.6, cg: 50 }],
+    bitren: [{ tara: 8500, fs: 50, wb: 3.8, gap: 2.6, plato: 0.3 }, { tara: 6500, largo: 10.7, cola: 1.8, gap: 2.6, plato: 1.0, cg: 50 }, { tara: 6500, largo: 12.1, cola: 1.75, gap: 2.6, cg: 50 }]
+  }[comp];
+  return JSON.parse(JSON.stringify(d));
+}
+function simGv(ui, k){
+  var v = SIM.g[ui] ? SIM.g[ui][k] : null;
+  if(typeof v === 'number' && isFinite(v)) return v;
+  var d = simGDef(SIM.comp)[ui]; return d && d[k] !== undefined ? d[k] : 0;
+}
+function simKN(k){ return KEY_AX[k].length; }
+/* geometría en píxeles (34 px por metro): la usan el cálculo de distancias entre ejes, el reparto y el dibujo */
+function simGeom(){
+  var M = SIM_M, PT = SIM_PT, x0 = SIM_X0, comp = SIM.comp, fx = x0 + 38, geo = { M: M, x0: x0, fx: fx, units: [] }, i, a, ks;
+  function grp(s, k){ var xs = [], j; for(j = 0; j < k; j++) xs.push(s + j * PT); return { xs: xs, k: k, c: s + (k - 1) * PT / 2 }; }
+  function back(ui, right, startFrom){
+    var kk = SIM.us[ui].map(simKN), gs = [], nf = null, q, c, g1;
+    for(q = kk.length - 1; q >= 0; q--){
+      c = (q === kk.length - 1) ? right - simGv(ui, 'cola') * M : (nf - simGv(ui, 'gap') * M - (kk[q] - 1) * PT / 2);
+      g1 = grp(c - (kk[q] - 1) * PT / 2, kk[q]); gs.unshift(g1); nf = g1.xs[0];
+    }
+    return gs;
+  }
+  ks = SIM.us[0].map(simKN);
+  var g0 = [grp(fx, ks[0])];
+  for(i = 1; i < ks.length; i++){
+    if(i === 1) a = g0[0].c + simGv(0, 'wb') * M - (ks[1] - 1) * PT / 2;
+    else a = g0[i - 1].xs[g0[i - 1].xs.length - 1] + simGv(0, 'gap') * M;
+    g0.push(grp(a, ks[i]));
+  }
+  var lg = g0[g0.length - 1], rig = comp === 'rigido' || comp === 'acoplado';
+  var end0 = rig ? lg.c + simGv(0, 'cola') * M : lg.xs[lg.xs.length - 1] + 40;
+  var rear = []; g0.slice(1).forEach(function(g){ rear = rear.concat(g.xs); }); if(!rear.length) rear = g0[0].xs;
+  var cRear = (rear[0] + rear[rear.length - 1]) / 2;
+  geo.units.push({ gs: g0, x1: x0, right: end0, boxL: x0 + 108, boxR: end0, cRear: cRear });
+  if(comp === 'semi' || comp === 'bitren'){
+    var kp = cRear - simGv(0, 'plato') * M, ui;
+    for(ui = 1; ui < SIM.us.length; ui++){
+      var x1 = kp - 0.9 * M, right = x1 + simGv(ui, 'largo') * M, gs = back(ui, right), u = { gs: gs, x1: x1, right: right, kp: kp, boxL: x1, boxR: right };
+      if(comp === 'bitren' && ui === 1){ var lgs = gs[gs.length - 1]; u.kpNext = lgs.c - simGv(1, 'plato') * M; u.boxR = u.kpNext - 36; kp = u.kpNext; }
+      geo.units.push(u);
+    }
+  } else if(comp === 'acoplado'){
+    var xA = end0 + 100, rightA = xA + simGv(1, 'largo') * M;
+    geo.units.push({ gs: back(1, rightA), x1: xA, right: rightA, boxL: xA, boxR: rightA });
+  }
+  return geo;
+}
 function simUnits(ov){
-  var tipos = { rigido: ['camion'], acoplado: ['camion', 'acoplado'], semi: ['tractor', 'semi'], bitren: ['tractor', 'semi', 'semi'] }[SIM.comp];
-  return SIM.us.map(function(gs, i){
-    var ej = [];
-    gs.forEach(function(k){ KEY_AX[k].forEach(function(rt, j){ ej.push({ r: rt, d: ej.length === 0 ? null : (j === 0 ? 4.8 : 1.35) }); }); });
-    return { id: 'sim' + i, nombre: SIM_NOM[SIM.comp][i], tipo: tipos[i], ejes: gs.length ? ej : [], susp: (ov || SIM.sus[i]) === 'neu' ? 'neumatica' : 'mecanica', potencia: i === 0 ? (num(SIM.cv) || 0) : 0, cmt: 0, tara: 1, verificado: true };
+  var geo = simGeom(), tipos = { rigido: ['camion'], acoplado: ['camion', 'acoplado'], semi: ['tractor', 'semi'], bitren: ['tractor', 'semi', 'semi'] }[SIM.comp];
+  return SIM.us.map(function(gs, ui){
+    var ej = [], prev = null;
+    geo.units[ui].gs.forEach(function(g, gi){
+      g.xs.forEach(function(x, j){ ej.push({ r: KEY_AX[gs[gi]][j], x: x, d: prev === null ? null : Math.round((x - prev) / geo.M * 100) / 100 }); prev = x; });
+    });
+    return { id: 'sim' + ui, nombre: SIM_NOM[SIM.comp][ui], tipo: tipos[ui], ejes: gs.length ? ej : [], susp: (ov || SIM.sus[ui]) === 'neu' ? 'neumatica' : 'mecanica', potencia: ui === 0 ? (num(SIM.cv) || 0) : 0, cmt: 0, tara: 1, verificado: true };
   });
 }
 function simCalc(norma, ov){
@@ -901,8 +956,83 @@ function simCalc(norma, ov){
   if(us.some(function(u){ return !u.ejes.length; })) return { err: 'Agregá al menos un grupo de ejes a cada unidad.' };
   return calcular({ u1: us[0], u2: us[1] || null, u3: us[2] || null, norma: norma, permiso: null, extra: 0 });
 }
+/* reparto de la carga sobre cada grupo de ejes (estática simple): carga pareja a lo largo de la caja, peso repartido en partes iguales entre los grupos de una misma unidad */
+function simReparto(r, geo){
+  var M = geo.M, comp = SIM.comp, n = r.units.length, i;
+  var U = r.units.map(function(u){ return r.groups.filter(function(g){ return g.unit === u; }); });
+  function gc(g){ return (g.ejes[0].x + g.ejes[g.ejes.length - 1].x) / 2 / M; }
+  function mean(a){ return a.reduce(function(s, v){ return s + v; }, 0) / a.length; }
+  var tara = [], L = [], XG = [];
+  for(i = 0; i < n; i++){
+    tara.push(simGv(i, 'tara'));
+    var gu = geo.units[i];
+    L.push(i === 0 && !(comp === 'rigido' || comp === 'acoplado') ? 0 : Math.max(0.5, (gu.boxR - gu.boxL) / M));
+    XG.push((gu.boxL + (gu.boxR - gu.boxL) * simGv(i, 'cg') / 100) / M);
+  }
+  var sumT = tara.reduce(function(s, v){ return s + v; }, 0), fs = simGv(0, 'fs') / 100;
+  function loads(Pi){
+    var out = [], kpl = [], k, j;
+    for(k = 0; k < n; k++) out.push(U[k].map(function(){ return 0; }));
+    function truck(Pt){
+      var cF = gc(U[0][0]), rg = U[0].slice(1), cR = rg.length ? mean(rg.map(gc)) : cF, Tt = tara[0], Ff, Fr;
+      if(Math.abs(cR - cF) < 0.1){ Ff = 0; Fr = Tt + Pt; }
+      else { var fr = Pt * (XG[0] - cF) / (cR - cF); Ff = Tt * fs + (Pt - fr); Fr = Tt * (1 - fs) + fr; }
+      out[0][0] = Ff; rg.forEach(function(g){ out[0][U[0].indexOf(g)] = Fr / rg.length; });
+    }
+    if(comp === 'rigido'){ truck(Pi[0]); }
+    else if(comp === 'acoplado'){
+      truck(Pi[0]);
+      var W = tara[1] + Pi[1], gg = U[1];
+      if(gg.length < 2){ out[1][0] = W; }
+      else { var cf = gc(gg[0]), cr = mean(gg.slice(1).map(gc)), fa = Math.abs(cr - cf) < 0.1 ? W / 2 : W * (cr - XG[1]) / (cr - cf); out[1][0] = fa; for(j = 1; j < gg.length; j++) out[1][j] = (W - fa) / (gg.length - 1); }
+    } else {
+      var fkN = 0, posN = 0;
+      for(k = n - 1; k >= 1; k--){
+        var Wk = tara[k] + Pi[k], kpm = geo.units[k].kp / M, cA = mean(U[k].map(gc)), den = cA - kpm, FA, Fk;
+        if(Math.abs(den) < 0.3){ FA = Wk + fkN; Fk = 0; }
+        else { FA = (Wk * (XG[k] - kpm) + fkN * (posN - kpm)) / den; Fk = Wk + fkN - FA; }
+        for(j = 0; j < U[k].length; j++) out[k][j] = FA / U[k].length;
+        kpl[k] = Fk; fkN = Fk; posN = kpm;
+      }
+      var cF0 = gc(U[0][0]), rg0 = U[0].slice(1), cR0 = rg0.length ? mean(rg0.map(gc)) : cF0, kp1 = geo.units[1].kp / M, Tt = tara[0], Ff0, Fr0;
+      if(Math.abs(cR0 - cF0) < 0.1){ Ff0 = 0; Fr0 = Tt + fkN; }
+      else { var share = fkN * (cR0 - kp1) / (cR0 - cF0); Ff0 = Tt * fs + share; Fr0 = Tt * (1 - fs) + fkN - share; }
+      out[0][0] = Ff0; rg0.forEach(function(g){ out[0][U[0].indexOf(g)] = Fr0 / rg0.length; });
+    }
+    return { g: out, kp: kpl };
+  }
+  var flat = [].concat.apply([], U), B = [], zero = L.map(function(){ return 0; });
+  L.forEach(function(l, q){ if(l > 0) B.push(q); });
+  var flat0 = [].concat.apply([], loads(zero).g), pTope = r.pbtc - sumT;
+  function splitArr(f){ var arr = zero.slice(); B.forEach(function(q, t){ arr[q] = f[t]; }); return arr; }
+  function solve(f){
+    var f1 = [].concat.apply([], loads(splitArr(f).map(function(x){ return x * 1000; })).g), pm = Infinity, qq = null;
+    flat.forEach(function(g, q){ var b = (f1[q] - flat0[q]) / 1000; if(b > 1e-9){ var pg = (g.lim - flat0[q]) / b; if(pg < pm){ pm = pg; qq = q; } } });
+    var tope = false; if(pTope <= pm){ pm = pTope; tope = true; }
+    return { p: pm, q: qq, tope: tope, f: f };
+  }
+  var best = null, cand = [], t1, t2;
+  if(B.length === 1) cand.push([1]);
+  else if(B.length === 2) { for(t1 = 0; t1 <= 50; t1++) cand.push([t1 / 50, 1 - t1 / 50]); }
+  else { for(t1 = 0; t1 <= 20; t1++) for(t2 = 0; t1 + t2 <= 20; t2++) cand.push([t1 / 20, t2 / 20, 1 - (t1 + t2) / 20]); }
+  cand.forEach(function(f){ var s1 = solve(f); if(!best || s1.p > best.p + 1) best = s1; });
+  var pMax = best.p, ok = pMax >= 0, P = ok ? pMax : 0, fin = loads(splitArr(best.f).map(function(x){ return x * P; })), flatF = [].concat.apply([], fin.g), avisos = [];
+  if(!ok) avisos.push('Con las taras indicadas, la formación vacía ya supera el límite de ' + (best.tope ? 'peso del conjunto' : 'un grupo de ejes') + '.');
+  fin.kp.forEach(function(v, k){ if(v !== undefined && v < 0) avisos.push('El ' + (k === 1 ? 'primer' : 'segundo') + ' semirremolque queda con la carga detrás de sus ejes: el pivote se levanta. Hay que correr los ejes hacia atrás o la carga hacia adelante.'); });
+  var fr0 = flatF[0] / (sumT + P);
+  if(U[0].length > 1 && fr0 < 0.10) avisos.push('El eje delantero queda con poca carga (' + Math.round(fr0 * 100) + ' % del peso total): la dirección se pone liviana. Conviene adelantar el plato o la carga.');
+  flatF.forEach(function(v){ if(v < -1 && avisos.indexOf('Un grupo de ejes queda con carga negativa: la carga está mal ubicada para esta geometría.') < 0) avisos.push('Un grupo de ejes queda con carga negativa: la carga está mal ubicada para esta geometría.'); });
+  var split = B.map(function(q, t){ return { unit: r.units[q], kg: best.f[t] * P }; });
+  return { ok: ok, P: P, pbt: sumT + P, loads: flatF, flat: flat, quien: best.tope ? -1 : best.q, porTope: best.tope, sumT: sumT, avisos: avisos, kp: fin.kp, split: split };
+}
 function simBuild(){
   var box = $('sUnits'); box.innerHTML = '';
+  function field(c, ui, key, label, step, hint){
+    var row = el('div', 'sgrp'), inp = document.createElement('input'), sp = el('span', 'sn', label);
+    row.style.gridTemplateColumns = '1fr 92px'; inp.type = 'number'; inp.step = step; inp.value = simGv(ui, key); if(hint) row.title = hint;
+    inp.oninput = function(){ SIM.g[ui][key] = num(inp.value); simRender(); };
+    row.appendChild(sp); row.appendChild(inp); c.appendChild(row);
+  }
   SIM.us.forEach(function(gs, ui){
     var c = el('div', 'sunit'); c.appendChild(el('h3', '', SIM_NOM[SIM.comp][ui]));
     var rs = el('div', 'sgrp'), ss = document.createElement('select'); rs.style.gridTemplateColumns = 'auto 1fr';
@@ -914,7 +1044,7 @@ function simBuild(){
       var row = el('div', 'sgrp'), sel = document.createElement('select');
       SIM_KEYS.forEach(function(kk){ var o = document.createElement('option'); o.value = kk; o.textContent = KEY_CODE[kk] + ' · ' + simCap(KEY_TXT[kk]); sel.appendChild(o); });
       sel.value = k;
-      sel.onchange = function(){ SIM.us[ui][gi] = sel.value; simRender(); };
+      sel.onchange = function(){ SIM.us[ui][gi] = sel.value; simBuild(); simRender(); };
       row.appendChild(el('span', 'sn', 'Grupo ' + (gi + 1))); row.appendChild(sel);
       var rm = el('button', 'sm', 'Quitar'); rm.type = 'button'; rm.disabled = gs.length < 2;
       rm.onclick = function(){ SIM.us[ui].splice(gi, 1); simBuild(); simRender(); };
@@ -922,8 +1052,28 @@ function simBuild(){
     });
     var ad = el('button', 'sm', '+ Agregar grupo de ejes'); ad.type = 'button'; ad.disabled = gs.length >= 5;
     ad.onclick = function(){ SIM.us[ui].push('dd'); simBuild(); simRender(); };
-    c.appendChild(ad); box.appendChild(c);
+    c.appendChild(ad);
+    c.appendChild(el('p', 'hint', 'Medidas y pesos (se pueden cambiar)'));
+    var motriz = ui === 0, tractor = motriz && (SIM.comp === 'semi' || SIM.comp === 'bitren');
+    field(c, ui, 'tara', 'Tara (kg)', '100');
+    if(motriz){
+      field(c, ui, 'fs', 'Tara sobre el eje delantero (%)', '1');
+      if(gs.length > 1) field(c, ui, 'wb', 'Del eje delantero al centro del grupo trasero (m)', '0.05');
+      if(gs.length > 2) field(c, ui, 'gap', 'Separación entre grupos traseros (m)', '0.05', 'Menos de 2,40 m cuenta como un solo grupo');
+      if(tractor) field(c, ui, 'plato', 'Plato (quinta rueda): + adelantado / − atrasado (m)', '0.05', '0 = justo sobre el centro de los ejes traseros; lo habitual es algo adelantado');
+      else { field(c, ui, 'cola', 'Del centro del último grupo al fondo (m)', '0.05'); field(c, ui, 'cg', 'Centro de la carga en la caja (% desde adelante)', '1', '50 = carga pareja; más de 50 = carga corrida hacia atrás'); }
+    } else {
+      field(c, ui, 'largo', 'Largo del ' + (SIM.comp === 'acoplado' ? 'acoplado' : 'semirremolque') + ' (m)', '0.1');
+      field(c, ui, 'cola', 'Cola: del centro del último grupo al fondo (m)', '0.05', 'Más cola = ejes corridos hacia adelante (semi colero)');
+      if(gs.length > 1) field(c, ui, 'gap', 'Separación entre grupos (m)', '0.05', 'Menos de 2,40 m cuenta como un solo grupo');
+      field(c, ui, 'cg', 'Centro de la carga en la caja (% desde adelante)', '1', '50 = carga pareja; más de 50 = carga corrida hacia atrás');
+      if(SIM.comp === 'bitren' && ui === 1) field(c, ui, 'plato', 'Plato del 2.º semi: + adelantado / − atrasado (m)', '0.05', 'Respecto del centro de sus ejes');
+    }
+    box.appendChild(c);
   });
+  var rb = el('button', 'sm', 'Volver a las medidas de referencia'); rb.type = 'button'; rb.style.gridColumn = '1 / -1'; rb.style.justifySelf = 'start';
+  rb.onclick = function(){ SIM.g = simGDef(SIM.comp); simBuild(); simRender(); };
+  box.appendChild(rb);
 }
 function simPreOpts(){
   var tb = NORMAS[SIM.norma].tabla[SIM.comp] || {}, keys = Object.keys(tb).sort(function(a, b){ return tb[a].p - tb[b].p; }), sel = $('sPre');
@@ -947,16 +1097,8 @@ function simWheel(cx, t, GY){
   s += '<circle cx="' + cx + '" cy="' + cy + '" r="3.4" fill="#D1D5DB" stroke="#4B5563" stroke-width="0.9"/>';
   return s;
 }
-function simLay(gs, first, gap1, gap2){
-  var xs = [], px = first, PITCH = 44;
-  gs.forEach(function(g, i){
-    if(i > 0){ var pv = xs[i - 1]; px = pv[pv.length - 1] + (i === 1 ? gap1 : gap2); }
-    var a = []; for(var k = 0; k < g.k; k++) a.push(px + k * PITCH); xs.push(a);
-  });
-  return xs;
-}
-function simSvg(r){
-  var GY = 200, ACC = 'var(--accent)', DK = '#005C7A', comp = r.comp, units = r.units, x0 = 18, car = SIM.car || 'furgon';
+function simSvg(r, geo, rep){
+  var GY = 200, ACC = 'var(--accent)', DK = '#005C7A', comp = r.comp, units = r.units, x0 = geo.x0, car = SIM.car || 'furgon';
   var back = [], front = [], susp = [], whl = [], fend = [], lab = [], tops = [], shad = [];
   var gsOf = units.map(function(u){ return r.groups.filter(function(g){ return g.unit === u; }); });
   var RB = 48, RT = 54, PL = 59, TOP = 138;
@@ -998,6 +1140,7 @@ function simSvg(r){
       for(k = 0; k < 2; k++){ var hx = x2 - 22 + k * 5; s += Ln(hx, hb + 9, hx, ht - 9, '#6B7280', 1.2) + R(hx - 2, hx + 2, hb + 26, hb + 31, '#4B5563', null, 1) + R(hx - 2, hx + 2, ht - 31, ht - 26, '#4B5563', null, 1); }
       s += R(x2 - 3, x2 + 2, hb + 7, hb + 17, '#DC2626', '#7F1D1D', 1);
       s += R(x1 + 14, x1 + 19, hb + 7, hb + 12, '#F59E0B', null, 1);
+      s += Ln(x1 + 6, hb + 10, x2 - 20, hb + 10, '#DC2626', 2.2, ' stroke-dasharray="9 9"') + Ln(x1 + 6, hb + 10, x2 - 20, hb + 10, '#fff', 2.2, ' stroke-dasharray="9 9" stroke-dashoffset="-9"');
     }
     return s;
   }
@@ -1022,7 +1165,7 @@ function simSvg(r){
       }
     });
   }
-  function wheels(g, xs){ xs.forEach(function(x, i){ whl.push(simWheel(x, g.ejes[i].r, GY)); }); }
+  function wheels(tp, xs){ xs.forEach(function(x, i){ whl.push(simWheel(x, tp[i], GY)); }); }
   /* guardabarros: uno por grupo, con el faldón de goma */
   function guards(xs, flapX){
     var a = xs[0], b = xs[xs.length - 1];
@@ -1030,12 +1173,14 @@ function simSvg(r){
     fend.push('<path d="M' + (a - 21) + ' ' + Y(14) + ' A21 21 0 0 1 ' + a + ' ' + Y(38) + ' L' + b + ' ' + Y(38) + ' A21 21 0 0 1 ' + (b + 21) + ' ' + Y(14) + '" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/>');
     if(flapX !== false) fend.push(R(b + 25, b + 29, 4, 27, '#161A22', null, 1) + R(b + 25.5, b + 28.5, 14, 17, '#9CA3AF', null, 0));
   }
-  function label(g, xs){
-    var a = xs[0] - 22, b = xs[xs.length - 1] + 22, c = (xs[0] + xs[xs.length - 1]) / 2, neu = g.unit.susp === 'neumatica';
+  function label(g){
+    var xs = g.ejes.map(function(e){ return e.x; }), a = xs[0] - 22, b = xs[xs.length - 1] + 22, c = (xs[0] + xs[xs.length - 1]) / 2, neu = g.unit.susp === 'neumatica';
+    var idx = rep ? rep.flat.indexOf(g) : -1, ld = (idx >= 0 && rep.ok) ? rep.loads[idx] : null, pc = ld === null ? 0 : ld / g.lim;
     lab.push('<path d="M' + a + ' ' + (GY + 12) + ' v6 H' + b + ' v-6" fill="none" stroke="#6B7280" stroke-width="1.5"/>');
     lab.push('<text x="' + c + '" y="' + (GY + 35) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#20232B">' + g.code + ' · ' + ft(g.lim / 1000) + ' t</text>');
-    lab.push('<text x="' + c + '" y="' + (GY + 49) + '" text-anchor="middle" font-size="10" fill="#6B7280">tol. +' + fkg(g.tol) + ' kg</text>');
-    lab.push('<text x="' + c + '" y="' + (GY + 62) + '" text-anchor="middle" font-size="10" font-weight="600" fill="' + (neu ? '#0369A1' : '#6B7280') + '">susp. ' + (neu ? 'neumática' : 'mecánica') + '</text>');
+    if(ld !== null) lab.push('<text x="' + c + '" y="' + (GY + 49) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + (pc >= 0.995 ? '#B42318' : (pc >= 0.9 ? '#B54708' : '#067647')) + '">lleva ' + ft(ld / 1000) + ' t (' + Math.round(pc * 100) + ' %)</text>');
+    lab.push('<text x="' + c + '" y="' + (GY + 62) + '" text-anchor="middle" font-size="10" fill="#6B7280">tol. +' + fkg(g.tol) + ' kg</text>');
+    lab.push('<text x="' + c + '" y="' + (GY + 75) + '" text-anchor="middle" font-size="10" font-weight="600" fill="' + (neu ? '#0369A1' : '#6B7280') + '">susp. ' + (neu ? 'neumática' : 'mecánica') + '</text>');
   }
   function callout(x, h, txt){
     tops.push('<line x1="' + x + '" y1="44" x2="' + x + '" y2="' + Y(h) + '" stroke="' + ACC + '" stroke-width="1.5" stroke-dasharray="4 3"/>');
@@ -1046,91 +1191,90 @@ function simSvg(r){
     tops.push('<path d="M' + x1 + ' 20 v-4 H' + x2 + ' v4" fill="none" stroke="#9CA3AF" stroke-width="1.5"/>');
     tops.push('<text x="' + ((x1 + x2) / 2) + '" y="11" text-anchor="middle" font-size="11" font-weight="600" fill="#6B7280">' + txt + '</text>');
   }
-  /* cabina de tractor (cabina avanzada con litera y deflector) */
+  /* cabina de tractor (cabina avanzada con litera y deflector), baja hasta el paragolpes con el hueco de la rueda */
   function cab(x){
     function P(a, h){ return (x + a) + ' ' + Y(h); }
-    var s = '';
+    var ax = geo.fx - x, hw = 17.7, s = '';
     s += '<path d="M' + P(22, 112) + ' L' + P(60, 129) + ' Q' + P(64, 130) + ' ' + P(68, 129) + ' L' + P(88, 129) + ' L' + P(88, 118) + ' Z" fill="' + DK + '" stroke="#003B50" stroke-width="1"/>';
-    var body = 'M' + P(0, 52) + ' L' + P(0, 84) + ' Q' + P(1, 91) + ' ' + P(5, 98) + ' L' + P(12, 110) + ' Q' + P(14, 113) + ' ' + P(19, 113) + ' L' + P(58, 115) + ' Q' + P(63, 115) + ' ' + P(64, 120) + ' L' + P(66, 121) + ' H' + (x + 84) + ' Q' + P(88, 121) + ' ' + P(88, 117) + ' L' + P(88, 52) + ' Z';
+    var body = 'M' + P(0, 30) + ' L' + P(0, 84) + ' Q' + P(1, 91) + ' ' + P(5, 98) + ' L' + P(12, 110) + ' Q' + P(14, 113) + ' ' + P(19, 113) + ' L' + P(58, 115) + ' Q' + P(63, 115) + ' ' + P(64, 120) + ' L' + P(66, 121) + ' H' + (x + 84) + ' Q' + P(88, 121) + ' ' + P(88, 117) + ' L' + P(88, 30) + ' L' + P(ax + hw, 30) + ' A22 22 0 0 0 ' + P(ax - hw, 30) + ' Z';
     s += '<path d="' + body + '" fill="' + ACC + '" stroke="' + DK + '" stroke-width="1.3" stroke-linejoin="round"/>' + shade(body);
-    s += '<path d="M' + P(0, 52) + ' L' + P(0, 66) + ' L' + P(88, 66) + ' L' + P(88, 52) + ' Z" fill="' + DK + '" opacity="0.38"/>';
-    for(var v = 0; v < 4; v++) s += Ln(x + 14 + v * 4, 55, x + 14 + v * 4, 62, '#003B50', 1.2);
-    s += '<path d="M' + P(8, 70) + ' L' + P(8, 100) + ' Q' + P(8, 104) + ' ' + P(12, 104) + ' L' + P(50, 106) + ' L' + P(50, 70) + ' Z" fill="none" stroke="' + DK + '" stroke-width="1.1"/>';
+    s += '<path d="M' + P(0, 30) + ' L' + P(0, 47) + ' L' + P(88, 47) + ' L' + P(88, 30) + ' Z" fill="' + DK + '" opacity="0.34"/>';
+    s += '<path d="M' + P(ax - hw, 30) + ' A22 22 0 0 1 ' + P(ax + hw, 30) + ' Z" fill="#12151B"/>';
+    for(var v = 0; v < 4; v++) s += Ln(x + 66 + v * 4, 33, x + 66 + v * 4, 42, '#003B50', 1.2);
+    s += '<path d="M' + P(8, 50) + ' L' + P(8, 100) + ' Q' + P(8, 104) + ' ' + P(12, 104) + ' L' + P(50, 106) + ' L' + P(50, 50) + ' Z" fill="none" stroke="' + DK + '" stroke-width="1.1"/>';
     s += '<path d="M' + P(10, 80) + ' Q' + P(10, 85) + ' ' + P(12, 91) + ' L' + P(15, 102) + ' L' + P(48, 103) + ' L' + P(48, 80) + ' Z" fill="url(#smGlass)" stroke="' + DK + '" stroke-width="1.1"/>';
     s += '<path d="M' + P(14, 100) + ' L' + P(26, 101) + ' L' + P(21, 82) + ' L' + P(12, 82) + ' Z" fill="#fff" opacity="0.5"/>';
-    s += R(x + 38, x + 47, 72, 74.5, '#0B3B4D', null, 1) + Ln(x + 50, 56, x + 50, 106, DK, 1);
+    s += R(x + 38, x + 47, 70, 72.5, '#0B3B4D', null, 1) + R(x + 12, x + 46, 50, 52, DK, null, 1);
     s += '<path d="M' + P(56, 90) + ' L' + P(58, 106) + ' L' + P(80, 108) + ' L' + P(80, 90) + ' Z" fill="url(#smGlass)" stroke="' + DK + '" stroke-width="1.1"/>';
     s += R(x + 58, x + 80, 70, 80, DK, null, 2).replace('/>', ' opacity="0.45"/>');
     s += R(x - 1.5, x + 2, 68, 78, '#FDE68A', '#B45309', 1) + R(x - 1.5, x + 2, 56, 62, '#F3F4F6', '#6B7280', 1);
     for(var m = 0; m < 4; m++) s += Ci(x + 22 + m * 9, 112.5 + (m * 0.3), 1.6, '#F59E0B', '#B45309');
-    s += R(x - 4, x + 8, 44, 56, 'url(#smSteel)', '#111827', 3) + R(x - 3, x + 3, 48, 52, '#FDE68A', null, 1);
-    s += R(x + 10, x + 44, 41, 44, '#4B5563', '#1F2937', 1) + R(x + 12, x + 46, 48, 51, '#4B5563', '#1F2937', 1);
+    s += R(x - 6, x + 9, 24, 40, 'url(#smSteel)', '#111827', 4) + R(x - 4, x + 2, 30, 35, '#FDE68A', '#B45309', 1) + R(x - 3, x + 14, 15, 24, '#2B303B', '#111827', 2);
     s += Ln(x + 4, 96, x - 8, 104, '#1F2937', 1.6) + R(x - 13, x - 6, 96, 118, '#1F2937', null, 3);
     s += Ln(x + 3, 98, x + 3, 112, '#1F2937', 1);
     return s;
   }
   function stack(x){ return R(x, x + 5, RT, 132, 'url(#smMet)', '#6B7280', 1) + R(x - 1, x + 6, 132, 136, '#6B7280', '#4B5563', 1) + R(x - 3, x + 8, RT + 2, RT + 12, '#4B5563', null, 2); }
   /* unidad motriz */
-  var rig = comp === 'rigido' || comp === 'acoplado';
-  var g0 = gsOf[0], xs0 = simLay(g0, x0 + 38, rig ? 150 : 122, 64), last0 = xs0[xs0.length - 1], end0 = last0[last0.length - 1] + (rig ? 54 : 40);
+  var rig = comp === 'rigido' || comp === 'acoplado', G0 = geo.units[0], xs0 = G0.gs.map(function(g){ return g.xs; }), end0 = G0.right;
+  function tipos(ui){ return SIM.us[ui].map(function(k){ return KEY_AX[k]; }); }
   shad.push('<ellipse cx="' + ((x0 + end0) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((end0 - x0) / 2 + 10) + '" ry="4" fill="#000" opacity="0.13"/>');
   back.push(R(x0 + 6, end0, RB, RT, 'url(#smSteel)', '#111827', 2));
-  for(var cm = x0 + 120; cm < end0 - 10; cm += 46) back.push(R(cm, cm + 3, RB - 4, RB, '#374151', null, 0));
-  back.push(R(x0 + 38 + 28, x0 + 38 + 78, 29, RB, 'url(#smTank)', '#6B7280', 8) + Ln(x0 + 38 + 44, 31, x0 + 38 + 44, RB - 2, '#6B7280', 1.2) + Ln(x0 + 38 + 62, 31, x0 + 38 + 62, RB - 2, '#6B7280', 1.2));
-  back.push(R(x0 + 38 + 82, x0 + 38 + 100, 34, RB, '#374151', '#111827', 2));
+  for(var cm = x0 + 124; cm < end0 - 10; cm += 46) back.push(R(cm, cm + 3, RB - 4, RB, '#374151', null, 0));
+  var rf = xs0.length > 1 ? xs0[1][0] : end0, tx1 = x0 + 90, tx2 = rf - 27;
+  if(tx2 - tx1 > 18) back.push(R(tx1, tx2, 20, RB, 'url(#smTank)', '#6B7280', 9) + Ln(tx1 + (tx2 - tx1) / 3, 22, tx1 + (tx2 - tx1) / 3, RB - 2, '#6B7280', 1.2) + Ln(tx1 + 2 * (tx2 - tx1) / 3, 22, tx1 + 2 * (tx2 - tx1) / 3, RB - 2, '#6B7280', 1.2));
   back.push(stack(x0 + 92));
   if(rig){
-    back.push(R(x0 + 108, end0, RT, RT + 8, 'url(#smSteel)', '#111827', 0));
-    back.push(carroceria(x0 + 108, end0, RT + 8, TOP - 4, 0));
+    back.push(R(G0.boxL, end0, RT, RT + 8, 'url(#smSteel)', '#111827', 0));
+    back.push(carroceria(G0.boxL, end0, RT + 8, TOP - 4, 0));
   }
   back.push(cab(x0));
-  g0.forEach(function(g, i){ sus(xs0[i], units[0].susp, RB); wheels(g, xs0[i]); guards(xs0[i], i === g0.length - 1); label(g, xs0[i]); });
-  var fifth = (last0[0] + last0[last0.length - 1]) / 2, ends = [end0];
+  var tp0 = tipos(0);
+  xs0.forEach(function(xs, i){ sus(xs, units[0].susp, RB); wheels(tp0[i], xs); guards(xs, i === xs0.length - 1); });
+  gsOf[0].forEach(function(g){ label(g); });
+  var ends = [end0];
   uname(x0 - 8, end0, SIM_NOM[comp][0]);
   if(comp === 'semi' || comp === 'bitren'){
-    front.push('<path d="M' + (fifth - 36) + ' ' + Y(RT) + ' L' + (fifth + 32) + ' ' + Y(RT) + ' L' + (fifth + 32) + ' ' + Y(PL - 1) + ' L' + (fifth + 12) + ' ' + Y(PL) + ' L' + (fifth - 22) + ' ' + Y(PL) + ' L' + (fifth - 36) + ' ' + Y(RT + 2) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
-    callout(fifth, PL - 2, 'Quinta rueda');
-    var kp = fifth, base = PL;
-    units.slice(1).forEach(function(u, ui){
-      var gs = gsOf[ui + 1], xs = simLay(gs, ui === 0 && comp === 'bitren' ? kp + 250 : kp + 296, 88, 88), lastg = xs[xs.length - 1], lastx = lastg[lastg.length - 1];
-      var right = lastx + 38, nxt = (lastg[0] + lastx) / 2, boxR = (ui === 0 && comp === 'bitren') ? nxt - 36 : right;
-      var bt = base + 8, top = TOP, x1 = kp - 30;
+    var base = PL;
+    geo.units.forEach(function(G, ui){
+      if(ui === 0) return;
+      var kp = G.kp, x1 = G.x1, right = G.right, boxR = G.boxR, bt = base + 8, tpU = tipos(ui), lowB = ui === 1 ? RT : PL + 8;
+      front.push('<path d="M' + (kp - 36) + ' ' + Y(lowB) + ' L' + (kp + 32) + ' ' + Y(lowB) + ' L' + (kp + 32) + ' ' + Y(base - 1) + ' L' + (kp + 12) + ' ' + Y(base) + ' L' + (kp - 22) + ' ' + Y(base) + ' L' + (kp - 36) + ' ' + Y(lowB + 2) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
+      callout(kp, base - 2, ui === 1 ? 'Quinta rueda' : 'Quinta rueda del 1.er semirremolque');
       shad.push('<ellipse cx="' + ((x1 + right) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((right - x1) / 2) + '" ry="3.5" fill="#000" opacity="0.1"/>');
       back.push(R(x1, right, base, bt, 'url(#smSteel)', '#111827', 1));
       back.push(R(x1 + 20, right - 6, base - 5, base, '#374151', null, 0));
       for(var cx = x1 + 60; cx < right - 20; cx += 52) back.push(R(cx, cx + 3, base - 7, base, '#374151', null, 0));
       for(var ml = x1 + 70; ml < right - 40; ml += 70) back.push(R(ml, ml + 5, base + 2, base + 5, '#F59E0B', null, 1));
-      back.push(carroceria(x1, boxR, bt, top, ui));
+      var sx1 = kp + 88, sx2 = G.gs[0].xs[0] - 27;
+      if(sx2 - sx1 > 30) back.push(R(sx1, sx2, 16, base - 3, 'url(#smBox)', '#8A94A3', 3) + Ln(sx1 + 3, base - 12, sx2 - 3, base - 12, '#B6BDC9', 1) + Ln(sx1 + 3, 24, sx2 - 3, 24, '#B6BDC9', 1));
+      back.push(carroceria(x1, boxR, bt, TOP, ui));
       back.push('<circle cx="' + kp + '" cy="' + Y(base) + '" r="3.5" fill="#111827"/>');
       back.push(R(right - 14, right + 3, base - 14, base - 9, '#4B5563', '#111827', 1) + R(right - 12, right - 9, base - 14, base, '#4B5563', null, 0));
-      if(ui === 0){ back.push(R(kp + 60, kp + 66, 12, base, 'url(#smMet)', '#6B7280', 1) + R(kp + 54, kp + 73, 8, 12, '#6B7280', '#374151', 1) + R(kp + 60, kp + 74, 34, 41, '#4B5563', '#1F2937', 1) + Ln(kp + 74, 38, kp + 82, 38, '#1F2937', 2)); }
-      gs.forEach(function(g, i){ sus(xs[i], u.susp, base); wheels(g, xs[i]); guards(xs[i], i === gs.length - 1); label(g, xs[i]); });
-      uname(x1, right, SIM_NOM[comp][ui + 1]);
+      if(ui === 1){ back.push(R(kp + 60, kp + 66, 12, base, 'url(#smMet)', '#6B7280', 1) + R(kp + 54, kp + 73, 8, 12, '#6B7280', '#374151', 1) + R(kp + 60, kp + 74, 34, 41, '#4B5563', '#1F2937', 1) + Ln(kp + 74, 38, kp + 82, 38, '#1F2937', 2)); }
+      G.gs.forEach(function(g, gi){ sus(g.xs, units[ui].susp, base); wheels(tpU[gi], g.xs); guards(g.xs, gi === G.gs.length - 1); });
+      gsOf[ui].forEach(function(g){ label(g); });
+      uname(x1, right, SIM_NOM[comp][ui]);
       ends.push(right);
-      kp = nxt;
-      if(ui === 0 && comp === 'bitren'){
-        base = bt + 5;
-        front.push('<path d="M' + (kp - 36) + ' ' + Y(bt) + ' L' + (kp + 32) + ' ' + Y(bt) + ' L' + (kp + 32) + ' ' + Y(base - 1) + ' L' + (kp + 12) + ' ' + Y(base) + ' L' + (kp - 22) + ' ' + Y(base) + ' L' + (kp - 36) + ' ' + Y(bt + 2) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
-        callout(kp, bt + 2, 'Quinta rueda del 1.er semirremolque');
-      }
+      base = bt + 5;
     });
   } else if(comp === 'acoplado'){
-    var xA = end0 + 100, gs = gsOf[1], xs = simLay(gs, xA + 34, 190, 88), lastg = xs[xs.length - 1], lastx = lastg[lastg.length - 1], right = lastx + 40;
-    var cF = (xs[0][0] + xs[0][xs[0].length - 1]) / 2, mid = (end0 + xA) / 2;
-    shad.push('<ellipse cx="' + ((xA + right) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((right - xA) / 2) + '" ry="3.5" fill="#000" opacity="0.1"/>');
+    var GA = geo.units[1], xA = GA.x1, right2 = GA.right, cF = GA.gs[0].c, mid = (end0 + xA) / 2, tpA = tipos(1);
+    shad.push('<ellipse cx="' + ((xA + right2) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((right2 - xA) / 2) + '" ry="3.5" fill="#000" opacity="0.1"/>');
     back.push(R(end0 - 16, end0 + 4, RB - 8, RT, 'url(#smSteel)', '#111827', 2));
     back.push('<path d="M' + end0 + ' ' + Y(48) + ' L' + (cF - 14) + ' ' + Y(40) + ' L' + (cF - 14) + ' ' + Y(35) + ' L' + end0 + ' ' + Y(43) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
     back.push('<circle cx="' + end0 + '" cy="' + Y(46) + '" r="5.5" fill="none" stroke="' + ACC + '" stroke-width="2.5"/>');
-    back.push(R(xA, right, RT, RT + 8, 'url(#smSteel)', '#111827', 0));
-    back.push(R(xA + 20, right - 6, RT - 5, RT, '#374151', null, 0));
-    back.push(carroceria(xA, right, RT + 8, TOP - 4, 1));
+    back.push(R(xA, right2, RT, RT + 8, 'url(#smSteel)', '#111827', 0));
+    back.push(R(xA + 20, right2 - 6, RT - 5, RT, '#374151', null, 0));
+    back.push(carroceria(xA, right2, RT + 8, TOP - 4, 1));
     back.push(R(cF - 22, cF + 22, RB - 4, RB, '#6B7280', '#374151', 1));
     callout(mid, 45, 'Enganche (barra de tiro)');
-    gs.forEach(function(g, i){ sus(xs[i], units[1].susp, RB); wheels(g, xs[i]); guards(xs[i], i === gs.length - 1); label(g, xs[i]); });
-    uname(xA, right, SIM_NOM[comp][1]);
-    ends.push(right);
+    GA.gs.forEach(function(g, gi){ sus(g.xs, units[1].susp, RB); wheels(tpA[gi], g.xs); guards(g.xs, gi === GA.gs.length - 1); });
+    gsOf[1].forEach(function(g){ label(g); });
+    uname(xA, right2, SIM_NOM[comp][1]);
+    ends.push(right2);
   }
-  var W = Math.max.apply(null, ends) + 30, H = GY + 96;
+  var W = Math.max.apply(null, ends) + 30, H = GY + 110;
   var defs = '<defs>' +
     '<linearGradient id="smShade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.42"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.3"/></linearGradient>' +
     '<linearGradient id="smMet" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6B7280"/><stop offset="0.35" stop-color="#F3F4F6"/><stop offset="1" stop-color="#6B7280"/></linearGradient>' +
@@ -1143,7 +1287,7 @@ function simSvg(r){
   return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Croquis de la formación ' + r.code + '" style="display:block;margin:0 auto;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.8) + 'px;max-width:' + Math.round(W * 1.4) + 'px;height:auto;font-family:inherit">' + defs +
     '<rect x="0" y="' + GY + '" width="' + W + '" height="5" fill="#D9DDE4"/><line x1="0" y1="' + GY + '" x2="' + W + '" y2="' + GY + '" stroke="#9CA3AF" stroke-width="1.5"/>' + shad.join('') +
     back.join('') + front.join('') + susp.join('') + whl.join('') + fend.join('') + lab.join('') + tops.join('') +
-    '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t</text></svg>';
+    '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">' + (rep && rep.ok ? 'Con este armado: peso bruto máximo ' + ft(rep.pbt / 1000) + ' t (carga útil ' + ft(rep.P / 1000) + ' t)' : 'Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t') + '</text></svg>';
 }
 
 function simRender(){
@@ -1154,13 +1298,13 @@ function simRender(){
   var sp = $('sPre'); sp.value = (NORMAS[SIM.norma].tabla[SIM.comp] || {})[r.code] ? r.code : ''; if(sp.value !== r.code) sp.value = '';
   var nEj = r.groups.reduce(function(a, g){ return a + g.k; }, 0);
   var capEjes = r.groups.reduce(function(a, g){ return a + g.lim; }, 0);
-  var cv = num(SIM.cv) || 0, tara = num(SIM.tara) || 0;
+  var cv = num(SIM.cv) || 0, geo = simGeom(), rep = null;
+  try { rep = simReparto(r, geo); } catch(e){ rep = null; }
   /* resultado */
   var c = el('div', 'card res');
   var big = el('div', 'big'); big.appendChild(el('span', 'lbl', 'Peso bruto máximo')); big.appendChild(el('b', '', fkg(r.pbtc) + ' kg')); big.appendChild(el('span', 'tn', '(' + ft(r.pbtc / 1000) + ' t)')); c.appendChild(big);
   c.appendChild(el('p', 'sub2', COMP_TXT[r.comp] + ' · configuración ' + r.code + ' · ' + nEj + ' ejes · ' + r.norma.nombre));
   c.appendChild(el('p', 'hint', 'Con la tolerancia de pesaje sobre el total (+500 kg): ' + fkg(r.pbtc + 500) + ' kg. La tolerancia solo se usa para controles en balanza; no es peso que se pueda cargar a propósito.'));
-  if(tara > 0){ var ut = r.pbtc - tara; c.appendChild(el('p', ut >= 0 ? 'ok' : 'bad', ut >= 0 ? 'Carga útil estimada con una tara de ' + fkg(tara) + ' kg: ' + fkg(ut) + ' kg (' + ft(ut / 1000) + ' t).' : 'Con esa tara la formación supera el peso máximo permitido.')); }
   var t = el('table', 'mini'), tb = el('tbody');
   r.limites.forEach(function(l){ var q = el('tr', l.lim ? 'lim' : ''); q.appendChild(el('td', '', l.n + (l.lim ? '  ← el que limita' : ''))); q.appendChild(el('td', 'n', fkg(l.v) + ' kg')); tb.appendChild(q); });
   t.appendChild(tb); c.appendChild(t);
@@ -1175,9 +1319,28 @@ function simRender(){
   var o = SIM.norma === 'nqn' ? 'nac' : 'nqn', r2 = null; try { r2 = simCalc(o); } catch(e){}
   if(r2 && !r2.err) c.appendChild(el('p', 'hint', 'La misma formación en ' + NORMAS[o].nombre + ': ' + fkg(r2.pbtc) + ' kg (' + ft(r2.pbtc / 1000) + ' t)' + (r2.row ? '' : ', pero no figura en su tabla') + '.'));
   box.appendChild(c);
+  /* reparto de la carga con las medidas armadas */
+  if(rep){
+    var cr = el('div', 'card'); cr.appendChild(el('h3', '', 'Reparto de la carga con este armado'));
+    if(rep.ok){
+      var ls = rep.porTope ? 'el tope de peso de la tabla de la norma' : ('el grupo ' + rep.flat[rep.quien].code + ' de ' + rep.flat[rep.quien].unit.nombre.toLowerCase());
+      cr.appendChild(el('p', 'sub2', 'Se puede cargar hasta ' + fkg(rep.P) + ' kg de carga útil (' + ft(rep.P / 1000) + ' t). Peso bruto: ' + fkg(rep.pbt) + ' kg. Lo que limita primero es ' + ls + '.'));
+      if(rep.split.length > 1) cr.appendChild(el('p', 'hint', 'Se supone que la carga se reparte entre las unidades del modo que permite llevar más: ' + rep.split.map(function(s){ return s.unit.nombre.toLowerCase() + ' ' + fkg(s.kg) + ' kg'; }).join(' · ') + '.'));
+      if(rep.pbt < r.pbtc - 50) cr.appendChild(el('p', 'bad', 'Con estas posiciones de plato y ejes se pierden ' + fkg(r.pbtc - rep.pbt) + ' kg respecto del máximo de la norma (' + fkg(r.pbtc) + ' kg).'));
+      else cr.appendChild(el('p', 'ok', 'Con estas posiciones se llega al máximo que permite la norma.'));
+    }
+    rep.avisos.forEach(function(a){ cr.appendChild(el('p', 'bad', a)); });
+    if(rep.ok){
+      var tt = el('table', 'mini'), tbb = el('tbody');
+      rep.flat.forEach(function(g, q){ var pc = rep.loads[q] / g.lim, tr = el('tr', q === rep.quien ? 'lim' : ''); tr.appendChild(el('td', '', g.unit.nombre + ' · ' + g.code + (q === rep.quien ? '  ← llega primero al límite' : ''))); tr.appendChild(el('td', 'n', fkg(rep.loads[q]) + ' de ' + fkg(g.lim) + ' kg (' + Math.round(pc * 100) + ' %)')); tbb.appendChild(tr); });
+      tt.appendChild(tbb); cr.appendChild(tt);
+    }
+    cr.appendChild(el('p', 'hint', 'Estimación: la carga se supone pareja a lo largo de la caja y el peso se reparte en partes iguales entre los grupos de ejes de cada unidad. Las taras y las medidas son de referencia: cambialas por las de tu unidad. No reemplaza el pesaje.'));
+    box.appendChild(cr);
+  }
   /* croquis */
   var cs = el('div', 'card'); cs.appendChild(el('h3', '', 'Croquis de la formación'));
-  var sw = el('div', 'tw'); sw.innerHTML = simSvg(r); cs.appendChild(sw);
+  var sw = el('div', 'tw'); sw.innerHTML = simSvg(r, geo, rep); cs.appendChild(sw);
   cs.appendChild(el('p', 'hint', 'Las ruedas duales se dibujan con dos cubiertas (se ve la de atrás asomando) y la superancha con un aro celeste. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
   box.appendChild(cs);
   /* explicación */
@@ -1192,7 +1355,7 @@ function simRender(){
   else if(/^Potencia/.test(r.limita)) why = 'Lo que limita es el motor: la norma exige una cantidad mínima de caballos por tonelada y con la potencia indicada no se llega al peso que permiten los ejes y la tabla.';
   else why = 'Lo que limita es la capacidad de tracción indicada.';
   ce2.appendChild(el('p', '', why));
-  var tp = el('p', 'hint', 'Probá esto: cambiá un grupo de ruedas simples por duales, pasá la suspensión a neumática, agregá o sacá un eje, o cambiá de normativa, y mirá qué número se mueve.'); ce2.appendChild(tp);
+  var tp = el('p', 'hint', 'Probá esto: corré el plato hacia atrás o adelante, mové los ejes del semi hacia adelante (semi colero), acercá o alejá los grupos de ejes, cambiá ruedas simples por duales o la suspensión, y mirá qué grupo se pasa primero y cuánto se puede cargar.'); ce2.appendChild(tp);
   box.appendChild(ce2);
   var cg = el('div', 'card'), dt = document.createElement('details'); dt.appendChild(el('summary', '', 'Glosario y tolerancias'));
   var gl = el('ul', 'avs');
@@ -1201,7 +1364,9 @@ function simRender(){
    'Suspensión neumática: tiene un límite por eje levemente mayor que la mecánica (elásticos). Cada unidad tiene la suya: un tractor puede ser neumático y el semirremolque mecánico (o al revés), y cada grupo de ejes se calcula con la suspensión de la unidad a la que pertenece.',
    'Relación potencia/peso: el motor tiene que dar un mínimo de CV por tonelada (4,25 a 6,75 según la configuración y la norma). En la norma nacional, 5 CV/t es transitorio hasta el 31/12/2026 en algunas configuraciones.',
    'Tolerancias de pesaje que usa este módulo: eje simple +800 kg (ruedas simples) o +1.500 kg (duales), tándem +2.000 kg, tridem +2.500 kg y +500 kg sobre el peso total. Solo valen si no se supera el peso total: el exceso en un eje se compensa con el defecto en otro.',
-   'Quinta rueda: es el enganche entre tractor y semirremolque. En el bitrén hay una segunda quinta rueda sobre el primer semirremolque.',
+   'Quinta rueda (plato): es el enganche entre tractor y semirremolque. Si se corre hacia atrás, el tractor carga más en los ejes traseros y menos en el delantero; si se adelanta, pasa al revés. En el bitrén hay una segunda quinta rueda sobre el primer semirremolque.',
+   'Semi colero: es el semirremolque con los ejes corridos hacia adelante, de modo que sobresale una cola larga por detrás. Cambia cómo se reparte la carga entre el pivote y los ejes, y por eso cambia cuánto se puede cargar sin pasarse en ningún grupo.',
+   'Separación entre grupos de ejes: dos grupos separados menos de 2,40 m se cuentan como un solo grupo (más ejes juntos), y más de 2,40 m como grupos separados. Cambiar la separación cambia los límites que aplica la norma.',
    'Permiso de tránsito: algunas configuraciones (por ejemplo el bitrén de 9 ejes en Neuquén) circulan solo con permiso de Vialidad.'].forEach(function(x){ gl.appendChild(el('li', '', x)); });
   dt.appendChild(gl); cg.appendChild(dt);
   cg.appendChild(el('p', 'hint', 'Referencia orientativa según las tablas cargadas en el módulo. Confirmá con Vialidad ante cualquier duda.'));
@@ -1210,13 +1375,14 @@ function simRender(){
 function simInit(){
   var ns = $('sNorma'), cs = $('sComp');
   ns.onchange = function(){ SIM.norma = ns.value; simPreOpts(); simRender(); };
-  cs.onchange = function(){ SIM.comp = cs.value; simPreset(SIM_DEF[SIM.comp]); simPreOpts(); simBuild(); simRender(); };
+  cs.onchange = function(){ SIM.comp = cs.value; simPreset(SIM_DEF[SIM.comp]); SIM.g = simGDef(SIM.comp); simPreOpts(); simBuild(); simRender(); };
   $('sPre').onchange = function(){ if($('sPre').value){ simPreset($('sPre').value); simBuild(); simRender(); } };
   $('sCar').onchange = function(){ SIM.car = $('sCar').value; simRender(); };
   $('sCv').oninput = function(){ SIM.cv = $('sCv').value; simRender(); };
-  $('sTara').oninput = function(){ SIM.tara = $('sTara').value; simRender(); };
+  SIM.g = simGDef(SIM.comp);
   simPreOpts(); simBuild(); simRender();
 }
+
 
 /* ===================== ALTA MANUAL DE UNIDADES ===================== */
 function openUnidad(){
