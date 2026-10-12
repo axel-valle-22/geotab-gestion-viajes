@@ -289,13 +289,18 @@ function loadScript(src){ return new Promise(function(res, rej){ var s = documen
 function getDb(){
   if(db) return Promise.resolve(db);
   return Promise.resolve().then(function(){
-    if(window.firebase && window.firebase.firestore) return;
-    return loadScript(BASE_URL + 'gestion-documental/js/firebase-config.js')
-      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'); })
-      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'); });
+    var p = Promise.resolve();
+    if(!window.FIREBASE_CONFIG) p = p.then(function(){ return loadScript(BASE_URL + 'gestion-documental/js/firebase-config.js'); });
+    if(!(window.firebase && window.firebase.firestore)){
+      p = p.then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'); })
+           .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'); });
+    }
+    return p;
   }).then(function(){
-    var f = window.firebase;
-    var app = (f.apps || []).filter(function(a){ return a.name === 'tdp-cargamax'; })[0] || f.initializeApp(window.FIREBASE_CONFIG || {}, 'tdp-cargamax');
+    /* Se usa la app por defecto (compartida con Gestion Documental y los demas add-ins): si se creara una app con nombre propio,
+       los otros modulos creerian que Firebase ya esta iniciado y no podrian leer sus datos. */
+    var f = window.firebase, app;
+    try { app = f.app(); } catch(e) { app = f.initializeApp(window.FIREBASE_CONFIG || {}); }
     db = app.firestore(); return db;
   });
 }
