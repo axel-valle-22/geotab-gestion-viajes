@@ -89,10 +89,11 @@
         <label>Vigencia<select id="pVenc"><option value="">Todas</option><option value="vigente">Vigentes</option><option value="porvencer">Por vencer</option><option value="vencido">Vencidos</option><option value="sinfecha">Sin vigencia</option><option value="inactivo">Inactivos</option></select></label>
         <label>Estado del trámite<select id="pEst"></select></label>
         <label>Ordenar por<select id="pOrd"><option value="venc">Vencimiento</option><option value="form">Formación</option></select></label>
+        <label>Archivo PDF<select id="pPdf"><option value="">Todos</option><option value="con">Con PDF</option><option value="sin">Sin PDF</option></select></label>
       </section>
       <section class="card">
         <div class="acts" style="margin-top:0"><button id="pNew" class="primary">Nuevo permiso</button><button id="pCsv" class="sm">Exportar CSV</button><span id="pMsg" class="hint"></span></div>
-        <div class="tw"><table id="pTbl"><thead><tr><th>Jur.</th><th>Servicio</th><th>Formación</th><th>Carga</th><th>N°</th><th>Tramo</th><th>Vence</th><th>Renov.</th><th>Dimensiones</th><th>Estado</th><th></th></tr></thead><tbody id="pTb"></tbody></table></div>
+        <div class="tw"><table id="pTbl"><thead><tr><th>Jur.</th><th>Servicio</th><th>Formación</th><th>Carga</th><th>N°</th><th>Tramo</th><th>Vence</th><th>Renov.</th><th>Dimensiones</th><th>Estado</th><th>PDF</th><th></th></tr></thead><tbody id="pTb"></tbody></table></div>
         <p class="hint">Estos permisos son para cargas sobredimensionadas (largo, ancho o alto). Las dimensiones son opcionales: cargá las que figuren en el permiso.</p>
       </section>
     </section>
@@ -113,7 +114,7 @@
 function $(id){ return document.getElementById(id); }
 function el(tag, cls, txt){ var e = document.createElement(tag); if(cls) e.className = cls; if(txt !== undefined && txt !== null) e.textContent = txt; return e; }
 
-var COL_U = 'cm_unidades', COL_P = 'cm_permisos', COL_R = 'cm_registro';
+var COL_U = 'cm_unidades', COL_P = 'cm_permisos', COL_R = 'cm_registro', COL_A = 'cm_archivos', PDF_CHUNK = 700000, PDF_MAX = 4 * 1024 * 1024, PDFC = {};
 var BASE_URL = 'https://axel-valle-22.github.io/geotab-gestion-viajes/';
 
 /* ===================== NORMATIVA ===================== */
@@ -326,7 +327,7 @@ function getDb(){
     db = app.firestore(); return db;
   });
 }
-function errTxt(e){ var c = e && (e.code || e.message) || ''; if(/permission/i.test(c)) return 'Firebase no permite guardar: falta agregar las colecciones cm_unidades, cm_permisos y cm_registro en las reglas.'; return 'No se pudo completar la operación. ' + c; }
+function errTxt(e){ var c = e && (e.code || e.message) || ''; if(/permission/i.test(c)) return 'Firebase no permite guardar: falta agregar las colecciones cm_unidades, cm_permisos, cm_archivos y cm_registro en las reglas.'; return 'No se pudo completar la operación. ' + c; }
 
 function logReg(unidad, texto){
   var d = { fecha: nowIso(), por: me || '', unidad: unidad || '', texto: texto };
@@ -667,12 +668,14 @@ function dimTxt(p){ var a = []; if(p.largo > 0) a.push('Largo ' + ft(p.largo) + 
 function uName(id, txt){ var u = id ? UBY[id] : null; return u ? u.nombre : (txt || ''); }
 function formName(p){ var t = uName(p.tractorId, p.tractorTxt || p.tractorPat), s1 = uName(p.semiId, p.semiTxt || p.semiPat), s2 = uName(p.semi2Id, ''); return t + (s1 ? ' + ' + s1 : '') + (s2 ? ' + ' + s2 : ''); }
 function pFiltrados(){
-  var q = $('pTxt').value.trim().toLowerCase(), jur = $('pJur').value, sv = $('pSrv').value, ve = $('pVenc').value, es = $('pEst').value;
+  var q = $('pTxt').value.trim().toLowerCase(), jur = $('pJur').value, sv = $('pSrv').value, ve = $('pVenc').value, es = $('pEst').value, pf = $('pPdf').value;
   return P.filter(function(p){
     if(jur && p.jur !== jur) return false;
     if(sv && p.servicio !== sv) return false;
     if(es && (p.estado || '') !== (es === '_sin' ? '' : es)) return false;
     if(ve && vencEst(p) !== ve) return false;
+    if(pf === 'con' && !p.pdf) return false;
+    if(pf === 'sin' && p.pdf) return false;
     if(q){ var hay = [formName(p), p.tractorPat, p.semiPat, p.numero, p.carga, p.tramoDesde, p.tramoHasta, p.obs, p.servicio].join(' ').toLowerCase(); if(hay.indexOf(q) < 0) return false; }
     return true;
   });
@@ -703,11 +706,34 @@ function renderPermisos(){
     tr.appendChild(el('td', '', p.renov || ''));
     tr.appendChild(el('td', '', dimTxt(p)));
     var te = el('td'); if(p.estado) te.appendChild(el('span', 'bdg st', EST_PERM[p.estado] || p.estado)); if(p.activo === false) te.appendChild(el('span', 'bdg', 'inactivo')); tr.appendChild(te);
+    var tp = el('td'); if(p.pdf){ var bv = el('button', 'sm', 'Ver'), bd = el('button', 'sm', 'Descargar'); bv.onclick = function(){ abrirPdf(p, false, $('pMsg')); }; bd.onclick = function(){ abrirPdf(p, true, $('pMsg')); }; tp.appendChild(bv); tp.appendChild(bd); } else tp.appendChild(document.createTextNode('–')); tr.appendChild(tp);
     var tb2 = el('td'), b = el('button', 'sm', 'Editar'); b.onclick = function(){ openPermiso(p); }; tb2.appendChild(b); tr.appendChild(tb2);
     tb.appendChild(tr);
   });
-  $('pMsg').textContent = !P.length ? 'Todavía no hay permisos cargados.' : (list.length + ' de ' + P.length + ' permisos' + (list.length > MAX ? ' (se muestran los primeros ' + MAX + ': filtrá para ver el resto)' : '') + '.');
+  $('pMsg').textContent = !P.length ? 'Todavía no hay permisos cargados.' : (list.length + ' de ' + P.length + ' permisos' + (list.length > MAX ? ' (se muestran los primeros ' + MAX + ': filtrá para ver el resto)' : '') + '. Con PDF cargado: ' + P.filter(function(q){ return q.pdf; }).length + '.');
 }
+/* ---- PDF del permiso: se guarda en Firestore en partes (cm_archivos), porque Firebase Storage no está habilitado en este proyecto ---- */
+function leerArchivoB64(f){ return new Promise(function(ok, ko){ var r = new FileReader(); r.onload = function(){ var s = String(r.result || ''); ok(s.slice(s.indexOf(',') + 1)); }; r.onerror = function(){ ko(new Error('No se pudo leer el archivo.')); }; r.readAsDataURL(f); }); }
+function pdfBlob(p){
+  var k = p.id + '|' + (p.pdf && p.pdf.fecha); if(PDFC[k]) return Promise.resolve(PDFC[k]);
+  return getDb().then(function(x){ var ps = []; for(var i = 0; i < p.pdf.n; i++) ps.push(x.collection(COL_A).doc(p.id + '_' + i).get()); return Promise.all(ps); }).then(function(ds){
+    var b64 = ''; ds.forEach(function(d){ if(d.exists) b64 += d.data().datos || ''; });
+    if(!b64) throw new Error('No se encontró el archivo guardado.');
+    var bin = atob(b64), u = new Uint8Array(bin.length); for(var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    var b = new Blob([u], { type: 'application/pdf' }); PDFC[k] = b; return b;
+  });
+}
+function abrirPdf(p, bajar, msgEl){
+  var w = null; if(!bajar){ try{ w = window.open('', '_blank'); if(w && w.document) w.document.write('<p style="font-family:sans-serif">Cargando el PDF…</p>'); }catch(e){ w = null; } }
+  msgEl.textContent = 'Cargando el PDF…';
+  pdfBlob(p).then(function(b){
+    var u = URL.createObjectURL(b);
+    if(bajar || !w){ var a = document.createElement('a'); a.href = u; a.download = (p.pdf && p.pdf.nombre) || ('permiso-' + (p.numero || 'sin-numero') + '.pdf'); document.body.appendChild(a); a.click(); setTimeout(function(){ document.body.removeChild(a); }, 500); }
+    else { w.location.href = u; }
+    msgEl.textContent = '';
+  }).catch(function(e){ if(w){ try{ w.close(); }catch(x){} } msgEl.textContent = errTxt(e); });
+}
+function pdfInfo(p){ var q = p.pdf; return q.nombre + ' (' + Math.round((q.tam || 0) / 1024) + ' KB' + (q.fecha ? ', cargado el ' + fday(String(q.fecha).slice(0, 10)) : '') + (q.por ? ' por ' + q.por : '') + ')'; }
 function distinct(k){ var o = {}; P.forEach(function(p){ if(p[k]) o[p[k]] = 1; }); return Object.keys(o).sort(); }
 function dlHtml(id, arr){ return '<datalist id="' + id + '">' + arr.map(function(x){ return '<option value="' + String(x).replace(/"/g, '&quot;') + '">'; }).join('') + '</datalist>'; }
 function openPermiso(p){
@@ -735,6 +761,9 @@ function openPermiso(p){
   '</div>' +
   dlHtml('dlSrv', distinct('servicio')) + dlHtml('dlCarga', distinct('carga')) + dlHtml('dlTramo', distinct('tramoDesde').concat(distinct('tramoHasta')).filter(function(x, i, a){ return a.indexOf(x) === i; })) +
   '<label>Observaciones<textarea id="xObs" rows="2"></textarea></label>' +
+  '<div class="card" style="margin:8px 0"><div id="xPdfCur" class="hint"></div>' +
+  '<label>Archivo del permiso (PDF, hasta 4 MB)<input id="xPdf" type="file" accept="application/pdf,.pdf"></label>' +
+  (p.pdf ? '<label class="chk"><input type="checkbox" id="xPdfDel"> Quitar el PDF actual</label>' : '') + '</div>' +
   '<label class="chk"><input type="checkbox" id="xExc"> El permiso autoriza exceso por eje (la calculadora no aplica la suma de límites por eje)</label>' +
   '<label class="chk"><input type="checkbox" id="xAct"> Permiso activo</label>' +
   '<div class="acts"><button id="xSave" class="primary">Guardar</button><span id="xMsg" class="hint"></span></div>';
@@ -746,6 +775,12 @@ function openPermiso(p){
   $('xTd').value = p.tramoDesde || ''; $('xTh').value = p.tramoHasta || ''; $('xPbtc').value = p.pbtc || '';
   $('xObs').value = p.obs || ''; $('xExc').checked = !!p.excesoEje; $('xAct').checked = nuevo ? true : p.activo !== false;
   $('xClose').onclick = closeMod;
+  if(p.pdf){
+    var pc = $('xPdfCur'); pc.appendChild(document.createTextNode('PDF cargado: ' + pdfInfo(p) + ' '));
+    var pv = el('button', 'sm', 'Ver'), pd = el('button', 'sm', 'Descargar'); pv.type = 'button'; pd.type = 'button';
+    pv.onclick = function(){ abrirPdf(p, false, $('xMsg')); }; pd.onclick = function(){ abrirPdf(p, true, $('xMsg')); };
+    pc.appendChild(pv); pc.appendChild(document.createTextNode(' ')); pc.appendChild(pd);
+  } else $('xPdfCur').textContent = 'Todavía no hay PDF cargado para este permiso.';
   $('xSave').onclick = function(){
     var m = $('xMsg'), t = byName($('xT').value), s1 = $('xS1').value.trim() ? byName($('xS1').value) : null, s2 = $('xS2').value.trim() ? byName($('xS2').value) : null;
     if(!t){ m.textContent = 'Elegí el tractor o camión de la lista (si no está, agregalo primero en Unidades).'; return; }
@@ -760,11 +795,31 @@ function openPermiso(p){
       obs: $('xObs').value.trim(), excesoEje: $('xExc').checked, activo: $('xAct').checked, editPor: me || '', editFecha: nowIso() };
     var id = p.id || ('p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
     if(!p.id) d.creada = nowIso();
-    m.textContent = 'Guardando…';
-    getDb().then(function(x){ return x.collection(COL_P).doc(id).set(d, { merge: true }); }).then(function(){
+    var pf = $('xPdf').files && $('xPdf').files[0], quitar = !!($('xPdfDel') && $('xPdfDel').checked), prep = Promise.resolve('');
+    if(pf){
+      if(!/\.pdf$/i.test(pf.name) && pf.type !== 'application/pdf'){ m.textContent = 'El archivo tiene que ser un PDF.'; return; }
+      if(pf.size > PDF_MAX){ m.textContent = 'El PDF pesa más de 4 MB: comprimilo o dividilo antes de cargarlo.'; return; }
+      if(pf.size === 0){ m.textContent = 'El archivo está vacío.'; return; }
+      m.textContent = 'Leyendo el PDF…'; prep = leerArchivoB64(pf);
+    }
+    var hizoPdf = false;
+    prep.then(function(b64){
+      m.textContent = 'Guardando…';
+      return getDb().then(function(x){
+        var batch = x.batch(), oldN = p.pdf ? p.pdf.n : 0, n = 0, i;
+        if(b64){
+          n = Math.ceil(b64.length / PDF_CHUNK);
+          for(i = 0; i < n; i++) batch.set(x.collection(COL_A).doc(id + '_' + i), { permiso: id, i: i, n: n, datos: b64.slice(i * PDF_CHUNK, (i + 1) * PDF_CHUNK) });
+          d.pdf = { nombre: pf.name, tam: pf.size, n: n, fecha: nowIso(), por: me || '' }; hizoPdf = true;
+        } else if(quitar && p.pdf){ d.pdf = null; hizoPdf = true; }
+        if(hizoPdf) for(i = n; i < oldN; i++) batch.set(x.collection(COL_A).doc(id + '_' + i), { permiso: id, i: i, n: 0, datos: '' });
+        batch.set(x.collection(COL_P).doc(id), d, { merge: true });
+        return batch.commit();
+      });
+    }).then(function(){
       var ex = P.filter(function(q){ return q.id === id; })[0];
       if(ex){ for(var k in d) ex[k] = d[k]; } else { d.id = id; P.push(d); }
-      logReg(t.nombre, (p.id ? 'Actualizó' : 'Cargó') + ' el permiso ' + (d.numero || 'sin número') + ' (' + (JUR_TXT[d.jur] || '') + (d.carga ? ', ' + d.carga : '') + (d.vigHasta ? ', vence ' + fday(d.vigHasta) : '') + ')');
+      logReg(t.nombre, (p.id ? 'Actualizó' : 'Cargó') + ' el permiso ' + (d.numero || 'sin número') + ' (' + (JUR_TXT[d.jur] || '') + (d.carga ? ', ' + d.carga : '') + (d.vigHasta ? ', vence ' + fday(d.vigHasta) : '') + ')' + (hizoPdf ? (d.pdf ? '. PDF cargado: ' + d.pdf.nombre : '. Quitó el PDF') : ''));
       permKey = ''; renderPermisos(); recalc(); m.textContent = 'Guardado.'; setTimeout(closeMod, 500);
     }).catch(function(e){ m.textContent = errTxt(e); });
   };
@@ -880,7 +935,7 @@ var CSS = [
 "#cmx select.ti{padding:5px 8px;font-size:.82rem;min-width:130px}",
 "#cmx .bdg{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.74rem;font-weight:600;background:#EEF0F4;color:var(--muted)}",
 "#cmx .bdg.vcd{background:#FEE4E2;color:#B42318}#cmx .bdg.vpv{background:#FEF0C7;color:#93370D}#cmx .bdg.vvg{background:#D1FADF;color:#05603A}#cmx .bdg.st{background:var(--accent-light);color:var(--accent-dark)}",
-"#cmx .kpi.clk{cursor:pointer}#cmx .kpi.clk:hover{border-color:var(--accent)}",
+"#cmx .kpi.clk{cursor:pointer}#cmx .kpi.clk:hover{border-color:var(--accent)}#cmx td .sm+.sm{margin-left:4px}",
 "#cmx .bdg.incompleto{background:#FEF0C7;color:#93370D}#cmx .bdg.completo{background:var(--accent-light);color:var(--accent-dark)}#cmx .bdg.verificado{background:#D1FADF;color:#05603A}",
 "#cmx .res .big{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}",
 "#cmx .res .big .lbl{font-size:.9rem;color:var(--muted)}#cmx .res .big b{font-size:2.2rem;line-height:1.1}#cmx .res .big .tn{color:var(--muted)}",
@@ -951,7 +1006,7 @@ function init(){
   $('uCsv').onclick = exportCsv; $('pNew').onclick = function(){ openPermiso(null); }; $('uAdd').onclick = openUnidad; $('pCsv').onclick = exportPermCsv;
   /* el cuadro de texto solo filtra al escribir (si también lo hiciera al perder el foco, el primer clic en "Editar" se perdería) */
   $('pTxt').oninput = renderPermisos;
-  ['pJur', 'pSrv', 'pVenc', 'pEst', 'pOrd'].forEach(function(i){ $(i).onchange = renderPermisos; });
+  ['pJur', 'pSrv', 'pVenc', 'pEst', 'pOrd', 'pPdf'].forEach(function(i){ $(i).onchange = renderPermisos; });
   [].forEach.call($('pKpis').querySelectorAll('.clk'), function(k){ k.onclick = function(){ $('pVenc').value = k.getAttribute('data-f'); renderPermisos(); }; });
   $('mod').onclick = function(e){ if(e.target === $('mod')) closeMod(); };
   document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !$('mod').hidden) closeMod(); });
