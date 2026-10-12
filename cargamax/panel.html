@@ -107,6 +107,7 @@
           <label>Normativa<select id="sNorma"><option value="nqn">Neuquén vigente (Res. DPV 329/20 – Dec. 32/2018)</option><option value="nac">Nacional 2026 (Dec. 689/2026 – Anexo R)</option></select></label>
           <label>Tipo de formación<select id="sComp"><option value="rigido">Camión solo</option><option value="acoplado">Camión con acoplado</option><option value="semi" selected>Tractor con semirremolque</option><option value="bitren">Bitrén (tractor con dos semirremolques)</option></select></label>
           <label>Configuración de la tabla<select id="sPre"></select></label>
+          <label>Carrocería (solo es dibujo)<select id="sCar"><option value="furgon">Furgón (caja cerrada)</option><option value="plataforma">Plataforma con caños</option><option value="cisterna">Cisterna</option></select></label>
           <label>Potencia del tractor o camión (CV, opcional)<input id="sCv" type="number" inputmode="numeric" min="0" placeholder="Ej.: 450"></label>
           <label>Tara de la formación (kg, opcional)<input id="sTara" type="number" inputmode="numeric" min="0" placeholder="Para ver la carga útil"></label>
         </div>
@@ -877,7 +878,7 @@ var KEY_CODE = { s1: 'S1', w1: 'S1', d1: 'D1', ss: 'S2', ds: 'M2', dw: 'M2', ww:
 var CODE_KEY = { S1: 's1', D1: 'd1', D2: 'dd', D3: 'ddd', S2: 'ss' };
 var SIM_NOM = { rigido: ['Camión'], acoplado: ['Camión', 'Acoplado'], semi: ['Tractor', 'Semirremolque'], bitren: ['Tractor', '1.er semirremolque', '2.º semirremolque'] };
 var SIM_DEF = { rigido: 'S1-D2', semi: 'S1-D2-D2', acoplado: 'S1-D2-D2-D2', bitren: 'S1-D2-D2-D2' };
-var SIM = { norma: 'nqn', comp: 'semi', sus: ['mec', 'mec', 'mec'], cv: '', tara: '', us: [['s1', 'dd'], ['dd']] };
+var SIM = { norma: 'nqn', comp: 'semi', car: 'furgon', sus: ['mec', 'mec', 'mec'], cv: '', tara: '', us: [['s1', 'dd'], ['dd']] };
 
 function simCap(s){ s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
 function simSplit(code, comp){
@@ -935,13 +936,15 @@ function simPreOpts(){
 }
 
 function simWheel(cx, t, GY){
-  var cy = GY - 17, s = '';
-  if(t === 'dual') s += '<circle cx="' + (cx - 5) + '" cy="' + (cy - 1) + '" r="17" fill="#374151" stroke="#111827" stroke-width="1"/>';
-  s += '<circle cx="' + cx + '" cy="' + cy + '" r="17" fill="#111827"/>';
-  s += '<circle cx="' + cx + '" cy="' + cy + '" r="14.5" fill="none" stroke="#4B5563" stroke-width="3" stroke-dasharray="3.2 2.4"/>';
-  s += '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="#374151"' + (t === 'ancha' ? ' stroke="#38BDF8" stroke-width="1.5"' : '') + '/>';
-  s += '<circle cx="' + cx + '" cy="' + cy + '" r="8" fill="' + (t === 'ancha' ? '#E0F2FE' : '#D1D5DB') + '" stroke="#9CA3AF" stroke-width="1"/>';
-  s += '<text x="' + cx + '" y="' + (cy + 3.3) + '" text-anchor="middle" font-size="9.5" font-weight="700" fill="#111827">' + (t === 'dual' ? 'D' : (t === 'ancha' ? 'A' : 'S')) + '</text>';
+  var cy = GY - 17, s = '', i;
+  if(t === 'dual') s += '<circle cx="' + (cx - 6) + '" cy="' + (cy - 1.5) + '" r="17" fill="#1F2430" stroke="#0B0E14" stroke-width="1"/>';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="17" fill="url(#smTire)" stroke="#0B0E14" stroke-width="1"/>';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="15.6" fill="none" stroke="#3B4252" stroke-width="2.4" stroke-dasharray="2.3 2"/>';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="12.4" fill="#1A1F29" stroke="#394150" stroke-width="0.8"/>';
+  if(t === 'ancha') s += '<circle cx="' + cx + '" cy="' + cy + '" r="13.6" fill="none" stroke="#38BDF8" stroke-width="1.6"/>';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="9.4" fill="url(#smRim)" stroke="#6B7280" stroke-width="0.9"/>';
+  for(i = 0; i < 8; i++){ var an = i * Math.PI / 4; s += '<circle cx="' + (cx + 6.2 * Math.cos(an)).toFixed(1) + '" cy="' + (cy + 6.2 * Math.sin(an)).toFixed(1) + '" r="0.95" fill="#4B5563"/>'; }
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="3.4" fill="#D1D5DB" stroke="#4B5563" stroke-width="0.9"/>';
   return s;
 }
 function simLay(gs, first, gap1, gap2){
@@ -953,29 +956,57 @@ function simLay(gs, first, gap1, gap2){
   return xs;
 }
 function simSvg(r){
-  var GY = 200, ACC = 'var(--accent)', DK = '#006183', comp = r.comp, units = r.units, x0 = 16;
-  var back = [], front = [], susp = [], whl = [], fend = [], lab = [], tops = [];
+  var GY = 200, ACC = 'var(--accent)', DK = '#005C7A', comp = r.comp, units = r.units, x0 = 18, car = SIM.car || 'furgon';
+  var back = [], front = [], susp = [], whl = [], fend = [], lab = [], tops = [], shad = [];
   var gsOf = units.map(function(u){ return r.groups.filter(function(g){ return g.unit === u; }); });
   var RB = 48, RT = 54, PL = 59, TOP = 138;
   function Y(h){ return Math.round((GY - h) * 10) / 10; }
-  function R(x1, x2, h1, h2, fill, stroke, rx){ return '<rect x="' + x1 + '" y="' + Y(h2) + '" width="' + (x2 - x1) + '" height="' + (h2 - h1) + '" rx="' + (rx || 0) + '" fill="' + fill + '"' + (stroke ? ' stroke="' + stroke + '" stroke-width="1.2"' : '') + '/>'; }
-  function Ln(x1, h1, x2, h2, col, w){ return '<line x1="' + x1 + '" y1="' + Y(h1) + '" x2="' + x2 + '" y2="' + Y(h2) + '" stroke="' + col + '" stroke-width="' + (w || 1.2) + '"/>'; }
-  /* caja cerrada (furgón) */
-  function van(x1, x2, hb, ht, fill){
-    var s = R(x1, x2, hb, ht, fill, '#9CA3AF', 3);
-    for(var x = x1 + 24; x < x2 - 14; x += 28) s += Ln(x, hb + 4, x, ht - 4, '#D1D5DB', 1);
-    s += R(x1 + 1, x2 - 1, hb + 14, hb + 22, ACC, null, 0).replace('/>', ' opacity="0.9"/>');
-    s += Ln(x2 - 7, hb + 3, x2 - 7, ht - 3, '#9CA3AF', 1.2) + R(x2 - 9, x2 - 5, hb + 28, hb + 34, '#9CA3AF', null, 1) + R(x2 - 9, x2 - 5, ht - 34, ht - 28, '#9CA3AF', null, 1);
-    s += R(x2 - 3, x2 + 1.5, hb + 4, hb + 14, '#DC2626', '#991B1B', 1);
-    s += '<text x="' + ((x1 + x2) / 2) + '" y="' + Y(ht - 20) + '" text-anchor="middle" font-size="11" fill="#9CA3AF">Carga</text>';
+  function R(x1, x2, h1, h2, fill, stroke, rx){ return '<rect x="' + x1 + '" y="' + Y(h2) + '" width="' + Math.max(0, x2 - x1) + '" height="' + (h2 - h1) + '" rx="' + (rx || 0) + '" fill="' + fill + '"' + (stroke ? ' stroke="' + stroke + '" stroke-width="1"' : '') + '/>'; }
+  function Ln(x1, h1, x2, h2, col, w, extra){ return '<line x1="' + x1 + '" y1="' + Y(h1) + '" x2="' + x2 + '" y2="' + Y(h2) + '" stroke="' + col + '" stroke-width="' + (w || 1) + '"' + (extra || '') + '/>'; }
+  function Ci(x, h, rad, fill, stroke){ return '<circle cx="' + x + '" cy="' + Y(h) + '" r="' + rad + '" fill="' + fill + '"' + (stroke ? ' stroke="' + stroke + '" stroke-width="0.8"' : '') + '/>'; }
+  function shade(d){ return '<path d="' + d + '" fill="url(#smShade)"/>'; }
+  /* carrocería: furgón, plataforma con caños o cisterna */
+  function carroceria(x1, x2, hb, ht, alt){
+    var s = '', x, k;
+    if(car === 'plataforma'){
+      s += R(x1, x2, hb, hb + 3, '#B7864B', '#7C5A2E', 0);
+      s += R(x1, x1 + 4, hb + 3, hb + 44, '#4B5563', '#1F2937', 1);
+      for(x = x1 + 40; x < x2 - 10; x += 62) s += R(x, x + 3, hb + 3, hb + 26, '#6B7280', null, 1);
+      var pr = 5.2, n = Math.floor((x2 - x1 - 26) / (2 * pr)), row;
+      for(row = 0; row < 4; row++){
+        var cnt = n - (row % 2), off = x1 + 12 + pr + (row % 2) * pr, hh = hb + 3 + pr + row * 9.2;
+        for(k = 0; k < cnt; k++){ var cx = off + k * 2 * pr; s += Ci(cx, hh, pr, '#A8B3C2', '#5B6677') + Ci(cx, hh, 2.4, '#4B5563', null); }
+      }
+      for(x = x1 + 70; x < x2 - 40; x += 130) s += R(x, x + 3, hb + 3, hb + 45, '#DC2626', null, 1);
+    } else if(car === 'cisterna'){
+      var th = ht - hb - 4, rr = Math.min(th / 2, 30);
+      for(x = x1 + 50; x < x2 - 30; x += 55) s += R(x - 2, x + 2, hb, hb + 4, '#6B7280', null, 0);
+      s += '<rect x="' + x1 + '" y="' + Y(ht - 4) + '" width="' + (x2 - x1) + '" height="' + th + '" rx="' + rr + '" fill="url(#smTank)" stroke="#6B7280" stroke-width="1.2"/>';
+      for(x = x1 + 60; x < x2 - 30; x += 60) s += Ln(x, hb + 3, x, ht - 7, '#9CA3AF', 1.4);
+      s += R(x1 + (x2 - x1) * 0.45 - 12, x1 + (x2 - x1) * 0.45 + 12, ht - 4, ht + 1, '#6B7280', '#4B5563', 2);
+      s += R(x1 + (x2 - x1) * 0.45 - 8, x1 + (x2 - x1) * 0.45 + 8, ht + 1, ht + 3, '#9CA3AF', '#4B5563', 1);
+      s += R(x2 - 16, x2 - 4, hb - 8, hb + 12, '#4B5563', '#1F2937', 2);
+      s += Ln(x2 - 2, hb + 4, x2 - 2, ht - 12, '#6B7280', 1.2) + Ln(x2 - 8, hb + 6, x2 - 8, ht - 14, '#6B7280', 1.2);
+      s += R(x1 + 8, x1 + 11, hb + 6, ht - 10, '#FDE68A', null, 1);
+    } else {
+      s += '<rect x="' + x1 + '" y="' + Y(ht) + '" width="' + (x2 - x1) + '" height="' + (ht - hb) + '" rx="3" fill="url(#smBox)" stroke="#8A94A3" stroke-width="1.2"/>';
+      for(x = x1 + 5; x < x2 - 6; x += 7) s += Ln(x, hb + 6, x, ht - 6, '#E1E5EB', 1);
+      s += R(x1, x2, ht - 5, ht, '#9AA3B2', '#6B7280', 2) + R(x1, x2, hb, hb + 5, '#9AA3B2', '#6B7280', 2);
+      s += R(x1, x1 + 5, hb, ht, '#B6BDC9', '#8A94A3', 2) + R(x2 - 5, x2, hb, ht, '#B6BDC9', '#8A94A3', 2);
+      s += R(x1 + 6, x2 - 6, hb + 18, hb + 24, ACC, null, 0).replace('/>', ' opacity="0.9"/>');
+      s += Ln(x2 - 14, hb + 6, x2 - 14, ht - 6, '#8A94A3', 1.4);
+      for(k = 0; k < 2; k++){ var hx = x2 - 22 + k * 5; s += Ln(hx, hb + 9, hx, ht - 9, '#6B7280', 1.2) + R(hx - 2, hx + 2, hb + 26, hb + 31, '#4B5563', null, 1) + R(hx - 2, hx + 2, ht - 31, ht - 26, '#4B5563', null, 1); }
+      s += R(x2 - 3, x2 + 2, hb + 7, hb + 17, '#DC2626', '#7F1D1D', 1);
+      s += R(x1 + 14, x1 + 19, hb + 7, hb + 12, '#F59E0B', null, 1);
+    }
     return s;
   }
   /* suspensión de un grupo: elásticos (mecánica) o bolsas de aire con brazo (neumática) */
   function sus(xs, kind, topH){
     xs.forEach(function(x){
       if(kind === 'neumatica'){
-        susp.push(R(x - 36, x - 31, 19, topH, '#6B7280', null, 1));
-        susp.push(R(x - 34, x + 4, 19, 23, '#4B5563', null, 2));
+        susp.push(R(x - 38, x - 32, 19, topH, '#6B7280', '#4B5563', 1));
+        susp.push(R(x - 36, x + 4, 19, 24, 'url(#smSteel)', '#111827', 2));
         susp.push(R(x - 13, x + 13, 35, 37, '#4B5563', null, 1));
         susp.push(R(x - 9, x + 9, 37, topH - 3, '#BAE6FD', '#0369A1', 4));
         var q = (topH - 3 - 37) / 3;
@@ -992,14 +1023,19 @@ function simSvg(r){
     });
   }
   function wheels(g, xs){ xs.forEach(function(x, i){ whl.push(simWheel(x, g.ejes[i].r, GY)); }); }
-  function guards(xs){ xs.forEach(function(x){ fend.push('<path d="M' + (x - 22) + ' ' + Y(17) + ' A22 22 0 0 1 ' + (x + 22) + ' ' + Y(17) + '" fill="none" stroke="#374151" stroke-width="3.5" stroke-linecap="round"/>'); }); }
-  function flap(x){ fend.push(R(x, x + 4, 4, 28, '#111827', null, 1)); }
+  /* guardabarros: uno por grupo, con el faldón de goma */
+  function guards(xs, flapX){
+    var a = xs[0], b = xs[xs.length - 1];
+    fend.push('<path d="M' + (a - 22) + ' ' + Y(14) + ' A22 22 0 0 1 ' + a + ' ' + Y(39) + ' L' + b + ' ' + Y(39) + ' A22 22 0 0 1 ' + (b + 22) + ' ' + Y(14) + '" fill="none" stroke="#2D3340" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>');
+    fend.push('<path d="M' + (a - 21) + ' ' + Y(14) + ' A21 21 0 0 1 ' + a + ' ' + Y(38) + ' L' + b + ' ' + Y(38) + ' A21 21 0 0 1 ' + (b + 21) + ' ' + Y(14) + '" fill="none" stroke="#6B7280" stroke-width="1" opacity="0.7"/>');
+    if(flapX !== false) fend.push(R(b + 25, b + 29, 4, 27, '#161A22', null, 1) + R(b + 25.5, b + 28.5, 14, 17, '#9CA3AF', null, 0));
+  }
   function label(g, xs){
     var a = xs[0] - 22, b = xs[xs.length - 1] + 22, c = (xs[0] + xs[xs.length - 1]) / 2, neu = g.unit.susp === 'neumatica';
-    lab.push('<path d="M' + a + ' ' + (GY + 8) + ' v6 H' + b + ' v-6" fill="none" stroke="#6B7280" stroke-width="1.5"/>');
-    lab.push('<text x="' + c + '" y="' + (GY + 31) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#20232B">' + g.code + ' · ' + ft(g.lim / 1000) + ' t</text>');
-    lab.push('<text x="' + c + '" y="' + (GY + 45) + '" text-anchor="middle" font-size="10" fill="#6B7280">tol. +' + fkg(g.tol) + ' kg</text>');
-    lab.push('<text x="' + c + '" y="' + (GY + 58) + '" text-anchor="middle" font-size="10" font-weight="600" fill="' + (neu ? '#0369A1' : '#6B7280') + '">susp. ' + (neu ? 'neumática' : 'mecánica') + '</text>');
+    lab.push('<path d="M' + a + ' ' + (GY + 12) + ' v6 H' + b + ' v-6" fill="none" stroke="#6B7280" stroke-width="1.5"/>');
+    lab.push('<text x="' + c + '" y="' + (GY + 35) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#20232B">' + g.code + ' · ' + ft(g.lim / 1000) + ' t</text>');
+    lab.push('<text x="' + c + '" y="' + (GY + 49) + '" text-anchor="middle" font-size="10" fill="#6B7280">tol. +' + fkg(g.tol) + ' kg</text>');
+    lab.push('<text x="' + c + '" y="' + (GY + 62) + '" text-anchor="middle" font-size="10" font-weight="600" fill="' + (neu ? '#0369A1' : '#6B7280') + '">susp. ' + (neu ? 'neumática' : 'mecánica') + '</text>');
   }
   function callout(x, h, txt){
     tops.push('<line x1="' + x + '" y1="44" x2="' + x + '" y2="' + Y(h) + '" stroke="' + ACC + '" stroke-width="1.5" stroke-dasharray="4 3"/>');
@@ -1010,79 +1046,102 @@ function simSvg(r){
     tops.push('<path d="M' + x1 + ' 20 v-4 H' + x2 + ' v4" fill="none" stroke="#9CA3AF" stroke-width="1.5"/>');
     tops.push('<text x="' + ((x1 + x2) / 2) + '" y="11" text-anchor="middle" font-size="11" font-weight="600" fill="#6B7280">' + txt + '</text>');
   }
-  /* cabina (cabover con techo alto) */
+  /* cabina de tractor (cabina avanzada con litera y deflector) */
   function cab(x){
-    var s = '<path d="M' + (x + 28) + ' ' + Y(98) + ' L' + (x + 70) + ' ' + Y(124) + ' H' + (x + 90) + ' V' + Y(98) + ' Z" fill="' + DK + '"/>';
-    s += '<path d="M' + x + ' ' + Y(42) + ' V' + Y(92) + ' Q' + x + ' ' + Y(103) + ' ' + (x + 11) + ' ' + Y(104) + ' L' + (x + 52) + ' ' + Y(106) + ' L' + (x + 56) + ' ' + Y(113) + ' H' + (x + 82) + ' Q' + (x + 88) + ' ' + Y(113) + ' ' + (x + 88) + ' ' + Y(107) + ' V' + Y(42) + ' Z" fill="' + ACC + '" stroke="' + DK + '" stroke-width="1.5" stroke-linejoin="round"/>';
-    s += '<path d="M' + (x + 10) + ' ' + Y(99) + ' L' + (x + 48) + ' ' + Y(101) + ' V' + Y(70) + ' H' + (x + 7) + ' Z" fill="#E0F4FB" stroke="' + DK + '" stroke-width="1.2"/>';
-    s += '<path d="M' + (x + 12) + ' ' + Y(97) + ' L' + (x + 26) + ' ' + Y(98) + ' L' + (x + 18) + ' ' + Y(72) + ' H' + (x + 9) + ' Z" fill="#fff" opacity="0.55"/>';
-    s += R(x + 60, x + 82, 78, 99, '#E0F4FB', DK, 2);
-    s += Ln(x + 52, 44, x + 52, 101, DK, 1.2) + R(x + 42, x + 49, 60, 63, '#0B3B4D', null, 1);
-    s += R(x + 1, x + 87, 44, 52, DK, null, 0).replace('/>', ' opacity="0.35"/>');
-    s += R(x - 2, x + 3, 54, 64, '#FDE68A', '#B45309', 1);
-    s += R(x - 6, x + 6, 36, 45, '#6B7280', '#4B5563', 2);
-    s += R(x + 12, x + 46, 29, 33, '#4B5563', null, 1);
-    s += Ln(x + 3, 92, x - 7, 99, '#1F2937', 1.5) + R(x - 11, x - 5, 94, 108, '#1F2937', null, 2);
+    function P(a, h){ return (x + a) + ' ' + Y(h); }
+    var s = '';
+    s += '<path d="M' + P(22, 112) + ' L' + P(60, 129) + ' Q' + P(64, 130) + ' ' + P(68, 129) + ' L' + P(88, 129) + ' L' + P(88, 118) + ' Z" fill="' + DK + '" stroke="#003B50" stroke-width="1"/>';
+    var body = 'M' + P(0, 52) + ' L' + P(0, 84) + ' Q' + P(1, 91) + ' ' + P(5, 98) + ' L' + P(12, 110) + ' Q' + P(14, 113) + ' ' + P(19, 113) + ' L' + P(58, 115) + ' Q' + P(63, 115) + ' ' + P(64, 120) + ' L' + P(66, 121) + ' H' + (x + 84) + ' Q' + P(88, 121) + ' ' + P(88, 117) + ' L' + P(88, 52) + ' Z';
+    s += '<path d="' + body + '" fill="' + ACC + '" stroke="' + DK + '" stroke-width="1.3" stroke-linejoin="round"/>' + shade(body);
+    s += '<path d="M' + P(0, 52) + ' L' + P(0, 66) + ' L' + P(88, 66) + ' L' + P(88, 52) + ' Z" fill="' + DK + '" opacity="0.38"/>';
+    for(var v = 0; v < 4; v++) s += Ln(x + 14 + v * 4, 55, x + 14 + v * 4, 62, '#003B50', 1.2);
+    s += '<path d="M' + P(8, 70) + ' L' + P(8, 100) + ' Q' + P(8, 104) + ' ' + P(12, 104) + ' L' + P(50, 106) + ' L' + P(50, 70) + ' Z" fill="none" stroke="' + DK + '" stroke-width="1.1"/>';
+    s += '<path d="M' + P(10, 80) + ' Q' + P(10, 85) + ' ' + P(12, 91) + ' L' + P(15, 102) + ' L' + P(48, 103) + ' L' + P(48, 80) + ' Z" fill="url(#smGlass)" stroke="' + DK + '" stroke-width="1.1"/>';
+    s += '<path d="M' + P(14, 100) + ' L' + P(26, 101) + ' L' + P(21, 82) + ' L' + P(12, 82) + ' Z" fill="#fff" opacity="0.5"/>';
+    s += R(x + 38, x + 47, 72, 74.5, '#0B3B4D', null, 1) + Ln(x + 50, 56, x + 50, 106, DK, 1);
+    s += '<path d="M' + P(56, 90) + ' L' + P(58, 106) + ' L' + P(80, 108) + ' L' + P(80, 90) + ' Z" fill="url(#smGlass)" stroke="' + DK + '" stroke-width="1.1"/>';
+    s += R(x + 58, x + 80, 70, 80, DK, null, 2).replace('/>', ' opacity="0.45"/>');
+    s += R(x - 1.5, x + 2, 68, 78, '#FDE68A', '#B45309', 1) + R(x - 1.5, x + 2, 56, 62, '#F3F4F6', '#6B7280', 1);
+    for(var m = 0; m < 4; m++) s += Ci(x + 22 + m * 9, 112.5 + (m * 0.3), 1.6, '#F59E0B', '#B45309');
+    s += R(x - 4, x + 8, 44, 56, 'url(#smSteel)', '#111827', 3) + R(x - 3, x + 3, 48, 52, '#FDE68A', null, 1);
+    s += R(x + 10, x + 44, 41, 44, '#4B5563', '#1F2937', 1) + R(x + 12, x + 46, 48, 51, '#4B5563', '#1F2937', 1);
+    s += Ln(x + 4, 96, x - 8, 104, '#1F2937', 1.6) + R(x - 13, x - 6, 96, 118, '#1F2937', null, 3);
+    s += Ln(x + 3, 98, x + 3, 112, '#1F2937', 1);
     return s;
   }
-  function stack(x){ return R(x, x + 5, RT, 130, '#9CA3AF', '#6B7280', 1) + R(x - 1, x + 6, 130, 134, '#6B7280', null, 1); }
+  function stack(x){ return R(x, x + 5, RT, 132, 'url(#smMet)', '#6B7280', 1) + R(x - 1, x + 6, 132, 136, '#6B7280', '#4B5563', 1) + R(x - 3, x + 8, RT + 2, RT + 12, '#4B5563', null, 2); }
   /* unidad motriz */
   var rig = comp === 'rigido' || comp === 'acoplado';
-  var g0 = gsOf[0], xs0 = simLay(g0, x0 + 36, rig ? 150 : 122, 64), last0 = xs0[xs0.length - 1], end0 = last0[last0.length - 1] + (rig ? 54 : 40);
-  back.push(R(x0 + 4, end0, RB, RT, '#374151', null, 2));
-  back.push(R(x0 + 36 + 26, x0 + 36 + 76, 29, RB, '#D1D5DB', '#9CA3AF', 8));
+  var g0 = gsOf[0], xs0 = simLay(g0, x0 + 38, rig ? 150 : 122, 64), last0 = xs0[xs0.length - 1], end0 = last0[last0.length - 1] + (rig ? 54 : 40);
+  shad.push('<ellipse cx="' + ((x0 + end0) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((end0 - x0) / 2 + 10) + '" ry="4" fill="#000" opacity="0.13"/>');
+  back.push(R(x0 + 6, end0, RB, RT, 'url(#smSteel)', '#111827', 2));
+  for(var cm = x0 + 120; cm < end0 - 10; cm += 46) back.push(R(cm, cm + 3, RB - 4, RB, '#374151', null, 0));
+  back.push(R(x0 + 38 + 28, x0 + 38 + 78, 29, RB, 'url(#smTank)', '#6B7280', 8) + Ln(x0 + 38 + 44, 31, x0 + 38 + 44, RB - 2, '#6B7280', 1.2) + Ln(x0 + 38 + 62, 31, x0 + 38 + 62, RB - 2, '#6B7280', 1.2));
+  back.push(R(x0 + 38 + 82, x0 + 38 + 100, 34, RB, '#374151', '#111827', 2));
   back.push(stack(x0 + 92));
   if(rig){
-    back.push(R(x0 + 102, end0, RT, RT + 8, '#4B5563', null, 0));
-    back.push(van(x0 + 102, end0, RT + 8, TOP - 4, '#F3F4F6'));
+    back.push(R(x0 + 108, end0, RT, RT + 8, 'url(#smSteel)', '#111827', 0));
+    back.push(carroceria(x0 + 108, end0, RT + 8, TOP - 4, 0));
   }
-  back.push('<g transform="translate(0,-10)">' + cab(x0) + '</g>');
-  g0.forEach(function(g, i){ sus(xs0[i], units[0].susp, RB); wheels(g, xs0[i]); guards(xs0[i]); label(g, xs0[i]); });
-  flap(last0[last0.length - 1] + 22);
+  back.push(cab(x0));
+  g0.forEach(function(g, i){ sus(xs0[i], units[0].susp, RB); wheels(g, xs0[i]); guards(xs0[i], i === g0.length - 1); label(g, xs0[i]); });
   var fifth = (last0[0] + last0[last0.length - 1]) / 2, ends = [end0];
-  uname(x0 - 6, end0, SIM_NOM[comp][0]);
+  uname(x0 - 8, end0, SIM_NOM[comp][0]);
   if(comp === 'semi' || comp === 'bitren'){
-    front.push(R(fifth - 30, fifth + 28, RT, PL, '#6B7280', '#4B5563', 1));
-    front.push('<path d="M' + (fifth - 30) + ' ' + Y(RT) + ' L' + (fifth - 40) + ' ' + Y(RT) + ' L' + (fifth - 30) + ' ' + Y(PL) + ' Z" fill="#6B7280"/>');
+    front.push('<path d="M' + (fifth - 36) + ' ' + Y(RT) + ' L' + (fifth + 32) + ' ' + Y(RT) + ' L' + (fifth + 32) + ' ' + Y(PL - 1) + ' L' + (fifth + 12) + ' ' + Y(PL) + ' L' + (fifth - 22) + ' ' + Y(PL) + ' L' + (fifth - 36) + ' ' + Y(RT + 2) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
     callout(fifth, PL - 2, 'Quinta rueda');
     var kp = fifth, base = PL;
     units.slice(1).forEach(function(u, ui){
       var gs = gsOf[ui + 1], xs = simLay(gs, ui === 0 && comp === 'bitren' ? kp + 250 : kp + 296, 88, 88), lastg = xs[xs.length - 1], lastx = lastg[lastg.length - 1];
       var right = lastx + 38, nxt = (lastg[0] + lastx) / 2, boxR = (ui === 0 && comp === 'bitren') ? nxt - 36 : right;
-      var bt = base + 8, top = TOP;
-      back.push(R(kp - 28, right, base, bt, '#4B5563', null, 1));
-      back.push(van(kp - 28, boxR, bt, top, ui === 0 ? '#F3F4F6' : '#EEF4FA'));
+      var bt = base + 8, top = TOP, x1 = kp - 30;
+      shad.push('<ellipse cx="' + ((x1 + right) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((right - x1) / 2) + '" ry="3.5" fill="#000" opacity="0.1"/>');
+      back.push(R(x1, right, base, bt, 'url(#smSteel)', '#111827', 1));
+      back.push(R(x1 + 20, right - 6, base - 5, base, '#374151', null, 0));
+      for(var cx = x1 + 60; cx < right - 20; cx += 52) back.push(R(cx, cx + 3, base - 7, base, '#374151', null, 0));
+      for(var ml = x1 + 70; ml < right - 40; ml += 70) back.push(R(ml, ml + 5, base + 2, base + 5, '#F59E0B', null, 1));
+      back.push(carroceria(x1, boxR, bt, top, ui));
       back.push('<circle cx="' + kp + '" cy="' + Y(base) + '" r="3.5" fill="#111827"/>');
-      if(ui === 0){ back.push(R(kp + 60, kp + 65, 12, base, '#9CA3AF', '#6B7280', 1) + R(kp + 53, kp + 72, 8, 12, '#6B7280', null, 1) + R(kp + 65, kp + 72, base - 22, base - 18, '#6B7280', null, 1)); }
-      gs.forEach(function(g, i){ sus(xs[i], u.susp, base); wheels(g, xs[i]); label(g, xs[i]); });
-      flap(lastx + 22);
-      uname(kp - 28, right, SIM_NOM[comp][ui + 1]);
+      back.push(R(right - 14, right + 3, base - 14, base - 9, '#4B5563', '#111827', 1) + R(right - 12, right - 9, base - 14, base, '#4B5563', null, 0));
+      if(ui === 0){ back.push(R(kp + 60, kp + 66, 12, base, 'url(#smMet)', '#6B7280', 1) + R(kp + 54, kp + 73, 8, 12, '#6B7280', '#374151', 1) + R(kp + 60, kp + 74, 34, 41, '#4B5563', '#1F2937', 1) + Ln(kp + 74, 38, kp + 82, 38, '#1F2937', 2)); }
+      gs.forEach(function(g, i){ sus(xs[i], u.susp, base); wheels(g, xs[i]); guards(xs[i], i === gs.length - 1); label(g, xs[i]); });
+      uname(x1, right, SIM_NOM[comp][ui + 1]);
       ends.push(right);
       kp = nxt;
       if(ui === 0 && comp === 'bitren'){
         base = bt + 5;
-        front.push(R(kp - 30, kp + 28, bt, base, '#6B7280', '#4B5563', 1));
+        front.push('<path d="M' + (kp - 36) + ' ' + Y(bt) + ' L' + (kp + 32) + ' ' + Y(bt) + ' L' + (kp + 32) + ' ' + Y(base - 1) + ' L' + (kp + 12) + ' ' + Y(base) + ' L' + (kp - 22) + ' ' + Y(base) + ' L' + (kp - 36) + ' ' + Y(bt + 2) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
         callout(kp, bt + 2, 'Quinta rueda del 1.er semirremolque');
       }
     });
   } else if(comp === 'acoplado'){
     var xA = end0 + 100, gs = gsOf[1], xs = simLay(gs, xA + 34, 190, 88), lastg = xs[xs.length - 1], lastx = lastg[lastg.length - 1], right = lastx + 40;
     var cF = (xs[0][0] + xs[0][xs[0].length - 1]) / 2, mid = (end0 + xA) / 2;
-    back.push(R(end0 - 16, end0 + 4, RB - 8, RT, '#4B5563', null, 2));
-    back.push('<line x1="' + end0 + '" y1="' + Y(46) + '" x2="' + (cF - 12) + '" y2="' + Y(38) + '" stroke="#4B5563" stroke-width="6" stroke-linecap="round"/>');
-    back.push('<circle cx="' + end0 + '" cy="' + Y(46) + '" r="5" fill="none" stroke="' + ACC + '" stroke-width="2.5"/>');
-    back.push(R(xA, right, RT, RT + 8, '#4B5563', null, 0));
-    back.push(van(xA, right, RT + 8, TOP - 4, '#F3F4F6'));
-    back.push(R(cF - 22, cF + 22, RB - 4, RB, '#6B7280', '#4B5563', 1));
-    callout(mid, 44, 'Enganche (barra de tiro)');
-    gs.forEach(function(g, i){ sus(xs[i], units[1].susp, RB); wheels(g, xs[i]); label(g, xs[i]); });
-    flap(lastx + 22);
+    shad.push('<ellipse cx="' + ((xA + right) / 2) + '" cy="' + (GY + 1) + '" rx="' + ((right - xA) / 2) + '" ry="3.5" fill="#000" opacity="0.1"/>');
+    back.push(R(end0 - 16, end0 + 4, RB - 8, RT, 'url(#smSteel)', '#111827', 2));
+    back.push('<path d="M' + end0 + ' ' + Y(48) + ' L' + (cF - 14) + ' ' + Y(40) + ' L' + (cF - 14) + ' ' + Y(35) + ' L' + end0 + ' ' + Y(43) + ' Z" fill="url(#smSteel)" stroke="#111827" stroke-width="1"/>');
+    back.push('<circle cx="' + end0 + '" cy="' + Y(46) + '" r="5.5" fill="none" stroke="' + ACC + '" stroke-width="2.5"/>');
+    back.push(R(xA, right, RT, RT + 8, 'url(#smSteel)', '#111827', 0));
+    back.push(R(xA + 20, right - 6, RT - 5, RT, '#374151', null, 0));
+    back.push(carroceria(xA, right, RT + 8, TOP - 4, 1));
+    back.push(R(cF - 22, cF + 22, RB - 4, RB, '#6B7280', '#374151', 1));
+    callout(mid, 45, 'Enganche (barra de tiro)');
+    gs.forEach(function(g, i){ sus(xs[i], units[1].susp, RB); wheels(g, xs[i]); guards(xs[i], i === gs.length - 1); label(g, xs[i]); });
     uname(xA, right, SIM_NOM[comp][1]);
     ends.push(right);
   }
-  var W = Math.max.apply(null, ends) + 30, H = GY + 92;
-  return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Croquis de la formación ' + r.code + '" style="display:block;margin:0 auto;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.75) + 'px;max-width:' + Math.round(W * 1.3) + 'px;height:auto;font-family:inherit">' +
-    '<rect x="0" y="' + GY + '" width="' + W + '" height="4" fill="#D1D5DB"/><line x1="0" y1="' + GY + '" x2="' + W + '" y2="' + GY + '" stroke="#9CA3AF" stroke-width="1.5"/>' +
+  var W = Math.max.apply(null, ends) + 30, H = GY + 96;
+  var defs = '<defs>' +
+    '<linearGradient id="smShade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.42"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.3"/></linearGradient>' +
+    '<linearGradient id="smMet" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6B7280"/><stop offset="0.35" stop-color="#F3F4F6"/><stop offset="1" stop-color="#6B7280"/></linearGradient>' +
+    '<linearGradient id="smBox" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.7" stop-color="#EEF1F5"/><stop offset="1" stop-color="#D5DAE2"/></linearGradient>' +
+    '<linearGradient id="smTank" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FAFBFC"/><stop offset="0.35" stop-color="#E0E4EA"/><stop offset="1" stop-color="#8E98A8"/></linearGradient>' +
+    '<linearGradient id="smSteel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5B6474"/><stop offset="1" stop-color="#262B35"/></linearGradient>' +
+    '<linearGradient id="smGlass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EAF8FD"/><stop offset="1" stop-color="#7CC2DC"/></linearGradient>' +
+    '<radialGradient id="smTire" cx="0.5" cy="0.5" r="0.5"><stop offset="0.7" stop-color="#2A303B"/><stop offset="1" stop-color="#0B0E14"/></radialGradient>' +
+    '<radialGradient id="smRim" cx="0.4" cy="0.4" r="0.7"><stop offset="0" stop-color="#FAFAFB"/><stop offset="1" stop-color="#8B94A3"/></radialGradient></defs>';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Croquis de la formación ' + r.code + '" style="display:block;margin:0 auto;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.8) + 'px;max-width:' + Math.round(W * 1.4) + 'px;height:auto;font-family:inherit">' + defs +
+    '<rect x="0" y="' + GY + '" width="' + W + '" height="5" fill="#D9DDE4"/><line x1="0" y1="' + GY + '" x2="' + W + '" y2="' + GY + '" stroke="#9CA3AF" stroke-width="1.5"/>' + shad.join('') +
     back.join('') + front.join('') + susp.join('') + whl.join('') + fend.join('') + lab.join('') + tops.join('') +
     '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t</text></svg>';
 }
@@ -1119,7 +1178,7 @@ function simRender(){
   /* croquis */
   var cs = el('div', 'card'); cs.appendChild(el('h3', '', 'Croquis de la formación'));
   var sw = el('div', 'tw'); sw.innerHTML = simSvg(r); cs.appendChild(sw);
-  cs.appendChild(el('p', 'hint', 'La letra dentro de la rueda indica el tipo: S = ruedas simples, D = ruedas duales (dos cubiertas por lado), A = cubierta superancha. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
+  cs.appendChild(el('p', 'hint', 'Las ruedas duales se dibujan con dos cubiertas (se ve la de atrás asomando) y la superancha con un aro celeste. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
   box.appendChild(cs);
   /* explicación */
   var ce2 = el('div', 'card'); ce2.appendChild(el('h3', '', 'Cómo leer este resultado'));
@@ -1153,6 +1212,7 @@ function simInit(){
   ns.onchange = function(){ SIM.norma = ns.value; simPreOpts(); simRender(); };
   cs.onchange = function(){ SIM.comp = cs.value; simPreset(SIM_DEF[SIM.comp]); simPreOpts(); simBuild(); simRender(); };
   $('sPre').onchange = function(){ if($('sPre').value){ simPreset($('sPre').value); simBuild(); simRender(); } };
+  $('sCar').onchange = function(){ SIM.car = $('sCar').value; simRender(); };
   $('sCv').oninput = function(){ SIM.cv = $('sCv').value; simRender(); };
   $('sTara').oninput = function(){ SIM.tara = $('sTara').value; simRender(); };
   simPreOpts(); simBuild(); simRender();
