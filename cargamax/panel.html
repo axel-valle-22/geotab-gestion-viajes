@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Carga Máxima TDP</title>
+</head>
+<body>
+<div id="cmx">
+  <main class="wrap">
+    <header class="card top">
+      <img src="https://axel-valle-22.github.io/geotab-gestion-viajes/logo-tdp.png" alt="Transporte Dolores Parra">
+      <div class="ttl"><h1>Carga Máxima TDP</h1><p id="sub">Cargando…</p></div>
+      <button id="bRef" class="sm">Actualizar</button>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button data-t="calc" class="on">Calculadora</button>
+      <button data-t="uni">Unidades</button>
+      <button data-t="per">Permisos</button>
+      <button data-t="his">Historial</button>
+    </nav>
+
+    <section id="pCalc" class="pane">
+      <div class="card">
+        <div class="grid g3">
+          <label>Normativa
+            <select id="cNorma"><option value="nqn">Neuquén vigente (Res. DPV 329/20 – Dec. 32/2018)</option><option value="nac">Nacional 2026 (Dec. 689/2026 – Anexo R)</option></select>
+          </label>
+          <label>Tractor o camión
+            <input id="cU1" list="dlTrac" placeholder="Escribí o elegí la unidad" autocomplete="off">
+          </label>
+          <label>Semirremolque o acoplado
+            <input id="cU2" list="dlRem" placeholder="Escribí o elegí el remolque" autocomplete="off">
+          </label>
+          <label class="chk"><input type="checkbox" id="cBit"> Bitrén (segundo semirremolque)</label>
+          <label id="lblU3" hidden>Segundo semirremolque
+            <input id="cU3" list="dlRem" placeholder="Escribí o elegí el remolque" autocomplete="off">
+          </label>
+          <label>Peso adicional (kg)
+            <input id="cExtra" type="number" inputmode="numeric" min="0" value="0" placeholder="Combustible, chofer, accesorios">
+          </label>
+          <label>Permiso de tránsito
+            <select id="cPer"><option value="">Sin permiso</option></select>
+          </label>
+        </div>
+        <datalist id="dlTrac"></datalist>
+        <datalist id="dlRem"></datalist>
+        <div class="acts">
+          <button id="cSaveForm" class="sm">Guardar como formación actual del tractor</button>
+          <span id="cFormMsg" class="hint"></span>
+        </div>
+      </div>
+      <div id="cRes"></div>
+    </section>
+
+    <section id="pUni" class="pane" hidden>
+      <section class="kpis">
+        <div class="card kpi"><span>Unidades en Geotab</span><b id="kTot">0</b></div>
+        <div class="card kpi"><span>Sin clasificar</span><b id="kSin" class="bad">0</b></div>
+        <div class="card kpi"><span>Datos completos</span><b id="kCom">0</b></div>
+        <div class="card kpi"><span>Verificadas</span><b id="kVer" class="ok">0</b></div>
+      </section>
+      <section class="card filt">
+        <label class="wide">Buscar<input type="text" id="uTxt" placeholder="Nombre o patente"></label>
+        <label>Tipo<select id="uTipo"><option value="">Todos</option><option value="_sin">Sin clasificar</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>
+        <label>Datos<select id="uEst"><option value="">Todos</option><option value="incompleto">Incompletos</option><option value="completo">Completos</option><option value="verificado">Verificados</option></select></label>
+        <button id="uCsv" class="sm primary">Exportar CSV</button>
+      </section>
+      <section class="card">
+        <p id="uMsg" class="hint"></p>
+        <div class="tw"><table id="uTbl"><thead><tr><th>Unidad</th><th>Tipo</th><th>Patente</th><th>Ejes</th><th>Tara (kg)</th><th>Potencia</th><th>Datos</th><th>Formación actual</th><th></th></tr></thead><tbody id="uTb"></tbody></table></div>
+      </section>
+    </section>
+
+    <section id="pPer" class="pane" hidden>
+      <section class="card">
+        <div class="acts"><button id="pNew" class="primary">Nuevo permiso</button><span id="pMsg" class="hint"></span></div>
+        <div class="tw"><table id="pTbl"><thead><tr><th>Permiso</th><th>Organismo</th><th>Tractor</th><th>Semirremolque</th><th>Peso (kg)</th><th>Vigencia</th><th>Estado</th><th></th></tr></thead><tbody id="pTb"></tbody></table></div>
+      </section>
+    </section>
+
+    <section id="pHis" class="pane" hidden>
+      <section class="card">
+        <div class="tw"><table id="hTbl"><thead><tr><th>Fecha</th><th>Usuario</th><th>Unidad</th><th>Detalle</th></tr></thead><tbody id="hTb"></tbody></table></div>
+        <p id="hMsg" class="hint"></p>
+      </section>
+    </section>
+  </main>
+
+  <div id="mod" class="mod" hidden><div class="box card" id="modBox"></div></div>
+</div>
+<script>
+(function(){
+'use strict';
+function $(id){ return document.getElementById(id); }
+function el(tag, cls, txt){ var e = document.createElement(tag); if(cls) e.className = cls; if(txt !== undefined && txt !== null) e.textContent = txt; return e; }
+
+var COL_U = 'cm_unidades', COL_P = 'cm_permisos', COL_R = 'cm_registro';
+var BASE_URL = 'https://axel-valle-22.github.io/geotab-gestion-viajes/';
+
+/* ===================== NORMATIVA ===================== */
+// Peso máximo por eje o conjunto (toneladas) [suspensión mecánica, neumática]. Dec. 32/2018 (Neuquén) y Anexo R 2026 (Nación).
+var LIM_T = {
+  s1: [6, 6.3], w1: [6, 8], d1: [10.5, 11],
+  ss: [10, 10.5], ds: [14, 14.7], dw: [15, 16.5], ww: [12, 14], dd: [18, 18.9],
+  ddd: [25.5, 26.8], dds: [21, 22], www: [18, 19.5]
+};
+var KEY_TXT = { s1: 'eje simple, ruedas simples', w1: 'eje simple, cubierta superancha', d1: 'eje simple, ruedas duales', ss: 'tándem doble, ruedas simples', ds: 'tándem doble, 1 dual + 1 simple', dw: 'tándem doble, 1 dual + 1 ancha', ww: 'tándem doble, superanchas', dd: 'tándem doble, duales', ddd: 'tándem triple, duales', dds: 'tándem triple, 2 duales + 1 simple', www: 'tándem triple, superanchas', dK: 'tándem múltiple, duales' };
+
+// Tablas de configuración: comp -> código -> {p: peso máx. (t), r: relación CV/t mínima, t: transitorio 5 CV/t hasta 31/12/2026, n: nota, req: requiere permiso}
+function R(p, r, extra){ var o = { p: p, r: r }; if(extra){ for(var k in extra) o[k] = extra[k]; } return o; }
+var NORMAS = {
+  nqn: {
+    nombre: 'Neuquén vigente (Res. DPV 329/20 – Decreto 32/2018)',
+    tabla: {
+      rigido: {
+        'S1-D1': R(16.5, 4.25), 'S1-D2': R(24, 4.25), 'S1-D3': R(31.5, 4.25), 'S2-D2': R(28, 4.25), 'S2-D3': R(35.5, 4.25),
+        'S1-S1-D2': R(30, 4.25), 'S1-S1-D3': R(37.5, 4.25)
+      },
+      semi: {
+        'S1-D1-D1': R(27, 4.25), 'S1-D1-D2': R(34.5, 4.25), 'S1-D1-D3': R(42, 4.25), 'S1-D2-D2': R(42, 4.25),
+        'S1-D2-D1-D1': R(45, 4.25), 'S1-D2-D3': R(49.5, 6), 'S1-D1-D1-D2': R(45, 4.25), 'S1-D1-D1-D1-D1': R(45, 4.25),
+        'S1-D2-D1-D2': R(52.5, 6), 'S1-D2-D1-D1-D1': R(55.5, 6)
+      },
+      acoplado: {
+        'S1-D1-D1-D1': R(37, 4.25), 'S1-D1-D1-D2': R(45, 4.25), 'S1-D2-D1-D1': R(45, 4.25), 'S1-D2-D1-D2': R(52.5, 6),
+        'S1-D1-D2-D2': R(52.5, 6), 'S1-D1-D1-D1-D1': R(45, 4.25), 'S1-D2-D2-D2': R(60, 6.75)
+      },
+      bitren: {
+        'S1-D2-D2-D2': R(60, 6.75, { n: 'Bitrén de 7 ejes (orden 27): solo circula libremente sin permiso en los corredores definidos por la DPV y con carga indivisible. Con carga divisible va restringido por corredores, igual que el de 9 ejes.' }),
+        'S1-D2-D3-D3': R(75, 6.75, { req: true, n: 'Bitrén de 9 ejes (órdenes 28 y 29, largo hasta 30,25 m): requiere Permiso de Tránsito de la DPV para circular por rutas provinciales.' })
+      }
+    }
+  },
+  nac: {
+    nombre: 'Nacional 2026 (Decreto 689/2026 – Anexo R)',
+    tabla: {
+      rigido: {
+        'S1-D1': R(16.5, 5), 'S1-D2': R(24, 5), 'S1-D3': R(31.5, 5), 'S2-D2': R(28, 5), 'S2-D3': R(35.5, 5),
+        'S1-S1-D1': R(22.5, 5), 'S1-S1-D2': R(30, 5), 'S1-S1-D3': R(37.5, 5)
+      },
+      semi: {
+        'S1-D1-D1': R(27, 5), 'S1-D1-D2': R(34.5, 5), 'S1-D1-D3': R(42, 5), 'S1-D2-D2': R(42, 5),
+        'S1-D2-D1-D1': R(45, 6, { t: 1 }), 'S1-D2-D3': R(49.5, 6, { t: 1 }), 'S1-D1-D1-D2': R(45, 6, { t: 1 }), 'S1-D1-D1-D1-D1': R(45, 6, { t: 1 }),
+        'S1-D2-D1-D2': R(52.5, 6), 'S1-D2-D1-D1-D1': R(55.5, 6), 'S1-D2-D1-D3': R(57.2, 6.75),
+        'S2-D2-D3': R(53.5, 6), 'S2-D2-D1-D2': R(56.5, 6.75)
+      },
+      acoplado: {
+        'S1-D1-D1-D1': R(37.5, 5), 'S1-D1-D1-D2': R(45, 6, { t: 1 }), 'S1-D2-D1-D1': R(45, 6, { t: 1 }), 'S1-D2-D1-D2': R(52.5, 6),
+        'S1-D1-D2-D2': R(52.5, 6), 'S1-D2-D2-D2': R(58, 6.75), 'S1-D1-D1-D1-D1': R(45, 6, { t: 1 })
+      },
+      bitren: {
+        'S1-D2-D2-D2': R(60, 6.75, { n: 'Bitrén B0/B1 (7 ejes).' }),
+        'S1-D2-D3-D3': R(75, 6.75, { n: 'Bitrén B2/B3 (9 ejes): libre circulación en la red nacional salvo tramos restringidos (Res. 1196/25). En rutas provinciales de Neuquén rige la tabla provincial.' })
+      }
+    }
+  }
+};
+var COMP_TXT = { rigido: 'camión', semi: 'tractor con semirremolque', acoplado: 'camión con acoplado', bitren: 'bitrén' };
+var TIPOS = { tractor: 'Tractor', camion: 'Camión', semi: 'Semirremolque', acoplado: 'Acoplado', otro: 'No aplica' };
+
+/* ===================== ESTADO ===================== */
+var db = null, U = [], UBY = {}, P = [], H = [], me = '', inited = false, loaded = false, synced = false, tab = 'calc', lastCalc = null;
+
+function fkg(n){ if(n === null || n === undefined || isNaN(n)) return '–'; return Math.round(n).toLocaleString('es-AR'); }
+function ft(n){ return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }); }
+function num(v){ if(v === '' || v === null || v === undefined) return null; var n = Number(String(v).replace(',', '.')); return isNaN(n) ? null : n; }
+function nowIso(){ return new Date().toISOString(); }
+function fdate(iso){ try{ return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); }catch(e){ return iso || ''; } }
+function today(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+
+/* ===================== EJES Y GRUPOS ===================== */
+function grupos(u){
+  var ej = (u && u.ejes) || [], gs = [], warn = [];
+  var si = (u && u.susp === 'neumatica') ? 1 : 0;
+  ej.forEach(function(e, i){
+    var d = (e.d === null || e.d === undefined || e.d === '') ? null : Number(e.d);
+    var nuevo = (i === 0) || d === null || !(d > 1.2 && d < 2.4);
+    if(i > 0 && d === null) warn.push('falta la distancia del eje ' + (i + 1) + ' de ' + u.nombre);
+    if(nuevo) gs.push({ ejes: [e] }); else gs[gs.length - 1].ejes.push(e);
+  });
+  gs.forEach(function(g){
+    var c = { s: 0, d: 0, w: 0 }, k = g.ejes.length, key = null;
+    g.ejes.forEach(function(e){ c[e.r === 'dual' ? 'd' : (e.r === 'ancha' ? 'w' : 's')]++; });
+    if(k === 1) key = c.d ? 'd1' : (c.w ? 'w1' : 's1');
+    else if(k === 2){ if(c.d === 2) key = 'dd'; else if(c.s === 2) key = 'ss'; else if(c.w === 2) key = 'ww'; else if(c.d === 1 && c.s === 1) key = 'ds'; else if(c.d === 1 && c.w === 1) key = 'dw'; }
+    else if(k === 3){ if(c.d === 3) key = 'ddd'; else if(c.d === 2 && c.s === 1) key = 'dds'; else if(c.w === 3) key = 'www'; }
+    else if(c.d === k) key = 'dK';
+    g.k = k; g.key = key; g.c = c;
+    g.letra = (c.d === k) ? 'D' : ((c.d === 0) ? 'S' : 'M');
+    g.code = g.letra + k;
+    g.lim = key ? (key === 'dK' ? 7200 * k : LIM_T[key][si] * 1000) : null;
+    g.tol = k === 1 ? (c.d ? 1500 : 800) : (k === 2 ? 2000 : 2500);
+    g.txt = key ? KEY_TXT[key] : 'combinación de ruedas sin valor en la tabla';
+    g.unit = u;
+  });
+  return { groups: gs, warn: warn };
+}
+
+/* ===================== CÁLCULO ===================== */
+function calcular(s){
+  var r = { avisos: [], limites: [], err: null, groups: [] };
+  if(!s.u1){ r.err = 'Elegí el tractor o camión.'; return r; }
+  var t1 = s.u1.tipo, comp;
+  if(t1 === 'tractor'){
+    if(!s.u2){ r.err = 'Elegí el semirremolque.'; return r; }
+    comp = s.u3 ? 'bitren' : 'semi';
+    if(s.u3 && !s.u2){ r.err = 'Elegí el primer semirremolque.'; return r; }
+    if(s.u2.tipo === 'acoplado') r.avisos.push(s.u2.nombre + ' está clasificado como acoplado y se está usando con un tractor.');
+  } else if(t1 === 'camion'){
+    if(s.u3){ r.err = 'Un camión no lleva dos remolques en esta calculadora. Usá un tractor para el bitrén.'; return r; }
+    comp = s.u2 ? 'acoplado' : 'rigido';
+    if(s.u2 && s.u2.tipo === 'semi') r.avisos.push(s.u2.nombre + ' está clasificado como semirremolque y se está usando con un camión.');
+  } else {
+    r.err = 'La unidad principal tiene que estar clasificada como tractor o camión (pestaña Unidades).'; return r;
+  }
+  var units = [s.u1]; if(s.u2) units.push(s.u2); if(s.u3) units.push(s.u3);
+  var sinEjes = units.filter(function(u){ return !u.ejes || !u.ejes.length; });
+  if(sinEjes.length){ r.err = 'Faltan cargar los ejes de: ' + sinEjes.map(function(u){ return u.nombre; }).join(', ') + '.'; return r; }
+  var codes = [], groups = [];
+  units.forEach(function(u){ var g = grupos(u); g.warn.forEach(function(w){ r.avisos.push('Dato incompleto: ' + w + '.'); }); g.groups.forEach(function(x){ groups.push(x); codes.push(x.code); }); });
+  var sinVal = groups.filter(function(g){ return g.lim === null; });
+  if(sinVal.length){ r.err = 'Hay una combinación de ruedas sin valor en la tabla (' + sinVal.map(function(g){ return g.unit.nombre + ' ' + g.code; }).join(', ') + '). Revisá los ejes de esa unidad.'; return r; }
+  var code = codes.join('-');
+  var norma = NORMAS[s.norma] || NORMAS.nqn;
+  var row = (norma.tabla[comp] || {})[code] || null;
+  r.comp = comp; r.code = code; r.row = row; r.groups = groups; r.norma = norma; r.units = units;
+
+  var perm = s.permiso || null;
+  var capTabla = row ? row.p * 1000 : null;
+  var capPerm = perm ? perm.pbtc : null;
+  var capNorm = (capTabla !== null || capPerm !== null) ? Math.max(capTabla || 0, capPerm || 0) : null;
+  var capEjes = groups.reduce(function(a, g){ return a + g.lim; }, 0);
+  var ratio = row ? row.r : null;
+  if(row && row.t && today() <= '2026-12-31') ratio = 5;
+  r.ratio = ratio;
+  var capPot = (s.u1.potencia > 0 && ratio) ? s.u1.potencia / ratio * 1000 : null;
+  var capCmt = s.u1.cmt > 0 ? Number(s.u1.cmt) : null;
+
+  if(capNorm !== null){
+    var nom = (capPerm !== null && capPerm >= (capTabla || 0)) ? 'Peso autorizado por el permiso ' + (perm.numero || '') : 'Tope de la configuración ' + code + ' (' + COMP_TXT[comp] + ')';
+    r.limites.push({ n: nom, v: capNorm });
+  } else {
+    r.avisos.push('La configuración ' + code + ' (' + COMP_TXT[comp] + ') no figura en la tabla de ' + norma.nombre + '. Se limita solo por ejes y potencia; consultá a Vialidad si corresponde un permiso.');
+  }
+  if(!(perm && perm.excesoEje)) r.limites.push({ n: 'Suma de los límites por eje y tándem', v: capEjes });
+  else r.avisos.push('El permiso autoriza exceso por eje: no se aplica la suma de límites por eje.');
+  if(capPot !== null) r.limites.push({ n: 'Potencia: ' + fkg(s.u1.potencia) + ' CV ÷ ' + ft(ratio) + ' CV/t', v: capPot });
+  else if(ratio) r.avisos.push('Falta la potencia de ' + s.u1.nombre + ': no se pudo aplicar la relación potencia/peso (' + ft(ratio) + ' CV/t).');
+  if(capCmt !== null) r.limites.push({ n: 'Capacidad máxima de tracción de ' + s.u1.nombre, v: capCmt });
+  var min = r.limites[0];
+  r.limites.forEach(function(l){ if(l.v < min.v) min = l; });
+  r.limites.forEach(function(l){ l.lim = (l === min); });
+  r.pbtc = min.v; r.limita = min.n;
+
+  var faltaTara = units.filter(function(u){ return !(u.tara > 0); });
+  r.tara = units.reduce(function(a, u){ return a + (u.tara > 0 ? Number(u.tara) : 0); }, 0);
+  r.extra = Math.max(0, s.extra || 0);
+  if(faltaTara.length){ r.carga = null; r.avisos.push('Falta la tara de: ' + faltaTara.map(function(u){ return u.nombre; }).join(', ') + '. Sin ese dato no se puede calcular la carga.'); }
+  else r.carga = r.pbtc - r.tara - r.extra;
+  if(row && row.n) r.avisos.push(row.n);
+  if(row && row.req && !perm) r.avisos.push('REQUIERE PERMISO: esta configuración necesita un Permiso de Tránsito de Vialidad y no hay uno seleccionado.');
+  if(row && row.t && ratio === 5) r.avisos.push('La relación potencia/peso de 5 CV/t vale hasta el 31/12/2026; después se exigen 6 CV/t.');
+  var inc = units.filter(function(u){ return !u.verificado; });
+  if(inc.length) r.avisos.push('Datos sin verificar de: ' + inc.map(function(u){ return u.nombre; }).join(', ') + '.');
+  if(r.carga !== null && r.carga < 0) r.avisos.push('La tara de la formación supera el peso máximo permitido.');
+  return r;
+}
+
+/* ===================== ESTADO DE DATOS ===================== */
+function estado(u){
+  if(!u.tipo) return { e: 'sin', falta: ['tipo'] };
+  if(u.tipo === 'otro') return { e: 'na', falta: [] };
+  var f = [];
+  if(!(u.tara > 0)) f.push('tara');
+  if(!u.ejes || !u.ejes.length) f.push('ejes');
+  else if(u.ejes.some(function(e, i){ return i > 0 && (e.d === null || e.d === undefined || e.d === ''); })) f.push('distancias');
+  if(!u.susp) f.push('suspensión');
+  if((u.tipo === 'tractor' || u.tipo === 'camion') && !(u.potencia > 0)) f.push('potencia');
+  if(f.length) return { e: 'incompleto', falta: f };
+  return { e: u.verificado ? 'verificado' : 'completo', falta: [] };
+}
+function ejesCode(u){ if(!u.ejes || !u.ejes.length) return ''; return grupos(u).groups.map(function(g){ return g.code; }).join('-'); }
+function pareceNombre(n){ return String(n || '').toLowerCase(); }
+
+/* ===================== FIREBASE ===================== */
+function loadScript(src){ return new Promise(function(res, rej){ var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function(){ rej(new Error('No se pudo cargar ' + src)); }; document.head.appendChild(s); }); }
+function getDb(){
+  if(db) return Promise.resolve(db);
+  return Promise.resolve().then(function(){
+    if(window.firebase && window.firebase.firestore) return;
+    return loadScript(BASE_URL + 'gestion-documental/js/firebase-config.js')
+      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'); })
+      .then(function(){ return loadScript('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'); });
+  }).then(function(){
+    var f = window.firebase;
+    var app = (f.apps || []).filter(function(a){ return a.name === 'tdp-cargamax'; })[0] || f.initializeApp(window.FIREBASE_CONFIG || {}, 'tdp-cargamax');
+    db = app.firestore(); return db;
+  });
+}
+function errTxt(e){ var c = e && (e.code || e.message) || ''; if(/permission/i.test(c)) return 'Firebase no permite guardar: falta agregar las colecciones cm_unidades, cm_permisos y cm_registro en las reglas.'; return 'No se pudo completar la operación. ' + c; }
+
+function logReg(unidad, texto){
+  var d = { fecha: nowIso(), por: me || '', unidad: unidad || '', texto: texto };
+  return getDb().then(function(x){ return x.collection(COL_R).doc('r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).set(d); }).catch(function(){});
+}
+
+/* ===================== CARGA Y SINCRONIZACIÓN CON GEOTAB ===================== */
+function reindex(){ UBY = {}; U.forEach(function(u){ UBY[u.id] = u; }); }
+function sortU(){ U.sort(function(a, b){ return String(a.nombre).localeCompare(String(b.nombre), 'es', { numeric: true }); }); }
+function loadAll(a){
+  $('sub').textContent = 'Cargando…';
+  return getDb().then(function(d){ return Promise.all([d.collection(COL_U).get(), d.collection(COL_P).get()]); }).then(function(r){
+    U = []; P = [];
+    r[0].forEach(function(s){ var x = s.data(); x.id = s.id; U.push(x); });
+    r[1].forEach(function(s){ var x = s.data(); x.id = s.id; P.push(x); });
+    sortU(); reindex(); loaded = true;
+    renderAll();
+    return syncGeotab(a);
+  }).catch(function(e){ $('sub').textContent = errTxt(e); });
+}
+function parsePat(n){ var m = /\s-\s*([A-Za-z0-9]{5,8})\s*$/.exec(n || ''); return m ? m[1].toUpperCase() : ''; }
+function syncGeotab(a){
+  if(!a || typeof a.call !== 'function' || synced) return Promise.resolve();
+  synced = true;
+  var now = nowIso();
+  function get(tn){ return new Promise(function(res){ try{ a.call('Get', { typeName: tn, resultsLimit: 5000 }, function(l){ res(l || []); }, function(){ res([]); }); }catch(e){ res([]); } }); }
+  return Promise.all([get('Device'), get('Trailer')]).then(function(r){
+    var items = [];
+    r[0].forEach(function(d){ if(d && d.name && (!d.activeTo || d.activeTo > now)) items.push({ id: 'd_' + d.id, gid: d.id, kind: 'device', nombre: String(d.name), pat: d.licensePlate || '' }); });
+    r[1].forEach(function(t){ if(t && t.name && (!t.activeTo || t.activeTo > now)) items.push({ id: 't_' + t.id, gid: t.id, kind: 'trailer', nombre: String(t.name), pat: '' }); });
+    if(!items.length) return;
+    var ops = [], seen = {}, nuevas = 0;
+    items.forEach(function(it){
+      seen[it.id] = 1;
+      var ex = UBY[it.id];
+      if(!ex){ nuevas++; ops.push({ id: it.id, d: { gid: it.gid, kind: it.kind, nombre: it.nombre, patente: it.pat || parsePat(it.nombre), tipo: it.kind === 'trailer' ? 'semi' : '', activo: true, creada: now, act: now } }); }
+      else if(ex.nombre !== it.nombre || ex.activo === false){ ops.push({ id: it.id, d: { nombre: it.nombre, activo: true, act: now } }); }
+    });
+    U.forEach(function(u){ if(u.gid !== undefined && !seen[u.id] && u.activo !== false && r[0].length){ ops.push({ id: u.id, d: { activo: false, act: now } }); } });
+    if(!ops.length) return;
+    return getDb().then(function(d){
+      var chunks = [], i; for(i = 0; i < ops.length; i += 400) chunks.push(ops.slice(i, i + 400));
+      return chunks.reduce(function(p, ch){ return p.then(function(){ var b = d.batch(); ch.forEach(function(o){ b.set(d.collection(COL_U).doc(o.id), o.d, { merge: true }); }); return b.commit(); }); }, Promise.resolve());
+    }).then(function(){
+      ops.forEach(function(o){ var ex = UBY[o.id]; if(ex){ for(var k in o.d) ex[k] = o.d[k]; } else { var n = o.d; n.id = o.id; U.push(n); } });
+      sortU(); reindex(); renderAll();
+      if(nuevas) $('sub').textContent = 'Se sumaron ' + nuevas + ' unidades nuevas desde Geotab.';
+    });
+  }).catch(function(e){ $('sub').textContent = errTxt(e); });
+}
+
+/* ===================== CALCULADORA (UI) ===================== */
+function byName(v){ v = String(v || '').trim().toLowerCase(); if(!v) return null; for(var i = 0; i < U.length; i++){ if(U[i].activo !== false && String(U[i].nombre).toLowerCase() === v) return U[i]; } return null; }
+function vig(p){ var t = today(); if(p.activo === false) return false; if(p.desde && t < p.desde) return false; if(p.hasta && t > p.hasta) return false; return true; }
+function fillLists(){
+  var a = $('dlTrac'), b = $('dlRem'); a.innerHTML = ''; b.innerHTML = '';
+  U.forEach(function(u){
+    if(u.activo === false) return;
+    var o = document.createElement('option'); o.value = u.nombre;
+    if(u.tipo === 'tractor' || u.tipo === 'camion') a.appendChild(o);
+    else if(u.tipo === 'semi' || u.tipo === 'acoplado') b.appendChild(o);
+  });
+}
+function selCalc(){
+  return { norma: $('cNorma').value, u1: byName($('cU1').value), u2: byName($('cU2').value), u3: $('cBit').checked ? byName($('cU3').value) : null, extra: num($('cExtra').value) || 0 };
+}
+function permisosDe(s){
+  if(!s.u1) return [];
+  return P.filter(function(p){
+    if(p.tractorId !== s.u1.id) return false;
+    if(p.semiId && (!s.u2 || p.semiId !== s.u2.id)) return false;
+    if(p.semi2Id && (!s.u3 || p.semi2Id !== s.u3.id)) return false;
+    return true;
+  });
+}
+var permKey = '';
+function recalc(){
+  var s = selCalc();
+  $('lblU3').hidden = !$('cBit').checked;
+  var ps = permisosDe(s), sel = $('cPer'), prev = sel.value, key = ps.map(function(p){ return p.id; }).join(',') + '|' + (s.u1 ? s.u1.id : '') + (s.u2 ? s.u2.id : '') + (s.u3 ? s.u3.id : '');
+  if(key !== permKey){
+    permKey = key; sel.innerHTML = '';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Sin permiso'; sel.appendChild(o0);
+    var first = '';
+    ps.forEach(function(p){
+      var o = document.createElement('option'); o.value = p.id;
+      var v = vig(p); o.textContent = (p.numero || 'Permiso') + ' – ' + ft((p.pbtc || 0) / 1000) + ' t' + (p.hasta ? ' (hasta ' + p.hasta + ')' : '') + (v ? '' : ' – NO VIGENTE');
+      if(!v) o.disabled = true; else if(!first) first = p.id;
+      sel.appendChild(o);
+    });
+    sel.value = (prev && ps.some(function(p){ return p.id === prev && vig(p); })) ? prev : first;
+  }
+  s.permiso = null;
+  ps.forEach(function(p){ if(p.id === sel.value && vig(p)) s.permiso = p; });
+  var r = calcular(s); lastCalc = { s: s, r: r };
+  var noV = ps.filter(function(p){ return !vig(p); });
+  if(noV.length && !r.err) r.avisos.push('Hay permisos de esta formación vencidos o inactivos: ' + noV.map(function(p){ return p.numero || 'sin número'; }).join(', ') + '.');
+  renderRes(r, s);
+}
+function renderRes(r, s){
+  var box = $('cRes'); box.innerHTML = '';
+  if(r.err){ var c0 = el('div', 'card'); c0.appendChild(el('p', 'hint', r.err)); box.appendChild(c0); return; }
+  var c = el('div', 'card res');
+  var big = el('div', 'big');
+  big.appendChild(el('span', 'lbl', 'Carga máxima'));
+  big.appendChild(el('b', r.carga !== null && r.carga >= 0 ? 'ok' : 'bad', r.carga !== null ? fkg(r.carga) + ' kg' : 'Faltan datos'));
+  if(r.carga !== null) big.appendChild(el('span', 'tn', '(' + ft(r.carga / 1000) + ' t)'));
+  c.appendChild(big);
+  if(r.row && r.row.req && !s.permiso) c.appendChild(el('p', 'bad', 'Este valor solo es válido si la formación cuenta con el permiso de tránsito correspondiente.'));
+  c.appendChild(el('p', 'sub2', COMP_TXT[r.comp] + ' · configuración ' + r.code + ' · ' + r.norma.nombre));
+  var t = el('table', 'mini'); var th = el('thead'), tr = el('tr'); ['Límite', 'Peso máximo (kg)'].forEach(function(x){ tr.appendChild(el('th', '', x)); }); th.appendChild(tr); t.appendChild(th);
+  var tb = el('tbody');
+  r.limites.forEach(function(l){ var q = el('tr', l.lim ? 'lim' : ''); q.appendChild(el('td', '', l.n + (l.lim ? '  ← limita' : ''))); q.appendChild(el('td', 'n', fkg(l.v))); tb.appendChild(q); });
+  var q1 = el('tr'); q1.appendChild(el('td', '', 'Peso bruto total combinado máximo')); q1.appendChild(el('td', 'n', fkg(r.pbtc))); tb.appendChild(q1);
+  var q2 = el('tr'); q2.appendChild(el('td', '', 'Tara de la formación (' + r.units.map(function(u){ return u.nombre; }).join(' + ') + ')')); q2.appendChild(el('td', 'n', '– ' + fkg(r.tara))); tb.appendChild(q2);
+  if(r.extra){ var q3 = el('tr'); q3.appendChild(el('td', '', 'Peso adicional')); q3.appendChild(el('td', 'n', '– ' + fkg(r.extra))); tb.appendChild(q3); }
+  t.appendChild(tb); c.appendChild(t);
+  if(r.avisos.length){ var ul = el('ul', 'avs'); r.avisos.forEach(function(a){ ul.appendChild(el('li', /REQUIERE|supera|vencid/.test(a) ? 'bad' : '', a)); }); c.appendChild(ul); }
+  box.appendChild(c);
+
+  var c2 = el('div', 'card');
+  c2.appendChild(el('h3', '', 'Ejes y tándem'));
+  var t2 = el('table', 'mini'); var h2 = el('tr'); ['Unidad', 'Grupo', 'Tipo', 'Límite (kg)', 'Con tolerancia (kg)', 'Pesaje (kg)', 'Resultado'].forEach(function(x){ h2.appendChild(el('th', '', x)); });
+  var th2 = el('thead'); th2.appendChild(h2); t2.appendChild(th2);
+  var tb2 = el('tbody'), ins = [], res = [];
+  r.groups.forEach(function(g, i){
+    var q = el('tr'); q.appendChild(el('td', '', g.unit.nombre)); q.appendChild(el('td', '', g.code)); q.appendChild(el('td', '', g.txt));
+    q.appendChild(el('td', 'n', fkg(g.lim))); q.appendChild(el('td', 'n', fkg(g.lim + g.tol)));
+    var td = el('td'), inp = document.createElement('input'); inp.type = 'number'; inp.className = 'pes'; inp.placeholder = 'kg'; inp.setAttribute('inputmode', 'numeric'); td.appendChild(inp); q.appendChild(td);
+    var rs = el('td', 'rs'); q.appendChild(rs); tb2.appendChild(q); ins.push(inp); res.push(rs);
+  });
+  var qt = el('tr', 'tot'); qt.appendChild(el('td', '', 'Total')); qt.appendChild(el('td', '', '')); qt.appendChild(el('td', '', 'Peso bruto combinado')); qt.appendChild(el('td', 'n', fkg(r.pbtc))); qt.appendChild(el('td', 'n', fkg(r.pbtc + 500)));
+  var tdt = el('td', 'n'); qt.appendChild(tdt); var rst = el('td', 'rs'); qt.appendChild(rst); tb2.appendChild(qt);
+  t2.appendChild(tb2); c2.appendChild(t2);
+  c2.appendChild(el('p', 'hint', 'Para verificar contra un ticket de balanza, cargá el peso de cada grupo. Las tolerancias solo valen si no se supera el peso total; el exceso en un eje se compensa con el defecto en otro.'));
+  function ver(){
+    var sum = 0, any = false;
+    ins.forEach(function(inp, i){
+      var v = num(inp.value), g = r.groups[i], rs = res[i];
+      if(v === null){ rs.textContent = ''; rs.className = 'rs'; return; }
+      any = true; sum += v;
+      if(v <= g.lim){ rs.textContent = 'OK (margen ' + fkg(g.lim - v) + ')'; rs.className = 'rs ok'; }
+      else if(v <= g.lim + g.tol){ rs.textContent = 'Excede ' + fkg(v - g.lim) + ', dentro de tolerancia'; rs.className = 'rs warn'; }
+      else { rs.textContent = 'EXCEDE ' + fkg(v - g.lim - g.tol) + ' sobre la tolerancia'; rs.className = 'rs bad'; }
+    });
+    var all = ins.every(function(i){ return num(i.value) !== null; });
+    if(!any){ tdt.textContent = ''; rst.textContent = ''; rst.className = 'rs'; return; }
+    tdt.textContent = fkg(sum);
+    if(!all){ rst.textContent = 'Faltan grupos para el total'; rst.className = 'rs'; return; }
+    if(sum <= r.pbtc){ rst.textContent = 'OK (margen ' + fkg(r.pbtc - sum) + ')'; rst.className = 'rs ok'; }
+    else if(sum <= r.pbtc + 500){ rst.textContent = 'Excede ' + fkg(sum - r.pbtc) + ', dentro de tolerancia'; rst.className = 'rs warn'; }
+    else { rst.textContent = 'EXCEDE ' + fkg(sum - r.pbtc - 500) + ' sobre la tolerancia'; rst.className = 'rs bad'; }
+  }
+  ins.forEach(function(i){ i.oninput = ver; });
+  box.appendChild(c2);
+  var c3 = el('div', 'card'); c3.appendChild(el('p', 'hint', 'Cálculo orientativo según las tablas cargadas en el módulo. Confirmá con la Dirección Provincial de Vialidad ante cualquier duda, sobre todo en configuraciones que requieren permiso. La carga por eje real depende de cómo se acomode la mercadería: usá el pesaje para verificar.')); box.appendChild(c3);
+}
+function saveFormacion(){
+  var s = selCalc(), m = $('cFormMsg'); m.textContent = '';
+  if(!s.u1 || s.u1.tipo !== 'tractor' || !s.u2){ m.textContent = 'Elegí un tractor y su semirremolque.'; return; }
+  var d = { semiActual: s.u2.id, semiActualNombre: s.u2.nombre, semi2Actual: s.u3 ? s.u3.id : '', semi2ActualNombre: s.u3 ? s.u3.nombre : '', semiDesde: nowIso(), semiPor: me || '' };
+  var prev = s.u1.semiActualNombre ? s.u1.semiActualNombre : 'sin formación registrada';
+  m.textContent = 'Guardando…';
+  getDb().then(function(x){ return x.collection(COL_U).doc(s.u1.id).set(d, { merge: true }); }).then(function(){
+    for(var k in d) s.u1[k] = d[k];
+    logReg(s.u1.nombre, 'Cambio de semirremolque: ' + prev + ' → ' + s.u2.nombre + (s.u3 ? ' + ' + s.u3.nombre : ''));
+    m.textContent = 'Formación guardada.'; renderUnidades();
+  }).catch(function(e){ m.textContent = errTxt(e); });
+}
+function onTractor(){
+  var u = byName($('cU1').value);
+  if(u && u.tipo === 'tractor' && u.semiActualNombre && !$('cU2').value){ $('cU2').value = u.semiActualNombre; if(u.semi2ActualNombre){ $('cBit').checked = true; $('cU3').value = u.semi2ActualNombre; } }
+  recalc();
+}
+
+/* ===================== UNIDADES (UI) ===================== */
+var EST_TXT = { sin: 'Sin clasificar', na: 'No aplica', incompleto: 'Incompleto', completo: 'Completo', verificado: 'Verificado' };
+function renderUnidades(){
+  var txt = $('uTxt').value.trim().toLowerCase(), ft_ = $('uTipo').value, fe = $('uEst').value;
+  var act = U.filter(function(u){ return u.activo !== false; });
+  $('kTot').textContent = act.length;
+  $('kSin').textContent = act.filter(function(u){ return !u.tipo; }).length;
+  $('kCom').textContent = act.filter(function(u){ var e = estado(u).e; return e === 'completo' || e === 'verificado'; }).length;
+  $('kVer').textContent = act.filter(function(u){ return estado(u).e === 'verificado'; }).length;
+  var list = act.filter(function(u){
+    if(txt && (String(u.nombre).toLowerCase().indexOf(txt) < 0 && String(u.patente || '').toLowerCase().indexOf(txt) < 0)) return false;
+    if(ft_ === '_sin' && u.tipo) return false;
+    if(ft_ && ft_ !== '_sin' && u.tipo !== ft_) return false;
+    if(fe && estado(u).e !== fe) return false;
+    return true;
+  });
+  var tb = $('uTb'); tb.innerHTML = '';
+  list.forEach(function(u){
+    var tr = el('tr'), e = estado(u);
+    tr.appendChild(el('td', 'nm', u.nombre));
+    var td = el('td'), sel = document.createElement('select'); sel.className = 'ti';
+    [['', '— elegir —'], ['tractor', 'Tractor'], ['camion', 'Camión'], ['semi', 'Semirremolque'], ['acoplado', 'Acoplado'], ['otro', 'No aplica']].forEach(function(o){ var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op); });
+    sel.value = u.tipo || '';
+    sel.onchange = function(){ setTipo(u, sel.value); };
+    td.appendChild(sel); tr.appendChild(td);
+    tr.appendChild(el('td', '', u.patente || ''));
+    tr.appendChild(el('td', '', ejesCode(u) || '–'));
+    tr.appendChild(el('td', 'n', u.tara > 0 ? fkg(u.tara) : '–'));
+    tr.appendChild(el('td', 'n', u.potencia > 0 ? fkg(u.potencia) + ' CV' : '–'));
+    var tdE = el('td'), b = el('span', 'bdg ' + e.e, EST_TXT[e.e]); if(e.falta.length) b.title = 'Falta: ' + e.falta.join(', '); tdE.appendChild(b); tr.appendChild(tdE);
+    tr.appendChild(el('td', '', u.tipo === 'tractor' ? (u.semiActualNombre ? u.semiActualNombre + (u.semi2ActualNombre ? ' + ' + u.semi2ActualNombre : '') : '–') : ''));
+    var tdB = el('td'), bt = el('button', 'sm', u.tipo && u.tipo !== 'otro' ? 'Ficha' : 'Ficha'); bt.onclick = function(){ openFicha(u); }; tdB.appendChild(bt); tr.appendChild(tdB);
+    tb.appendChild(tr);
+  });
+  $('uMsg').textContent = list.length + ' de ' + act.length + ' unidades. Clasificá cada una (tractor, camión, semirremolque, acoplado o no aplica) y abrí la ficha para cargar tara, ejes y potencia.';
+}
+function setTipo(u, v){
+  getDb().then(function(d){ return d.collection(COL_U).doc(u.id).set({ tipo: v, editPor: me || '', editFecha: nowIso() }, { merge: true }); }).then(function(){
+    u.tipo = v; logReg(u.nombre, 'Clasificó la unidad como ' + (TIPOS[v] || 'sin clasificar')); fillLists(); renderUnidades();
+  }).catch(function(e){ $('uMsg').textContent = errTxt(e); renderUnidades(); });
+}
+
+/* ===================== FICHA DE UNIDAD ===================== */
+var ET = [];
+function openFicha(u){
+  var box = $('modBox');
+  box.innerHTML = '<div class="lh"><h2 id="fTitle"></h2><button id="fClose" class="sm">Cerrar</button></div>' +
+  '<div class="grid g3">' +
+  '<label>Tipo<select id="fTipo"><option value="">— elegir —</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>' +
+  '<label>Patente<input id="fPat" type="text"></label>' +
+  '<label>Marca y modelo<input id="fMod" type="text"></label>' +
+  '<label>Tara (kg)<input id="fTara" type="number" inputmode="numeric" min="0"></label>' +
+  '<label>De dónde sale la tara<select id="fTaraF"><option value="">—</option><option>VTV</option><option>Balanza</option><option>Ficha técnica</option><option>Cédula</option><option>Estimada</option></select></label>' +
+  '<label>Suspensión<select id="fSusp"><option value="">— elegir —</option><option value="mecanica">Mecánica</option><option value="neumatica">Neumática</option></select></label>' +
+  '<label class="vt">Potencia (CV DIN)<input id="fPot" type="number" inputmode="numeric" min="0"></label>' +
+  '<label class="vt">Capacidad máx. de tracción (kg)<input id="fCmt" type="number" inputmode="numeric" min="0"></label>' +
+  '<label>PBT de la unidad (kg, según cédula o VTV)<input id="fPbt" type="number" inputmode="numeric" min="0"></label>' +
+  '</div>' +
+  '<h3>Ejes</h3>' +
+  '<p class="hint">Cargá los ejes de adelante hacia atrás. La distancia es entre el centro del eje y el anterior: si es mayor a 1,20 m y menor a 2,40 m forman un tándem; a 2,40 m o más cuentan como ejes separados.</p>' +
+  '<div class="presets"><span>Plantillas:</span><button class="sm" data-p="t42">Tractor 4x2</button><button class="sm" data-p="t64">Tractor / camión 6x4</button><button class="sm" data-p="s1">Semi 1 eje</button><button class="sm" data-p="s2">Semi tándem</button><button class="sm" data-p="s3">Semi tridem</button><button class="sm" data-p="a2">Acoplado 2 ejes</button></div>' +
+  '<div id="fEjes"></div><div class="acts"><button id="fAdd" class="sm">Agregar eje</button></div>' +
+  '<p id="fPrev" class="hint"></p>' +
+  '<label>Observaciones<textarea id="fNota" rows="2"></textarea></label>' +
+  '<label class="chk"><input type="checkbox" id="fVer"> Datos verificados (medidos en balanza o tomados de VTV / cédula)</label>' +
+  '<div class="acts"><button id="fSave" class="primary">Guardar</button><span id="fMsg" class="hint"></span></div>';
+  $('fTitle').textContent = u.nombre;
+  $('fTipo').value = u.tipo || ''; $('fPat').value = u.patente || ''; $('fMod').value = u.modelo || '';
+  $('fTara').value = u.tara > 0 ? u.tara : ''; $('fTaraF').value = u.taraFuente || ''; $('fSusp').value = u.susp || '';
+  $('fPot').value = u.potencia > 0 ? u.potencia : ''; $('fCmt').value = u.cmt > 0 ? u.cmt : ''; $('fPbt').value = u.pbt > 0 ? u.pbt : '';
+  $('fNota').value = u.nota || ''; $('fVer').checked = !!u.verificado;
+  ET = (u.ejes || []).map(function(e){ return { r: e.r || 'dual', d: (e.d === null || e.d === undefined) ? '' : e.d }; });
+  function vt(){ var t = $('fTipo').value; [].forEach.call(box.querySelectorAll('.vt'), function(l){ l.hidden = !(t === 'tractor' || t === 'camion'); }); }
+  vt(); $('fTipo').onchange = vt;
+  renderEjes(u);
+  $('fSusp').onchange = function(){ prevEjes(u); };
+  $('fAdd').onclick = function(){ ET.push({ r: 'dual', d: ET.length ? 1.35 : '' }); renderEjes(u); };
+  [].forEach.call(box.querySelectorAll('.presets button'), function(b){ b.onclick = function(){ preset(b.getAttribute('data-p')); renderEjes(u); }; });
+  $('fClose').onclick = closeMod; $('fSave').onclick = function(){ saveFicha(u); };
+  $('mod').hidden = false; box.scrollTop = 0;
+}
+function preset(p){
+  var S = function(d){ return { r: 'simple', d: d }; }, D = function(d){ return { r: 'dual', d: d }; };
+  if(p === 't42') ET = [S(''), D(3.6)];
+  else if(p === 't64') ET = [S(''), D(3.6), D(1.35)];
+  else if(p === 's1') ET = [D('')];
+  else if(p === 's2') ET = [D(''), D(1.35)];
+  else if(p === 's3') ET = [D(''), D(1.35), D(1.35)];
+  else if(p === 'a2') ET = [D(''), D(3.5)];
+}
+function renderEjes(u){
+  var c = $('fEjes'); c.innerHTML = '';
+  ET.forEach(function(e, i){
+    var row = el('div', 'eje'); row.appendChild(el('span', 'en', 'Eje ' + (i + 1)));
+    var s = document.createElement('select'); [['simple', 'Ruedas simples'], ['dual', 'Ruedas duales'], ['ancha', 'Superancha']].forEach(function(o){ var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; s.appendChild(op); });
+    s.value = e.r; s.onchange = function(){ e.r = s.value; prevEjes(u); }; row.appendChild(s);
+    var l = el('label', '', i === 0 ? 'Primer eje' : 'Distancia al eje anterior (m)');
+    if(i > 0){ var inp = document.createElement('input'); inp.type = 'number'; inp.step = '0.05'; inp.min = '0'; inp.value = e.d; inp.oninput = function(){ e.d = inp.value === '' ? '' : Number(inp.value); prevEjes(u); }; l.appendChild(inp); }
+    row.appendChild(l);
+    var x = el('button', 'sm', 'Quitar'); x.onclick = function(){ ET.splice(i, 1); renderEjes(u); }; row.appendChild(x);
+    c.appendChild(row);
+  });
+  prevEjes(u);
+}
+function prevEjes(u){
+  var p = $('fPrev'); if(!p) return;
+  if(!ET.length){ p.textContent = 'Todavía no hay ejes cargados.'; return; }
+  var g = grupos({ ejes: ET, susp: $('fSusp').value, nombre: u.nombre });
+  var parts = g.groups.map(function(x){ return x.code + (x.lim !== null ? ' (' + ft(x.lim / 1000) + ' t)' : ' (sin valor en tabla)'); });
+  p.textContent = 'Resulta: ' + parts.join(' + ') + (g.warn.length ? '. Falta: ' + g.warn.join(', ') + '.' : '.') + ($('fSusp').value ? '' : ' Elegí la suspensión para ver los límites correctos.');
+}
+function saveFicha(u){
+  var m = $('fMsg'); m.textContent = '';
+  var d = {
+    tipo: $('fTipo').value, patente: $('fPat').value.trim().toUpperCase(), modelo: $('fMod').value.trim(),
+    tara: num($('fTara').value) || 0, taraFuente: $('fTaraF').value, susp: $('fSusp').value,
+    potencia: num($('fPot').value) || 0, cmt: num($('fCmt').value) || 0, pbt: num($('fPbt').value) || 0,
+    nota: $('fNota').value.trim(), verificado: $('fVer').checked,
+    ejes: ET.map(function(e, i){ return { r: e.r, d: i === 0 ? null : (e.d === '' || e.d === null || e.d === undefined ? null : Number(e.d)) }; }),
+    editPor: me || '', editFecha: nowIso()
+  };
+  if(d.verificado && !u.verificado){ d.verPor = me || ''; d.verFecha = nowIso(); }
+  if(d.tara < 0 || d.potencia < 0){ m.textContent = 'Revisá los números: no pueden ser negativos.'; return; }
+  var bad = ET.some(function(e, i){ return i > 0 && e.d !== '' && e.d !== null && (isNaN(Number(e.d)) || Number(e.d) <= 0); });
+  if(bad){ m.textContent = 'Revisá las distancias entre ejes.'; return; }
+  m.textContent = 'Guardando…';
+  getDb().then(function(x){ return x.collection(COL_U).doc(u.id).set(d, { merge: true }); }).then(function(){
+    for(var k in d) u[k] = d[k];
+    logReg(u.nombre, 'Actualizó la ficha' + (d.verificado ? ' (verificada)' : '') + ': ' + (TIPOS[d.tipo] || 'sin tipo') + ', tara ' + (d.tara ? fkg(d.tara) + ' kg' : 'sin dato') + ', ejes ' + (ejesCode(u) || 'sin dato'));
+    fillLists(); renderUnidades(); recalc(); m.textContent = 'Guardado.';
+    setTimeout(closeMod, 500);
+  }).catch(function(e){ m.textContent = errTxt(e); });
+}
+function closeMod(){ $('mod').hidden = true; $('modBox').innerHTML = ''; }
+
+/* ===================== PERMISOS ===================== */
+function renderPermisos(){
+  var tb = $('pTb'); tb.innerHTML = '';
+  var list = P.slice().sort(function(a, b){ return String(b.hasta || '9999').localeCompare(String(a.hasta || '9999')); });
+  list.forEach(function(p){
+    var tr = el('tr'), v = vig(p);
+    tr.appendChild(el('td', 'nm', p.numero || '(sin número)'));
+    tr.appendChild(el('td', '', p.organismo || ''));
+    var t = UBY[p.tractorId], s1 = UBY[p.semiId], s2 = UBY[p.semi2Id];
+    tr.appendChild(el('td', '', t ? t.nombre : '?'));
+    tr.appendChild(el('td', '', (s1 ? s1.nombre : 'cualquiera') + (s2 ? ' + ' + s2.nombre : '')));
+    tr.appendChild(el('td', 'n', fkg(p.pbtc)));
+    tr.appendChild(el('td', '', (p.desde || '…') + ' a ' + (p.hasta || 'sin vencimiento')));
+    var td = el('td'); td.appendChild(el('span', 'bdg ' + (v ? 'verificado' : 'sin'), v ? 'Vigente' : (p.activo === false ? 'Inactivo' : 'Vencido'))); tr.appendChild(td);
+    var tb2 = el('td'), b = el('button', 'sm', 'Editar'); b.onclick = function(){ openPermiso(p); }; tb2.appendChild(b); tr.appendChild(tb2);
+    tb.appendChild(tr);
+  });
+  $('pMsg').textContent = list.length ? list.length + ' permisos cargados.' : 'Todavía no hay permisos cargados. Un permiso se asocia a un tractor y a su semirremolque: si se cambia el semi, el permiso deja de aplicar.';
+}
+function openPermiso(p){
+  var nuevo = !p; p = p || {};
+  var box = $('modBox');
+  box.innerHTML = '<div class="lh"><h2>' + (nuevo ? 'Nuevo permiso' : 'Permiso') + '</h2><button id="xClose" class="sm">Cerrar</button></div>' +
+  '<div class="grid g3">' +
+  '<label>Número de permiso<input id="xNum" type="text"></label>' +
+  '<label>Organismo<select id="xOrg"><option>DPV Neuquén</option><option>Vialidad Nacional</option><option>Otro</option></select></label>' +
+  '<label>Peso bruto autorizado (kg)<input id="xPbtc" type="number" inputmode="numeric" min="0"></label>' +
+  '<label>Tractor o camión<input id="xT" list="dlTrac" autocomplete="off"></label>' +
+  '<label>Semirremolque (vacío = cualquiera)<input id="xS1" list="dlRem" autocomplete="off"></label>' +
+  '<label>Segundo semirremolque (bitrén)<input id="xS2" list="dlRem" autocomplete="off"></label>' +
+  '<label>Largo autorizado (m)<input id="xLargo" type="number" step="0.05" min="0"></label>' +
+  '<label>Desde<input id="xDesde" type="date"></label>' +
+  '<label>Hasta<input id="xHasta" type="date"></label>' +
+  '<label class="wide">Ruta, corredor o tramo<input id="xRuta" type="text"></label>' +
+  '</div>' +
+  '<label>Observaciones<textarea id="xObs" rows="2"></textarea></label>' +
+  '<label class="chk"><input type="checkbox" id="xExc"> El permiso autoriza exceso por eje (no aplicar la suma de límites por eje)</label>' +
+  '<label class="chk"><input type="checkbox" id="xAct"> Permiso activo</label>' +
+  '<div class="acts"><button id="xSave" class="primary">Guardar</button><span id="xMsg" class="hint"></span></div>';
+  $('xNum').value = p.numero || ''; $('xOrg').value = p.organismo || 'DPV Neuquén'; $('xPbtc').value = p.pbtc || '';
+  $('xT').value = (UBY[p.tractorId] || {}).nombre || ''; $('xS1').value = (UBY[p.semiId] || {}).nombre || ''; $('xS2').value = (UBY[p.semi2Id] || {}).nombre || '';
+  $('xLargo').value = p.largo || ''; $('xDesde').value = p.desde || ''; $('xHasta').value = p.hasta || ''; $('xRuta').value = p.ruta || '';
+  $('xObs').value = p.obs || ''; $('xExc').checked = !!p.excesoEje; $('xAct').checked = nuevo ? true : p.activo !== false;
+  $('xClose').onclick = closeMod;
+  $('xSave').onclick = function(){
+    var m = $('xMsg'), t = byName($('xT').value), s1 = $('xS1').value.trim() ? byName($('xS1').value) : null, s2 = $('xS2').value.trim() ? byName($('xS2').value) : null;
+    if(!t){ m.textContent = 'Elegí el tractor de la lista.'; return; }
+    if($('xS1').value.trim() && !s1){ m.textContent = 'El semirremolque no está en la lista.'; return; }
+    if($('xS2').value.trim() && !s2){ m.textContent = 'El segundo semirremolque no está en la lista.'; return; }
+    var pb = num($('xPbtc').value); if(!pb || pb <= 0){ m.textContent = 'Cargá el peso bruto autorizado en kg.'; return; }
+    var d = { numero: $('xNum').value.trim(), organismo: $('xOrg').value, pbtc: pb, tractorId: t.id, semiId: s1 ? s1.id : '', semi2Id: s2 ? s2.id : '', largo: num($('xLargo').value) || 0,
+      desde: $('xDesde').value, hasta: $('xHasta').value, ruta: $('xRuta').value.trim(), obs: $('xObs').value.trim(), excesoEje: $('xExc').checked, activo: $('xAct').checked, editPor: me || '', editFecha: nowIso() };
+    var id = p.id || ('p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+    if(!p.id) d.creada = nowIso();
+    m.textContent = 'Guardando…';
+    getDb().then(function(x){ return x.collection(COL_P).doc(id).set(d, { merge: true }); }).then(function(){
+      var ex = P.filter(function(q){ return q.id === id; })[0];
+      if(ex){ for(var k in d) ex[k] = d[k]; } else { d.id = id; P.push(d); }
+      logReg(t.nombre, (p.id ? 'Actualizó' : 'Cargó') + ' el permiso ' + (d.numero || 'sin número') + ' (' + fkg(pb) + ' kg)');
+      permKey = ''; renderPermisos(); recalc(); m.textContent = 'Guardado.'; setTimeout(closeMod, 500);
+    }).catch(function(e){ m.textContent = errTxt(e); });
+  };
+  $('mod').hidden = false; box.scrollTop = 0;
+}
+
+/* ===================== HISTORIAL ===================== */
+function loadHist(){
+  $('hMsg').textContent = 'Cargando…';
+  getDb().then(function(d){ return d.collection(COL_R).orderBy('fecha', 'desc').limit(200).get(); }).then(function(s){
+    H = []; s.forEach(function(x){ H.push(x.data()); });
+    var tb = $('hTb'); tb.innerHTML = '';
+    H.forEach(function(h){ var tr = el('tr'); tr.appendChild(el('td', '', fdate(h.fecha))); tr.appendChild(el('td', '', h.por || '')); tr.appendChild(el('td', 'nm', h.unidad || '')); tr.appendChild(el('td', '', h.texto || '')); tb.appendChild(tr); });
+    $('hMsg').textContent = H.length ? 'Últimos ' + H.length + ' movimientos.' : 'Todavía no hay movimientos.';
+  }).catch(function(e){ $('hMsg').textContent = errTxt(e); });
+}
+
+/* ===================== CSV ===================== */
+function exportCsv(){
+  var cols = ['Unidad', 'Tipo', 'Patente', 'Marca y modelo', 'Tara (kg)', 'Fuente tara', 'Suspensión', 'Potencia (CV)', 'Capacidad tracción (kg)', 'PBT (kg)', 'Ejes', 'Datos', 'Verificada por', 'Observaciones'];
+  var out = [cols.join(';')];
+  function q(v){ v = (v === null || v === undefined) ? '' : String(v); return '"' + v.replace(/"/g, '""') + '"'; }
+  U.filter(function(u){ return u.activo !== false; }).forEach(function(u){
+    out.push([u.nombre, TIPOS[u.tipo] || '', u.patente, u.modelo, u.tara || '', u.taraFuente, u.susp, u.potencia || '', u.cmt || '', u.pbt || '', ejesCode(u), EST_TXT[estado(u).e], u.verPor, u.nota].map(q).join(';'));
+  });
+  var blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unidades-carga-maxima-' + today() + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 500);
+}
+
+/* ===================== ESTILOS ===================== */
+var CSS = [
+"@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');",
+"#cmx{--accent:#00A6E0;--accent-dark:#0078A1;--accent-light:#E3F5FB;--page:#F4F5F8;--card:#fff;--border:#ECEDF2;--text:#20232B;--muted:#6B7280;--bad:#D92D20;--ok:#12805C;--warn:#B54708;--shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);background:var(--page);color:var(--text);font-family:Poppins,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;min-height:100vh;box-sizing:border-box}",
+"#cmx *{box-sizing:border-box}",
+"#cmx .wrap{max-width:1180px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:14px}",
+"#cmx .card{background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);padding:16px}",
+"#cmx .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px}",
+"#cmx .top img{height:36px;width:auto;object-fit:contain}",
+"#cmx .ttl{flex:1;min-width:180px}",
+"#cmx h1{margin:0;font-size:1.15rem;font-weight:700}",
+"#cmx .ttl p{margin:0;font-size:.8rem;color:var(--muted)}",
+"#cmx h2{margin:0;font-size:1.05rem}#cmx h3{margin:14px 0 8px;font-size:.95rem}",
+"#cmx button{font:inherit;font-weight:600;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:999px;padding:10px 18px;cursor:pointer;box-shadow:var(--shadow)}",
+"#cmx button.sm{padding:6px 14px;font-size:.82rem}",
+"#cmx button.primary{background:var(--accent);border-color:var(--accent);color:#fff}",
+"#cmx button:hover{border-color:var(--accent)}",
+"#cmx .tabs{display:flex;gap:8px;flex-wrap:wrap}",
+"#cmx .tabs button{box-shadow:none}",
+"#cmx .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}",
+"#cmx .pane{display:flex;flex-direction:column;gap:14px}",
+"#cmx .pane[hidden],#cmx [hidden]{display:none!important}",
+"#cmx label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted);font-weight:500}",
+"#cmx label.chk{flex-direction:row;align-items:center;gap:8px;color:var(--text);font-size:.85rem;padding-top:18px}",
+"#cmx input,#cmx select,#cmx textarea{font:inherit;font-size:.9rem;color:var(--text);border:1px solid var(--border);border-radius:12px;padding:9px 12px;background:#fff;width:100%}",
+"#cmx input[type=checkbox]{width:auto}",
+"#cmx input:focus,#cmx select:focus,#cmx textarea:focus{outline:2px solid var(--accent-light);border-color:var(--accent)}",
+"#cmx .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}",
+"#cmx .acts{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}",
+"#cmx .hint{margin:6px 0;font-size:.8rem;color:var(--muted)}",
+"#cmx .kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}",
+"#cmx .kpi span{display:block;font-size:.78rem;color:var(--muted)}#cmx .kpi b{font-size:1.6rem}",
+"#cmx .bad{color:var(--bad)}#cmx .ok{color:var(--ok)}#cmx .warn{color:var(--warn)}",
+"#cmx .filt{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end}",
+"#cmx .filt .wide{grid-column:span 2}",
+"#cmx .tw{overflow:auto}",
+"#cmx table{width:100%;border-collapse:collapse;font-size:.85rem}",
+"#cmx th{text-align:left;font-size:.75rem;color:var(--muted);font-weight:600;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}",
+"#cmx td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle}",
+"#cmx td.n,#cmx th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}",
+"#cmx td.nm{font-weight:600;white-space:nowrap}",
+"#cmx select.ti{padding:5px 8px;font-size:.82rem;min-width:130px}",
+"#cmx .bdg{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.74rem;font-weight:600;background:#EEF0F4;color:var(--muted)}",
+"#cmx .bdg.incompleto{background:#FEF0C7;color:#93370D}#cmx .bdg.completo{background:var(--accent-light);color:var(--accent-dark)}#cmx .bdg.verificado{background:#D1FADF;color:#05603A}",
+"#cmx .res .big{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}",
+"#cmx .res .big .lbl{font-size:.9rem;color:var(--muted)}#cmx .res .big b{font-size:2.2rem;line-height:1.1}#cmx .res .big .tn{color:var(--muted)}",
+"#cmx .sub2{margin:4px 0 12px;color:var(--muted);font-size:.82rem}",
+"#cmx table.mini td.n{font-weight:600}",
+"#cmx table.mini tr.lim td{background:var(--accent-light);font-weight:600}",
+"#cmx table.mini tr.tot td{font-weight:600;border-top:2px solid var(--border)}",
+"#cmx input.pes{width:110px;padding:5px 8px}",
+"#cmx td.rs{font-weight:600;font-size:.8rem}",
+"#cmx ul.avs{margin:12px 0 0;padding-left:18px;font-size:.82rem}#cmx ul.avs li{margin:3px 0;color:var(--muted)}#cmx ul.avs li.bad{color:var(--bad);font-weight:600}",
+"#cmx .mod{position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:9999;display:flex;justify-content:center;align-items:flex-start;padding:128px 12px 24px;overflow:auto}",
+"#cmx .box{width:100%;max-width:760px;max-height:calc(100vh - 170px);overflow:auto;padding-top:0}",
+"#cmx .lh{position:sticky;top:0;background:var(--card);display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0 10px;z-index:2;border-bottom:1px solid var(--border);margin-bottom:12px}",
+"#cmx .presets{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}#cmx .presets span{font-size:.8rem;color:var(--muted)}",
+"#cmx .eje{display:grid;grid-template-columns:70px minmax(140px,1fr) minmax(180px,1fr) auto;gap:10px;align-items:end;margin:8px 0}",
+"#cmx .eje .en{font-weight:600;padding-bottom:10px}",
+"@media(max-width:640px){#cmx .eje{grid-template-columns:1fr 1fr}#cmx .filt .wide{grid-column:auto}}"
+].join('\n');
+(function(){ try{ if(document.getElementById('cmxStyle')) return; var s = document.createElement('style'); s.id = 'cmxStyle'; s.textContent = CSS; (document.head || document.documentElement).appendChild(s); }catch(e){} })();
+
+/* ===================== ARRANQUE ===================== */
+function renderAll(){
+  fillLists(); renderUnidades(); renderPermisos(); permKey = ''; recalc();
+  var act = U.filter(function(u){ return u.activo !== false; });
+  $('sub').textContent = act.length + ' unidades de Geotab · ' + act.filter(function(u){ var e = estado(u).e; return e === 'completo' || e === 'verificado'; }).length + ' con datos completos';
+}
+function setTab(t){
+  tab = t;
+  [].forEach.call($('tabs').querySelectorAll('button'), function(b){ b.className = b.getAttribute('data-t') === t ? 'on' : ''; });
+  ['calc', 'uni', 'per', 'his'].forEach(function(k){ $({ calc: 'pCalc', uni: 'pUni', per: 'pPer', his: 'pHis' }[k]).hidden = (k !== t); });
+  if(t === 'his') loadHist();
+}
+function ready(fn){
+  if(init()){ fn(); return; }
+  var n = 0, t = setInterval(function(){ n++; if(init()){ clearInterval(t); fn(); } else if(n > 100){ clearInterval(t); } }, 100);
+}
+var geoApi = null;
+function boot(a){
+  if(a) geoApi = a;
+  if(a && typeof a.getSession === 'function'){ try{ a.getSession(function(s){ me = (s && s.userName) || me; }); }catch(e){} }
+  if(!loaded){ loaded = true; loadAll(geoApi); }
+}
+window.initialize = function(a, s, cb){ ready(function(){ boot(a); }); if(typeof cb === 'function') cb(); };
+try{
+  if(typeof geotab !== 'undefined' && geotab.addin){
+    geotab.addin.cargaMaximaTDP = function(){
+      return {
+        initialize: function(a, s, cb){ ready(function(){ boot(a); }); if(typeof cb === 'function') cb(); },
+        focus: function(a){ ready(function(){ boot(a); }); },
+        blur: function(){}
+      };
+    };
+  }
+}catch(e){}
+
+function init(){
+  if(inited) return true;
+  if(!$('cmx') || !$('cRes')) return false;
+  inited = true;
+  [].forEach.call($('tabs').querySelectorAll('button'), function(b){ b.onclick = function(){ setTab(b.getAttribute('data-t')); }; });
+  $('bRef').onclick = function(){ synced = false; loaded = true; loadAll(geoApi); };
+  $('cNorma').onchange = recalc; $('cExtra').oninput = recalc; $('cPer').onchange = recalc;
+  $('cBit').onchange = recalc; $('cU2').oninput = recalc; $('cU3').oninput = recalc;
+  $('cU1').oninput = onTractor; $('cU1').onchange = onTractor;
+  $('cSaveForm').onclick = saveFormacion;
+  ['uTxt', 'uTipo', 'uEst'].forEach(function(i){ $(i).oninput = renderUnidades; $(i).onchange = renderUnidades; });
+  $('uCsv').onclick = exportCsv; $('pNew').onclick = function(){ openPermiso(null); };
+  $('mod').onclick = function(e){ if(e.target === $('mod')) closeMod(); };
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && !$('mod').hidden) closeMod(); });
+  recalc();
+  return true;
+}
+setTimeout(function(){ ready(function(){ if(!loaded){ loaded = true; loadAll(geoApi); } }); }, 1500);
+})();
+</script>
+</body>
+</html>
