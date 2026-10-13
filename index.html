@@ -550,7 +550,7 @@ function checkDelays(){
         var bucket = Math.floor(elapsedMs / DELAY);
         var st = v.demoraSalida || { lastAlertBucket: -1 };
         if(bucket > st.lastAlertBucket){
-          var aid = 'al_' + v.id + '_sal_' + bucket;
+          var aid = 'al_' + v.id + ((v.reprogramaciones && v.reprogramaciones.length) ? '_r' + v.reprogramaciones.length : '') + '_sal_' + bucket;
           var __motivoGer = !puedeIniciar(v) ? ' El gerenciamiento de riesgos todavia no fue aprobado.' : '';
           GV.Storage.addAlerta({ id: aid, tipo: 'demora', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad no inicio aun el recorrido desde ' + (v.origen ? GV.siteNameFor(v.origen) : '') + ' (' + GV.fmtDurMin(elapsedMs) + ' de demora sobre lo programado).' + __motivoGer, fecha: new Date().toISOString(), viajeId: v.id });
           v.demoraSalida = { lastAlertBucket: bucket };
@@ -2598,7 +2598,7 @@ overlay.innerHTML =
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + gvSolicitudChip(v) + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
 ((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
-((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar">Reasignar chofer/camion</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
+((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar" title="' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? 'El viaje todavia no salio: se cambia el chofer y/o el camion asignados' : 'El viaje ya salio: se cierra el tramo actual y se abre uno nuevo con el motivo del cambio') + '">Cambiar chofer/camion</button>' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reprogramar" title="Cambia la fecha y hora de salida de este viaje y vuelve a elegir camion y chofer">Reprogramar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.estado!=='cancelado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir" title="Genera un link publico, de solo lectura, para que un cliente vea el progreso y la posicion en vivo de esta unidad sin entrar a MyGeotab">' + (v.compartirToken ? 'Ver link para el cliente' : 'Compartir con cliente') + '</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
@@ -2608,7 +2608,7 @@ overlay.innerHTML =
 '</div>' +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
   '</div>' +
-'<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + '</div>' +
+'<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + ((v.reprogramaciones && v.reprogramaciones.length) ? (' &nbsp;|&nbsp; <span style="color:#7c3aed" title="' + GV.escapeHtml(v.reprogramaciones.map(function(r){ return GV.fmtDate(r.fechaAnterior) + ' -> ' + GV.fmtDate(r.fechaNueva) + (r.motivo ? ' (' + r.motivo + ')' : ''); }).join(' | ')) + '">Reprogramado ' + v.reprogramaciones.length + (v.reprogramaciones.length === 1 ? ' vez' : ' veces') + ' (salida original: ' + GV.fmtDate(v.reprogramaciones[0].fechaAnterior) + ')</span>') : '') + '</div>' +
 (v.compartirToken ? ('<div id="gv-det-compartir-panel" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
 '<span style="font-size:.78rem;font-weight:700;color:#0c4a6e;white-space:nowrap">Link para el cliente:</span>' +
 '<input type="text" readonly id="gv-det-compartir-link" value="https://axel-valle-22.github.io/geotab-gestion-viajes/compartir.html?t=' + encodeURIComponent(v.compartirToken) + '" style="flex:1;min-width:220px;font-size:.78rem;padding:5px 8px;border:1px solid #bae6fd;border-radius:6px;background:#fff;color:#0c4a6e" onclick="this.select()">' +
@@ -3138,7 +3138,101 @@ renderStats(); renderTrips(); renderTracking();
 });
 }
 
+/* ---------- Antes de salir: cambiar chofer/camion, reprogramar, agregar destino ---------- */
+function viajeSinIniciar(){ return v.estado === 'planificado' || (v.estado === 'demorado' && !v.iniciadoEn); }
+function __optsConductor(sel){ return '<option value="">Seleccionar conductor...</option>' + gState.conductores.map(function(c){ return '<option value="' + c.id + '"' + (sel && c.id === sel ? ' selected' : '') + '>' + GV.escapeHtml(c.nombre) + '</option>'; }).join(''); }
+function __optsVehiculo(sel){ return '<option value="">Seleccionar vehiculo...</option>' + gState.vehiculos.map(function(d){ return '<option value="' + d.id + '"' + (sel && d.id === sel ? ' selected' : '') + '>' + GV.escapeHtml(d.nombre) + '</option>'; }).join(''); }
+function __tramoUnico(conductorId, conductor, vehiculoId, vehiculo, desde){ return [{ conductorId: conductorId, conductor: conductor, vehiculoId: vehiculoId, vehiculo: vehiculo, desde: desde, hasta: null, motivo: null, motivoDetalle: '' }]; }
+
+/* El viaje todavia no salio: se cambia el chofer y/o el camion directamente, sin motivo ni tramos nuevos
+   (el viaje queda como si se hubiera cargado asi desde el principio). El gerenciamiento de riesgos ya
+   hecho era de ese chofer y ese camion, asi que se descarta y se rehace. */
+function abrirCambiarAsignacion(){
+var ov6 = document.createElement('div');
+ov6.className = 'gv-modal-overlay';
+ov6.style.zIndex = '100001';
+ov6.innerHTML =
+'<div class="gv-modal" style="max-width:420px">' +
+'<h3 style="margin:0 0 12px">Cambiar chofer / camion</h3>' +
+'<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px">El viaje todavia no salio, asi que el cambio reemplaza a lo asignado (' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '). Si cambia el chofer o el camion, el gerenciamiento de riesgos se tiene que hacer de nuevo.</div>' +
+'<div class="gv-form-row"><label>Conductor</label><select id="gv-cas-conductor" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + __optsConductor(v.conductorId) + '</select></div>' +
+'<div class="gv-form-row" style="margin-top:8px"><label>Unidad / Vehiculo</label><select id="gv-cas-vehiculo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + __optsVehiculo(v.vehiculoId) + '</select></div>' +
+'<div id="gv-cas-msg" style="display:none;font-size:.8rem;padding:8px 10px;border-radius:6px;margin-top:10px;background:#fee2e2;color:#991b1b"></div>' +
+'<div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cas-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-cas-save">Guardar cambio</button></div>' +
+'</div>';
+document.body.appendChild(ov6);
+function closeCas(){ ov6.remove(); }
+document.getElementById('gv-cas-cancel').addEventListener('click', closeCas);
+ov6.addEventListener('click', function(e){ if(e.target === ov6) closeCas(); });
+document.getElementById('gv-cas-save').addEventListener('click', function(){
+var cSel = document.getElementById('gv-cas-conductor'), vSel = document.getElementById('gv-cas-vehiculo'), msg = document.getElementById('gv-cas-msg');
+function err(t){ msg.style.display = 'block'; msg.textContent = t; }
+if(!cSel.value || !vSel.value){ err('Elegi el conductor y el vehiculo.'); return; }
+var cambioC = cSel.value !== v.conductorId, cambioV = vSel.value !== v.vehiculoId;
+if(!cambioC && !cambioV){ err('No cambiaste nada: elegi otro conductor u otro vehiculo.'); return; }
+var nc = cSel.options[cSel.selectedIndex].text, nv = vSel.options[vSel.selectedIndex].text;
+if(v.gerenciamiento && !window.confirm('Se descarta el gerenciamiento de riesgos que ya estaba hecho para ' + (v.conductor || '?') + ' - ' + (v.vehiculo || '?') + ' y se tiene que hacer de nuevo con la nueva asignacion. ¿Continuar?')) return;
+var patch = { conductorId: cSel.value, conductor: nc, vehiculoId: vSel.value, vehiculo: nv, tramos: __tramoUnico(cSel.value, nc, vSel.value, nv, v.fechaSalida) };
+if(v.gerenciamiento) patch.gerenciamiento = null;
+var ahora = new Date().toISOString();
+GV.Storage.updateViaje(v.id, patch).then(function(){
+var det = (cambioC ? ('Chofer: ' + (v.conductor||'?') + ' -> ' + nc + '. ') : '') + (cambioV ? ('Camion: ' + (v.vehiculo||'?') + ' -> ' + nv + '. ') : '');
+GV.Storage.addAlerta({ id: 'al_' + v.id + '_cambio_' + Date.now(), tipo: 'info', mensaje: 'Cambio de asignacion antes de salir. ' + det.trim(), fecha: ahora, viajeId: v.id });
+closeCas(); closeDetalle(); abrirDetalleViaje(v.id);
+renderTrips(); renderTracking(); renderStats();
+});
+});
+}
+
+/* Reprogramar: nueva fecha y hora de salida, y se vuelve a elegir camion y chofer (por si cambian).
+   El viaje (itinerario, solicitud, observaciones) es el mismo; vuelve a "planificado", sin demora, y
+   el gerenciamiento se rehace. Queda el historial en v.reprogramaciones. */
+function abrirReprogramarViaje(){
+var ov7 = document.createElement('div');
+ov7.className = 'gv-modal-overlay';
+ov7.style.zIndex = '100001';
+ov7.innerHTML =
+'<div class="gv-modal" style="max-width:420px">' +
+'<h3 style="margin:0 0 12px">Reprogramar viaje</h3>' +
+'<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px">Salida actual: <b>' + GV.fmtDate(v.fechaSalida) + '</b> &mdash; ' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '. Elegi la nueva fecha y hora, y volve a elegir el camion y el chofer por si cambian. El itinerario no se modifica.</div>' +
+'<div class="gv-form-row gv-two-col">' +
+'<div><label>Nueva fecha de salida<span class="gv-req">*</span></label><input type="date" id="gv-rep-fecha" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
+'<div><label>Nueva hora de salida<span class="gv-req">*</span></label><input type="time" id="gv-rep-hora" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
+'</div>' +
+'<div class="gv-form-row" style="margin-top:8px"><label>Conductor<span class="gv-req">*</span></label><select id="gv-rep-conductor" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + __optsConductor('') + '</select></div>' +
+'<div class="gv-form-row" style="margin-top:8px"><label>Unidad / Vehiculo<span class="gv-req">*</span></label><select id="gv-rep-vehiculo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + __optsVehiculo('') + '</select></div>' +
+'<div class="gv-form-row" style="margin-top:8px"><label>Motivo de la reprogramacion <span style="font-weight:400;color:#9ca3af">(opcional)</span></label><input type="text" id="gv-rep-motivo" maxlength="140" placeholder="Ej: el cliente pidio mover la carga" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
+'<div id="gv-rep-msg" style="display:none;font-size:.8rem;padding:8px 10px;border-radius:6px;margin-top:10px;background:#fee2e2;color:#991b1b"></div>' +
+'<div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-rep-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-rep-save">Reprogramar</button></div>' +
+'</div>';
+document.body.appendChild(ov7);
+function closeRep(){ ov7.remove(); }
+document.getElementById('gv-rep-cancel').addEventListener('click', closeRep);
+ov7.addEventListener('click', function(e){ if(e.target === ov7) closeRep(); });
+document.getElementById('gv-rep-save').addEventListener('click', function(){
+var fEl = document.getElementById('gv-rep-fecha'), hEl = document.getElementById('gv-rep-hora'), cSel = document.getElementById('gv-rep-conductor'), vSel = document.getElementById('gv-rep-vehiculo'), msg = document.getElementById('gv-rep-msg');
+if(!fEl.value || !hEl.value || !cSel.value || !vSel.value){ msg.style.display = 'block'; msg.textContent = 'Completa la nueva fecha, la hora, el conductor y el vehiculo.'; return; }
+var nueva = fEl.value + 'T' + hEl.value + ':00';
+var atraso = Math.round((Date.now() - new Date(nueva).getTime()) / 60000);
+if(atraso > 20 && !window.confirm('La nueva salida (' + hEl.value + ' del ' + fEl.value.split('-').reverse().join('/') + ') ya paso hace ' + GV.fmtDurMin(atraso * 60000) + ', asi que el viaje va a aparecer DEMORADO apenas se guarde. ¿Reprogramar igual?')) return;
+var nc = cSel.options[cSel.selectedIndex].text, nv = vSel.options[vSel.selectedIndex].text, ahora = new Date().toISOString(), motivo = (document.getElementById('gv-rep-motivo').value || '').trim();
+var reprog = (v.reprogramaciones || []).concat([{ en: ahora, fechaAnterior: v.fechaSalida, conductorAnterior: v.conductor || '', vehiculoAnterior: v.vehiculo || '', fechaNueva: nueva, motivo: motivo }]);
+var patch = { fechaSalida: nueva, conductorId: cSel.value, conductor: nc, vehiculoId: vSel.value, vehiculo: nv, tramos: __tramoUnico(cSel.value, nc, vSel.value, nv, nueva),
+  estado: 'planificado', demoradoOrigen: false, demoraSalida: null, demoraJustificada: false, gerenciamiento: null, reprogramaciones: reprog };
+GV.Storage.updateViaje(v.id, patch).then(function(){
+GV.Storage.addAlerta({ id: 'al_' + v.id + '_reprog_' + Date.now(), tipo: 'info', mensaje: 'Viaje reprogramado: ' + GV.fmtDate(v.fechaSalida) + ' -> ' + GV.fmtDate(nueva) + '. ' + nc + ' - ' + nv + (motivo ? ('. Motivo: ' + motivo) : ''), fecha: ahora, viajeId: v.id });
+closeRep(); closeDetalle(); abrirDetalleViaje(v.id);
+renderStats(); renderTrips(); renderTracking();
+try{ checkDelays(); }catch(e){}
+});
+});
+}
+
+/* Agregar destino: si el viaje no tiene destino (por ejemplo se lo quito antes), el punto elegido pasa a
+   ser el destino. Si ya tiene, el destino actual pasa a ser una parada (con el avance real que ya tuviera)
+   y el punto nuevo queda como destino final. */
 function abrirReasignarViaje(){
+if(viajeSinIniciar()){ abrirCambiarAsignacion(); return; }
 var ov4 = document.createElement('div');
 ov4.className = 'gv-modal-overlay';
 /* Ver comentario en abrirDetalleViaje/otros popups: debe quedar por encima del modal de detalle
@@ -3225,6 +3319,7 @@ renderTrips(); renderTracking(); renderStats();
 });
 }
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
+var __detReprogBtn = document.getElementById('gv-det-reprogramar'); if(__detReprogBtn){ __detReprogBtn.addEventListener('click', abrirReprogramarViaje); }
 var __detCompartirBtn = document.getElementById('gv-det-compartir'); if(__detCompartirBtn){ __detCompartirBtn.addEventListener('click', function(){
   if(v.compartirToken){ closeDetalle(); abrirDetalleViaje(v.id); return; }
   var __tok = GV.genId('sh');
@@ -3523,6 +3618,52 @@ dwellNew = (newIdx2 == null) ? null : Object.assign({}, dwellNew, { siteId: 'par
 }
 }
 return { sitiosReal: srNew, dwellState: dwellNew };
+}
+
+function elegirTipoDestinoViejo(cb){
+var ov8 = document.createElement('div');
+ov8.className = 'gv-modal-overlay';
+ov8.style.zIndex = '100001';
+var viejo = v.destino || {};
+ov8.innerHTML =
+'<div class="gv-modal" style="max-width:420px">' +
+'<h3 style="margin:0 0 12px">El destino actual pasa a ser una parada</h3>' +
+'<div style="font-size:.82rem;color:#374151;margin-bottom:12px"><b>' + GV.escapeHtml(GV.siteNameFor(viejo) || 'Destino actual') + '</b>: ¿que se hace ahi antes de seguir?</div>' +
+'<div class="gv-form-row"><label>Tipo de parada</label><select id="gv-dv-tipo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><option value="descarga">Descarga</option><option value="carga">Carga</option><option value="ambos">Carga y descarga</option><option value="">Solo punto de paso</option></select></div>' +
+'<div class="gv-form-row" style="margin-top:8px" id="gv-dv-min-wrap"><label>Minutos de permanencia</label><input type="number" id="gv-dv-min" min="0" step="5" value="60" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div>' +
+'<div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-dv-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-dv-ok">Aceptar</button></div>' +
+'</div>';
+document.body.appendChild(ov8);
+var tipoSel = document.getElementById('gv-dv-tipo');
+tipoSel.addEventListener('change', function(){ document.getElementById('gv-dv-min-wrap').style.display = tipoSel.value ? 'block' : 'none'; });
+document.getElementById('gv-dv-cancel').addEventListener('click', function(){ ov8.remove(); cb(null); });
+document.getElementById('gv-dv-ok').addEventListener('click', function(){ var t = tipoSel.value, m = parseInt(document.getElementById('gv-dv-min').value, 10); ov8.remove(); cb({ tipo: t || null, duracionMin: t ? (isNaN(m) || m < 0 ? 60 : m) : 0 }); });
+}
+function agregarDestino(){
+var tenia = !!v.destino;
+GV.pickLocation({ title: tenia ? 'Agregar destino final' : 'Agregar destino', withStopFields: false, otros: siteListFor(v) }).then(function(res){
+if(!res) return;
+var __dn = Object.assign({}, res); Object.keys(v.destino || {}).forEach(function(k){ if(!(k in __dn)) __dn[k] = null; }); /* que no queden datos del destino anterior al mezclar en la base */
+var patch = { destino: __dn, llegadaDestinoPendienteEn: null };
+var terminar = function(){
+GV.Storage.updateViaje(v.id, patch).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){
+closeDetalle(); abrirDetalleViaje(v.id);
+renderStats(); renderTrips(); renderTracking(); renderAlertas();
+});
+};
+if(!tenia){ terminar(); return; }
+elegirTipoDestinoViejo(function(cfg){
+if(!cfg) return;
+var nuevaParada = Object.assign({}, v.destino);
+if(cfg.tipo){ nuevaParada.tipo = cfg.tipo; nuevaParada.duracionMin = cfg.duracionMin; } else { delete nuevaParada.tipo; nuevaParada.duracionMin = 0; }
+var oldLen = (v.paradas || []).length;
+patch.paradas = (v.paradas || []).concat([nuevaParada]);
+var sr = Object.assign({}, v.sitiosReal || {});
+if(sr.destino){ sr['parada' + oldLen] = sr.destino; sr.destino = {}; patch.sitiosReal = sr; }
+if(v.dwellState && v.dwellState.siteId === 'destino') patch.dwellState = Object.assign({}, v.dwellState, { siteId: 'parada' + oldLen });
+terminar();
+});
+});
 }
 
 function agregarParada(){
@@ -4015,7 +4156,7 @@ return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : ''
 '<td>' + __egresoEstCell + '</td>' +
 '<td>' + __egresoRealCell + '</td></tr>';
 }).join('') + '</tbody></table>' +
-'<div style="margin-top:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-parada">+ Agregar parada</button></div>';
+'<div style="margin-top:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-parada">+ Agregar parada</button>' + ((v.estado !== 'completado' && v.estado !== 'cancelado') ? ' <button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-destino" title="' + (v.destino ? 'El destino actual pasa a ser una parada y el nuevo punto queda como destino final' : 'Este viaje no tiene destino: agrega el punto final') + '">+ Agregar destino</button>' : '') + '</div>';
 itinEl.querySelectorAll('.gv-dwell-edit').forEach(function(el){
 el.addEventListener('click', function(){ abrirEditorSitio(el.getAttribute('data-site-id')); });
 });
@@ -4077,6 +4218,8 @@ __dragSrcIdx = null;
 });
 var addParadaBtn = document.getElementById('gv-det-add-parada');
 if(addParadaBtn) addParadaBtn.addEventListener('click', agregarParada);
+var addDestinoBtn = document.getElementById('gv-det-add-destino');
+if(addDestinoBtn) addDestinoBtn.addEventListener('click', agregarDestino);
 }
 
 if(pts.length > 1){
