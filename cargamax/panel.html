@@ -1310,7 +1310,7 @@ function simSvg(r, geo, rep){
   return '<svg viewBox="0 ' + (-EX) + ' ' + W + ' ' + (H + EX) + '" role="img" aria-label="Croquis de la formación ' + r.code + '" style="display:block;margin:0 auto;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.8) + 'px;max-width:' + Math.round(W * 1.4) + 'px;height:auto;font-family:inherit">' + defs +
     '<rect x="0" y="' + GY + '" width="' + W + '" height="5" fill="#D9DDE4"/><line x1="0" y1="' + GY + '" x2="' + W + '" y2="' + GY + '" stroke="#9CA3AF" stroke-width="1.5"/>' + shad.join('') +
     back.join('') + front.join('') + susp.join('') + whl.join('') + fend.join('') + lab.join('') + tops.join('') + cargoS + '<g pointer-events="none">' + railS + '</g>' +
-    '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">' + (rep && rep.cargo ? 'Con la carga: peso bruto ' + ft(rep.pbt / 1000) + ' t de ' + ft(r.pbtc / 1000) + ' t permitidos' : rep && rep.ok ? 'Con este armado, cargando al máximo: peso bruto ' + ft(rep.pbt / 1000) + ' t (carga útil ' + ft(rep.P / 1000) + ' t)' : 'Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t') + '</text></svg>';
+    '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">' + (rep && rep.vacio ? 'Sin carga (solo la tara): peso bruto ' + ft(rep.pbt / 1000) + ' t · carga útil máxima con este armado: ' + ft(rep.P0 / 1000) + ' t' : rep && rep.cargo ? 'Con la carga: peso bruto ' + ft(rep.pbt / 1000) + ' t de ' + ft(r.pbtc / 1000) + ' t permitidos' : rep && rep.ok ? 'Con este armado, cargando al máximo: peso bruto ' + ft(rep.pbt / 1000) + ' t (carga útil ' + ft(rep.P / 1000) + ' t)' : 'Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t') + '</text></svg>';
 }
 
 function simRender(){
@@ -1366,8 +1366,9 @@ function simRender(){
   }
   /* croquis */
   var cs = el('div', 'card'); cs.appendChild(el('h3', '', 'Croquis de la formación'));
-  var sw = el('div', 'tw sktw'); sw.innerHTML = simSvg(r, geo, rep) + (ldp ? simPlanta(geo) : ''); cs.appendChild(sw);
-  cs.appendChild(el('p', 'hint', 'Las ruedas duales se dibujan con dos cubiertas (se ve la de atrás asomando) y la superancha con un aro celeste. Mientras no cargues nada, el croquis muestra cómo queda cada grupo de ejes cuando se carga lo máximo posible: el grupo que llega primero a su límite se pinta en rojo (100 %) y es el que frena la carga; los demás todavía tienen margen. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
+  var repV = rep; if(rep && rep.ok && !rep.cargo){ try { var ev = simReparto(r, geo, { Pi: r.units.map(function(){ return 0; }), xc: [] }); ev.vacio = true; ev.P0 = rep.P; repV = ev; } catch(e){} }
+  var sw = el('div', 'tw sktw'); sw.innerHTML = simSvg(r, geo, repV) + (ldp ? simPlanta(geo) : ''); cs.appendChild(sw);
+  cs.appendChild(el('p', 'hint', 'Las ruedas duales se dibujan con dos cubiertas (se ve la de atrás asomando) y la superancha con un aro celeste. Sin carga, el croquis muestra el vehículo vacío (solo la tara que lleva cada grupo de ejes); la carga máxima posible está en el cuadro «Reparto de la carga». Con «Simular carga» ves cómo cambia el peso de cada grupo, en verde si está dentro del límite y en rojo si se pasa. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
   box.appendChild(cs); sw.scrollLeft = slp;
   /* explicación */
   var ce2 = el('div', 'card'); ce2.appendChild(el('h3', '', 'Cómo leer este resultado'));
