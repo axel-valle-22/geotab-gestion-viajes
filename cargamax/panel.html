@@ -1191,12 +1191,13 @@ function simSvg(r, geo, rep){
   }
   function label(g){
     var xs = g.ejes.map(function(e){ return e.x; }), a = xs[0] - 22, b = xs[xs.length - 1] + 22, c = (xs[0] + xs[xs.length - 1]) / 2, neu = g.unit.susp === 'neumatica';
-    var idx = rep ? rep.flat.indexOf(g) : -1, ld = (idx >= 0 && rep.ok) ? rep.loads[idx] : null, pc = ld === null ? 0 : ld / g.lim;
+    var idx = rep ? rep.flat.indexOf(g) : -1, ld = (idx >= 0 && rep.ok) ? rep.loads[idx] : null, pc = ld === null ? 0 : ld / g.lim, cgm = !!(rep && rep.cargo), dy = cgm ? 13 : 0;
     lab.push('<path d="M' + a + ' ' + (GY + 12) + ' v6 H' + b + ' v-6" fill="none" stroke="#6B7280" stroke-width="1.5"/>');
     lab.push('<text x="' + c + '" y="' + (GY + 35) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#20232B">' + g.code + ' · ' + ft(g.lim / 1000) + ' t</text>');
-    if(ld !== null) lab.push('<text x="' + c + '" y="' + (GY + 49) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + (pc >= 0.995 ? '#B42318' : (pc >= 0.9 ? '#B54708' : '#067647')) + '">lleva ' + ft(ld / 1000) + ' t (' + Math.round(pc * 100) + ' %)</text>');
-    lab.push('<text x="' + c + '" y="' + (GY + 62) + '" text-anchor="middle" font-size="10" fill="#6B7280">tol. +' + fkg(g.tol) + ' kg</text>');
-    lab.push('<text x="' + c + '" y="' + (GY + 75) + '" text-anchor="middle" font-size="10" font-weight="600" fill="' + (neu ? '#0369A1' : '#6B7280') + '">susp. ' + (neu ? 'neumática' : 'mecánica') + '</text>');
+    if(ld !== null) lab.push('<text x="' + c + '" y="' + (GY + 49) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + (cgm ? (ld > g.lim + 0.5 ? '#B42318' : '#067647') : (pc >= 0.995 ? '#B42318' : (pc >= 0.9 ? '#B54708' : '#067647'))) + '">lleva ' + ft(ld / 1000) + ' t (' + Math.round(pc * 100) + ' %)</text>');
+    if(cgm && ld !== null){ var df = g.lim - ld; lab.push('<text x="' + c + '" y="' + (GY + 62) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + (df >= -0.5 ? '#067647' : '#B42318') + '">' + (df >= -0.5 ? 'OK · sobran ' + ft(df / 1000) + ' t' : 'SE PASA +' + ft(-df / 1000) + ' t') + '</text>'); }
+    lab.push('<text x="' + c + '" y="' + (GY + 62 + dy) + '" text-anchor="middle" font-size="10" fill="#6B7280">tol. +' + fkg(g.tol) + ' kg</text>');
+    lab.push('<text x="' + c + '" y="' + (GY + 75 + dy) + '" text-anchor="middle" font-size="10" font-weight="600" fill="' + (neu ? '#0369A1' : '#6B7280') + '">susp. ' + (neu ? 'neumática' : 'mecánica') + '</text>');
   }
   function callout(x, h, txt){
     tops.push('<line x1="' + x + '" y1="' + (44 - EX) + '" x2="' + x + '" y2="' + Y(h) + '" stroke="' + ACC + '" stroke-width="1.5" stroke-dasharray="4 3"/>');
@@ -1292,19 +1293,19 @@ function simSvg(r, geo, rep){
   }
   var cargoS = '';
   if(ldPl){
-    var lay = ldPl.lay, hb0 = deckOf[ldPl.u], wpx = lay.L * geo.M, hpx = lay.H * geo.M, rw;
-    for(rw = lay.across - 1; rw >= 0; rw--){
-      lay.fp.forEach(function(p){
-        if(p.row !== rw) return;
-        for(var lv = 0; lv < p.cnt; lv++){
-          var px = ldPl.x0 + p.col * wpx + rw * 2.2, yb = hb0 + lv * hpx + rw * 3.4;
-          cargoS += '<g transform="translate(' + px.toFixed(1) + ' ' + Y(yb + hpx) + ')">' + simLdSide(lay.tipo, wpx, hpx) + (rw > 0 ? '<rect width="' + wpx.toFixed(1) + '" height="' + hpx.toFixed(1) + '" fill="#000" opacity="0.09"/>' : '') + '</g>';
-        }
-      });
-    }
-    var hTopPx = lay.hTot * geo.M;
-    cargoS = '<g data-cg="1" style="cursor:grab;touch-action:none">' + cargoS + '<rect x="' + ldPl.x0 + '" y="' + Y(hb0 + hTopPx) + '" width="' + (lay.len * geo.M) + '" height="' + hTopPx + '" fill="transparent"/></g>' + '<text x="' + (ldPl.x0 + lay.len * geo.M / 2) + '" y="' + (Y(hb0 + hTopPx + (lay.across - 1) * 3.4) - 6) + '" text-anchor="middle" font-size="11" font-weight="700" fill="#374151">' + lay.n + ' × ' + LD_TIPOS[lay.tipo].n + ' · ' + fkg(lay.kg) + ' kg</text>';
+    var lay = ldPl.lay, wpx = lay.L * geo.M, hpx = lay.H * geo.M, grp = [], gx1 = Infinity, gx2 = -Infinity, gtop = 0;
+    ldPl.fps.slice().sort(function(a, b){ return (b.lane - a.lane) || (a.x - b.x); }).forEach(function(p){
+      var hb0 = deckOf[p.u], px = p.X + p.lane * 2.2, g = '<g data-fp="' + p.i + '" style="cursor:grab;touch-action:none">';
+      for(var lv = 0; lv < p.cnt; lv++){
+        var yb = hb0 + lv * hpx + p.lane * 3.4;
+        g += '<g transform="translate(' + px.toFixed(1) + ' ' + Y(yb + hpx) + ')">' + simLdSide(lay.tipo, wpx, hpx) + (p.lane > 0 ? '<rect width="' + wpx.toFixed(1) + '" height="' + hpx.toFixed(1) + '" fill="#000" opacity="0.09"/>' : '') + '</g>';
+      }
+      g += '<rect x="' + px.toFixed(1) + '" y="' + Y(hb0 + p.lane * 3.4 + p.cnt * hpx) + '" width="' + wpx.toFixed(1) + '" height="' + (p.cnt * hpx) + '" fill="transparent"/></g>';
+      cargoS += g; gx1 = Math.min(gx1, p.X); gx2 = Math.max(gx2, p.X + wpx); gtop = Math.max(gtop, hb0 + p.lane * 3.4 + p.cnt * hpx);
+    });
+    cargoS += '<text x="' + ((gx1 + gx2) / 2) + '" y="' + (Y(gtop) - 6) + '" text-anchor="middle" font-size="11" font-weight="700" fill="#374151">' + lay.n + ' × ' + LD_TIPOS[lay.tipo].n + ' · ' + fkg(lay.kg) + ' kg</text>';
   }
+  var W = Math.max(Math.max.apply(null, ends) + 30, SIM.ld ? 640 : 0), H = GY + 110 + (ldPl ? 14 : 0); geo.W = W;
   var W = Math.max(Math.max.apply(null, ends) + 30, SIM.ld ? 640 : 0), H = GY + 110; geo.W = W;
   var defs = '<defs>' +
     '<linearGradient id="smShade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.42"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.3"/></linearGradient>' +
@@ -1331,7 +1332,7 @@ function simRender(){
   var capEjes = r.groups.reduce(function(a, g){ return a + g.lim; }, 0);
   var cv = num(SIM.cv) || 0, geo = simGeom(), rep = null, ldp = SIM.ld ? simLdPlace(geo) : null;
   try { rep = simReparto(r, geo, ldp ? simLdCargo(geo, ldp) : undefined); } catch(e){ rep = null; }
-  var inf = $('sLdInfo'); if(inf && ldp) inf.textContent = ldp.lay.across + (ldp.lay.across === 1 ? ' hilera' : ' hileras') + ' a lo ancho × ' + ldp.lay.cols + ' a lo largo · ocupa ' + ft(ldp.lay.len) + ' m de ' + ft(ldp.plen) + ' m · peso total ' + fkg(ldp.lay.kg) + ' kg';
+  var inf = $('sLdInfo'); if(inf && ldp) inf.textContent = ldp.lay.across + (ldp.lay.across === 1 ? ' hilera' : ' hileras') + ' a lo ancho × ' + ldp.lay.cols + ' a lo largo · peso total ' + fkg(ldp.lay.kg) + ' kg';
   /* resultado */
   var c = el('div', 'card res');
   var big = el('div', 'big'); big.appendChild(el('span', 'lbl', 'Peso bruto máximo')); big.appendChild(el('b', '', fkg(r.pbtc) + ' kg')); big.appendChild(el('span', 'tn', '(' + ft(r.pbtc / 1000) + ' t)')); c.appendChild(big);
@@ -1408,7 +1409,7 @@ function simRender(){
 function simInit(){
   var ns = $('sNorma'), cs = $('sComp');
   ns.onchange = function(){ SIM.norma = ns.value; simPreOpts(); simRender(); };
-  cs.onchange = function(){ SIM.comp = cs.value; simPreset(SIM_DEF[SIM.comp]); SIM.g = simGDef(SIM.comp); if(SIM.ld){ SIM.ld.u = null; SIM.ld.off = null; } simPreOpts(); simBuild(); simRender(); };
+  cs.onchange = function(){ SIM.comp = cs.value; simPreset(SIM_DEF[SIM.comp]); SIM.g = simGDef(SIM.comp); if(SIM.ld){ SIM.ld.pcs = null; } simPreOpts(); simBuild(); simRender(); };
   $('sPre').onchange = function(){ if($('sPre').value){ simPreset($('sPre').value); simBuild(); simRender(); } };
   $('sCar').onchange = function(){ SIM.car = $('sCar').value; simRender(); };
   $('sCv').oninput = function(){ SIM.cv = $('sCv').value; simRender(); };
@@ -1416,74 +1417,138 @@ function simInit(){
   simDragInit();
   simPreOpts(); simBuild(); simRender();
 }
-/* ===== simulación de carga sobre el semirremolque ===== */
+/* ===== simulación de carga sobre el semirremolque (cada carga se acomoda por separado) ===== */
 var LD_TIPOS = {
   pallet: { n: 'Pallet con bolsones', L: 1, A: 1.2, H: 1.35, W: 1500 },
   ibc: { n: 'IBC', L: 1.2, A: 1, H: 1.2, W: 1000 },
-  silo: { n: 'Silo industrial', L: 3.5, A: 2.2, H: 2.7, W: 6000 },
+  silo: { n: 'Silo industrial', L: 1.2, A: 1.2, H: 2.7, W: 6000 },
   eq: { n: 'Equipo petrolero', L: 10, A: 2.4, H: 3, W: 25000 }
 };
 var LD_ANCHO = 2.5, LD_PISO = 1.4, LD_ALTMAX = 4.1, LD_ANCHOMAX = 2.6;
 function simLdNew(t, ant){
   var d = LD_TIPOS[t];
-  return { tipo: t, n: ant ? ant.n : 1, L: d.L, A: d.A, H: d.H, W: d.W, pisos: ant ? ant.pisos : 1, u: ant ? ant.u : null, off: ant ? ant.off : null };
+  return { tipo: t, n: ant ? ant.n : 1, L: d.L, A: d.A, H: d.H, W: d.W, pisos: ant ? ant.pisos : 1, pcs: null, todas: ant ? !!ant.todas : false };
 }
 function simLdLay(ld){
   var D = LD_TIPOS[ld.tipo];
   function g(k){ var v = ld[k]; return (typeof v === 'number' && isFinite(v) && v > 0) ? v : D[k]; }
   var n = Math.min(300, Math.max(1, Math.round(ld.n > 0 ? ld.n : 1))), pisos = Math.min(6, Math.max(1, Math.round(ld.pisos > 0 ? ld.pisos : 1)));
   var L = g('L'), A = g('A'), H = g('H'), W = (typeof ld.W === 'number' && isFinite(ld.W) && ld.W >= 0) ? ld.W : D.W;
-  var nf = Math.ceil(n / pisos), across = Math.max(1, Math.min(nf, Math.floor(LD_ANCHO / A + 1e-6))), cols = Math.ceil(nf / across), fp = [], f;
-  for(f = 0; f < nf; f++) fp.push({ col: Math.floor(f / across), row: f % across, cnt: Math.min(pisos, n - f * pisos) });
-  return { tipo: ld.tipo, n: n, pisos: pisos, L: L, A: A, H: H, W: W, nf: nf, across: across, cols: cols, len: cols * L, fp: fp, kg: n * W, hTot: H * pisos };
+  var nf = Math.ceil(n / pisos), across = Math.max(1, Math.min(nf, Math.floor(LD_ANCHO / A + 1e-6))), cols = Math.ceil(nf / across), cnt = [], f;
+  for(f = 0; f < nf; f++) cnt.push(Math.min(pisos, n - f * pisos));
+  return { tipo: ld.tipo, n: n, pisos: pisos, L: L, A: A, H: H, W: W, nf: nf, across: across, cols: cols, cnt: cnt, kg: n * W, hTot: H * pisos };
 }
 /* cajas donde puede ir la carga */
 function simLdPlats(geo){
   return { rigido: [0], acoplado: [0, 1], semi: [1], bitren: [1, 2] }[SIM.comp].filter(function(u){ return geo.units[u]; });
 }
-function simLdPlace(geo, ld){
+function simLdPlen(geo, u){ var G = geo.units[u]; return (G.boxR - G.boxL) / geo.M; }
+/* acomodo inicial: en fila y centrado, pegado adelante, pegado atrás o separado parejo */
+function simLdDefault(geo, lay, mode){
+  var pls = simLdPlats(geo), out = [], col = 0, rem = lay.cols, asg = [];
+  pls.forEach(function(u, idx){
+    var cap = Math.max(1, Math.floor(simLdPlen(geo, u) / lay.L + 1e-6)), take = idx === pls.length - 1 ? rem : Math.min(rem, cap);
+    asg.push(take); rem -= take;
+  });
+  pls.forEach(function(u, idx){
+    var take = asg[idx], plen = simLdPlen(geo, u), fr = plen - take * lay.L, c, k, x, fi;
+    for(c = 0; c < take; c++){
+      if(mode === 'front') x = c * lay.L;
+      else if(mode === 'rear') x = fr + c * lay.L;
+      else if(mode === 'spread' && fr > 0) x = fr / take / 2 + c * (lay.L + fr / take);
+      else x = fr / 2 + c * lay.L;
+      for(k = 0; k < lay.across; k++){ fi = (col + c) * lay.across + k; if(fi < lay.nf) out[fi] = { u: u, x: x, lane: k }; }
+    }
+    col += take;
+  });
+  return out;
+}
+/* ubicación de cada carga: pcs = [{u, x (m desde el frente de su caja), lane}] */
+function simLdPlace(geo, ld, pcsO){
   ld = ld || SIM.ld; if(!ld) return null;
   var pls = simLdPlats(geo); if(!pls.length) return null;
-  var u = pls.indexOf(ld.u) >= 0 ? ld.u : pls[0], G = geo.units[u], M = geo.M, lay = simLdLay(ld), plen = (G.boxR - G.boxL) / M, free = plen - lay.len;
-  var off = (ld.off === null || ld.off === undefined) ? free / 2 : ld.off, lo = Math.min(0, free), hi = Math.max(0, free);
-  off = Math.max(lo, Math.min(hi, off));
-  return { u: u, G: G, plen: plen, lay: lay, off: off, free: free, x0: G.boxL + off * M, pls: pls };
+  var lay = simLdLay(ld), M = geo.M, pcs = pcsO || ((ld.pcs && ld.pcs.length === lay.nf) ? ld.pcs : simLdDefault(geo, lay, 'center')), plens = {}, haveLen = 0;
+  pls.forEach(function(u){ plens[u] = simLdPlen(geo, u); haveLen += plens[u]; });
+  var fps = pcs.map(function(p, f){
+    var u = pls.indexOf(p.u) >= 0 ? p.u : pls[0], G = geo.units[u], hi = Math.max(0, plens[u] - lay.L), lo = Math.min(0, plens[u] - lay.L), x = Math.max(lo, Math.min(hi, p.x));
+    return { i: f, u: u, x: x, lane: Math.max(0, Math.min(lay.across - 1, p.lane || 0)), cnt: lay.cnt[f], X: G.boxL + x * M };
+  });
+  return { lay: lay, fps: fps, pls: pls, plens: plens, haveLen: haveLen, need: lay.cols * lay.L };
+}
+function simLdOverlap(pl){
+  var by = {}, bad = false;
+  pl.fps.forEach(function(p){ var k = p.u + '_' + p.lane; (by[k] = by[k] || []).push(p.x); });
+  Object.keys(by).forEach(function(k){ var a = by[k].sort(function(x, y){ return x - y; }), i; for(i = 1; i < a.length; i++) if(a[i] - a[i - 1] < pl.lay.L - 0.001) bad = true; });
+  return bad;
 }
 /* peso de la carga por unidad y posición de su centro de gravedad (m) */
 function simLdCargo(geo, pl){
-  var n = SIM.us.length, Pi = [], xc = [], i, M = geo.M, sw = 0, sx = 0;
-  for(i = 0; i < n; i++) Pi.push(0);
-  pl.lay.fp.forEach(function(f){ var w = f.cnt * pl.lay.W, cx = pl.x0 / M + f.col * pl.lay.L + pl.lay.L / 2; sw += w; sx += w * cx; });
-  Pi[pl.u] = sw; xc[pl.u] = sw > 0 ? sx / sw : pl.x0 / M + pl.lay.len / 2;
-  return { Pi: Pi, xc: xc, u: pl.u };
+  var n = SIM.us.length, Pi = [], xc = [], sw = [], sx = [], i, M = geo.M;
+  for(i = 0; i < n; i++){ Pi.push(0); sw.push(0); sx.push(0); }
+  pl.fps.forEach(function(p){ var w = p.cnt * pl.lay.W; sw[p.u] += w; sx[p.u] += w * (p.X / M + pl.lay.L / 2); });
+  for(i = 0; i < n; i++){ Pi[i] = sw[i]; if(sw[i] > 0) xc[i] = sx[i] / sw[i]; }
+  return { Pi: Pi, xc: xc };
 }
 function simLdOk(r, rp){
-  var ok = rp.pbt <= r.pbtc + 0.5, i;
+  var ok = rp.pbt <= r.pbtc + 0.5;
   rp.flat.forEach(function(g, q){ if(rp.loads[q] > g.lim + 0.5 || rp.loads[q] < -1) ok = false; });
   rp.kp.forEach(function(v){ if(v !== undefined && v < 0) ok = false; });
   return ok;
 }
 function simLdCopy(ld, k, v){ var t = {}, q; for(q in ld) t[q] = ld[q]; t[k] = v; return t; }
-/* cuántas unidades entran sin pasarse en ningún eje (con la posición actual) */
+/* cuántas unidades entran sin pasarse en ningún eje (acomodadas en bloque adelante, al centro, atrás o separadas parejo) */
 function simLdMax(r, geo){
-  var best = 0, n, t, pl, rp, fits = true;
+  var best = 0, n, t, lay, pl, rp, md, okn;
   for(n = 1; n <= 150; n++){
-    t = simLdCopy(SIM.ld, 'n', n); pl = simLdPlace(geo, t);
-    if(pl.free < -1e-6) break;
-    rp = simReparto(r, geo, simLdCargo(geo, pl));
-    if(simLdOk(r, rp)) best = n; else if(n > best + 3) break;
+    t = simLdCopy(SIM.ld, 'n', n); t.pcs = null; lay = simLdLay(t); okn = false;
+    if(lay.cols * lay.L > simLdPlats(geo).reduce(function(s, u){ return s + simLdPlen(geo, u); }, 0) + 1e-6) break;
+    ['center', 'front', 'rear', 'spread'].forEach(function(md){
+      if(okn) return;
+      pl = simLdPlace(geo, t, simLdDefault(geo, lay, md)); rp = simReparto(r, geo, simLdCargo(geo, pl));
+      if(simLdOk(r, rp) && !simLdOverlap(pl)) okn = true;
+    });
+    if(okn) best = n; else if(n > best + 3) break;
   }
   return best;
 }
-/* posición de la carga que deja más parejo el margen de todos los grupos de ejes */
-function simLdBest(r, geo){
-  var pl0 = simLdPlace(geo), lo = Math.min(0, pl0.free), hi = Math.max(0, pl0.free), off, best = null, t, pl, rp, s;
-  for(off = lo; off <= hi + 1e-9; off += 0.05){
-    t = simLdCopy(SIM.ld, 'off', off); t.u = pl0.u; pl = simLdPlace(geo, t); rp = simReparto(r, geo, simLdCargo(geo, pl));
-    s = Math.min.apply(null, rp.flat.map(function(g, q){ return (g.lim - rp.loads[q]) / g.lim; }));
-    rp.kp.forEach(function(v){ if(v !== undefined && v < 0) s -= 1; });
-    if(!best || s > best.s + 1e-9) best = { off: off, s: s };
-  }
+/* nota (menor = mejor): el eje más exigido y, de desempate, que todos queden parejos */
+function simLdScore(r, geo, ld, pcs){
+  var pl = simLdPlace(geo, ld, pcs), rp = simReparto(r, geo, simLdCargo(geo, pl)), mx = 0, sq = 0, pen = 0;
+  rp.flat.forEach(function(g, q){ var p = rp.loads[q] / g.lim; mx = Math.max(mx, p); sq += p * p; if(rp.loads[q] < -1) pen += 5; });
+  rp.kp.forEach(function(v){ if(v !== undefined && v < 0) pen += 5; });
+  return mx + 0.05 * sq / rp.flat.length + pen;
+}
+/* busca, carga por carga, el lugar donde el peso queda mejor repartido entre todos los grupos de ejes */
+function simLdOpt(r, geo){
+  var base = SIM.ld, lay = simLdLay(base), pls = simLdPlats(geo), best = null;
+  if(lay.cols * lay.L > pls.reduce(function(s, u){ return s + simLdPlen(geo, u); }, 0) + 1e-6) return null;
+  function libre(pcs, i, u, x, lane){ var j; for(j = 0; j < pcs.length; j++) if(j !== i && pcs[j].u === u && pcs[j].lane === lane && Math.abs(pcs[j].x - x) < lay.L - 1e-6) return false; return true; }
+  ['center', 'front', 'rear', 'spread'].forEach(function(mode){
+    var pcs = simLdDefault(geo, lay, mode).map(function(p){ return { u: p.u, x: p.x, lane: p.lane }; }), cur = simLdScore(r, geo, base, pcs);
+    [0.25, 0.05].forEach(function(step, si){
+      var mejora = true, it = 0;
+      while(mejora && it < 6){
+        mejora = false; it++;
+        pcs.forEach(function(p0, i){
+          var bs = cur, bc = null;
+          pls.forEach(function(u){
+            var hi = Math.max(0, simLdPlen(geo, u) - lay.L), xs = [], x, k;
+            if(si === 0){ for(x = 0; x <= hi + 1e-9; x += step) xs.push(x); xs.push(hi); }
+            else if(pcs[i].u === u){ for(k = -8; k <= 8; k++) xs.push(pcs[i].x + k * step); }
+            xs.forEach(function(x0){
+              var xx = Math.max(0, Math.min(hi, x0)), ln = null, l, old, s;
+              if(libre(pcs, i, u, xx, pcs[i].lane)) ln = pcs[i].lane; else { for(l = 0; l < lay.across; l++) if(libre(pcs, i, u, xx, l)){ ln = l; break; } }
+              if(ln === null) return;
+              old = pcs[i]; pcs[i] = { u: u, x: xx, lane: ln }; s = simLdScore(r, geo, base, pcs); pcs[i] = old;
+              if(s < bs - 1e-7){ bs = s; bc = { u: u, x: xx, lane: ln }; }
+            });
+          });
+          if(bc){ pcs[i] = bc; cur = bs; mejora = true; }
+        });
+      }
+    });
+    if(!best || cur < best.s) best = { s: cur, pcs: pcs };
+  });
   return best;
 }
 /* ---- dibujo de cada pieza, vista lateral (origen arriba a la izquierda, w x h en píxeles) ---- */
@@ -1572,25 +1637,23 @@ function simLdTop(tipo, w, h){
   }
   return s;
 }
-/* ---- vista desde arriba de la caja con la carga: se ven las hileras a lo ancho ---- */
+/* ---- vista desde arriba de la caja con la carga: se ven las hileras a lo ancho; cada carga se arrastra por separado ---- */
 function simPlanta(geo){
-  var ld = SIM.ld, pl = simLdPlace(geo), M = geo.M, W = geo.W || 600, ACC = 'var(--accent)', DK = '#005C7A';
-  var TOPY = 26, DW = LD_ANCHO * M, DECK = Math.round(DW + 8), H = TOPY + DECK + 46, s = '';
+  var pl = simLdPlace(geo), M = geo.M, W = geo.W || 600, ACC = 'var(--accent)', DK = '#005C7A', lay = pl.lay;
+  var TOPY = 26, DECK = Math.round(LD_ANCHO * M + 8), H = TOPY + DECK + 46, s = '', hpx = lay.A * M, wpx = lay.L * M, LT = TOPY + 4 + (DECK - lay.across * hpx) / 2, k;
   pl.pls.forEach(function(u){
     var G = geo.units[u], x1 = G.boxL, x2 = G.boxR, y1 = TOPY + 4;
     s += '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + DECK + '" fill="#EEF0F4" stroke="#9CA3AF" stroke-width="1.3" rx="2"/>';
+    for(k = 1; k < lay.across; k++) s += '<line x1="' + x1 + '" y1="' + (LT + k * hpx) + '" x2="' + x2 + '" y2="' + (LT + k * hpx) + '" stroke="#D5D9E0" stroke-width="1" stroke-dasharray="3 4"/>';
     s += '<text x="' + ((x1 + x2) / 2) + '" y="' + (TOPY - 6) + '" text-anchor="middle" font-size="11" font-weight="600" fill="#6B7280">' + SIM_NOM[SIM.comp][u] + ' · ' + ft((x2 - x1) / M) + ' m de caja</text>';
     if(G.kp !== undefined && G.kp >= x1 && G.kp <= x2) s += '<line x1="' + G.kp + '" y1="' + y1 + '" x2="' + G.kp + '" y2="' + (y1 + DECK) + '" stroke="' + ACC + '" stroke-width="1.4" stroke-dasharray="4 3"/><text x="' + (G.kp + 4) + '" y="' + (y1 + DECK + 12) + '" font-size="10" fill="' + DK + '">pivote</text>';
     G.gs.forEach(function(g){ if(g.c >= x1 && g.c <= x2) s += '<line x1="' + g.c + '" y1="' + y1 + '" x2="' + g.c + '" y2="' + (y1 + DECK) + '" stroke="#6B7280" stroke-width="1.2" stroke-dasharray="2 4"/><text x="' + g.c + '" y="' + (y1 + DECK + 12) + '" text-anchor="middle" font-size="10" fill="#6B7280">ejes</text>'; });
   });
-  /* piezas */
-  var lay = pl.lay, wpx = lay.L * M, hpx = lay.A * M, y0 = TOPY + 4 + (DECK - lay.across * hpx) / 2, f, g = '';
-  lay.fp.forEach(function(p){
-    g += '<g transform="translate(' + (pl.x0 + p.col * wpx).toFixed(1) + ' ' + (y0 + p.row * hpx).toFixed(1) + ')">' + simLdTop(lay.tipo, wpx, hpx) + (p.cnt > 1 ? '<text x="3" y="11" font-size="10" font-weight="700" fill="#374151" stroke="#fff" stroke-width="3" paint-order="stroke">×' + p.cnt + '</text>' : '') + '</g>';
+  pl.fps.forEach(function(p){
+    s += '<g data-fp="' + p.i + '" style="cursor:grab;touch-action:none"><g transform="translate(' + p.X.toFixed(1) + ' ' + (LT + p.lane * hpx).toFixed(1) + ')">' + simLdTop(lay.tipo, wpx, hpx) + (p.cnt > 1 ? '<text x="3" y="11" font-size="10" font-weight="700" fill="#374151" stroke="#fff" stroke-width="3" paint-order="stroke">×' + p.cnt + '</text>' : '') + '<rect width="' + wpx.toFixed(1) + '" height="' + hpx.toFixed(1) + '" fill="transparent"/></g></g>';
   });
-  s += '<g data-cg="1" style="cursor:grab;touch-action:none">' + g + '<rect x="' + pl.x0 + '" y="' + y0 + '" width="' + (lay.len * M) + '" height="' + (lay.across * hpx) + '" fill="transparent"/></g>';
-  s += '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#0078A1">Vista desde arriba: ' + lay.across + (lay.across === 1 ? ' hilera' : ' hileras') + ' a lo ancho × ' + lay.cols + ' a lo largo · ocupa ' + ft(lay.len) + ' m</text>';
-  return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Vista desde arriba de la carga" style="display:block;margin:6px auto 0;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.8) + 'px;max-width:' + Math.round(W * 1.4) + 'px;height:auto;font-family:inherit">' + s + '</svg>';
+  s += '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#0078A1">Vista desde arriba: ' + lay.across + (lay.across === 1 ? ' hilera' : ' hileras') + ' a lo ancho × ' + lay.cols + ' a lo largo · arrastrá cada carga</text>';
+  return '<svg data-plan="1" data-lt="' + LT + '" data-hp="' + hpx + '" data-ac="' + lay.across + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Vista desde arriba de la carga" style="display:block;margin:6px auto 0;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.8) + 'px;max-width:' + Math.round(W * 1.4) + 'px;height:auto;font-family:inherit">' + s + '</svg>';
 }
 /* ---- tarjeta de la carga (al lado de las de tractor y semirremolque) ---- */
 function simLdSlot(box){
@@ -1608,35 +1671,46 @@ function simLdSlot(box){
   Object.keys(LD_TIPOS).forEach(function(k){ var o = document.createElement('option'); o.value = k; o.textContent = LD_TIPOS[k].n; st.appendChild(o); });
   st.value = ld.tipo; st.onchange = function(){ SIM.ld = simLdNew(st.value, SIM.ld); simBuild(); simRender(); };
   rt.appendChild(el('span', 'sn', 'Tipo')); rt.appendChild(st); c.appendChild(rt);
-  function f(key, label, step, hint){
+  function f(key, label, step, hint, reset){
     var row = el('div', 'sgrp'), inp = document.createElement('input'), sp = el('span', 'sn', label);
     row.style.gridTemplateColumns = '1fr 92px'; inp.type = 'number'; inp.step = step; inp.min = '0'; inp.value = ld[key] === null || ld[key] === undefined ? '' : ld[key]; if(hint) row.title = hint;
-    inp.oninput = function(){ SIM.ld[key] = num(inp.value); simRender(); };
+    inp.oninput = function(){ SIM.ld[key] = num(inp.value); if(reset) SIM.ld.pcs = null; simRender(); };
     row.appendChild(sp); row.appendChild(inp); c.appendChild(row);
   }
-  f('n', 'Cantidad', '1'); f('L', 'Largo de cada una (m)', '0.05', 'Va a lo largo del semirremolque'); f('A', 'Ancho de cada una (m)', '0.05', 'Va a lo ancho: entran las hileras que quepan en 2,50 m'); f('H', 'Alto de cada una (m)', '0.05');
-  f('W', 'Peso de cada una (kg)', '50'); f('pisos', 'Pisos (apiladas)', '1', '1 = sin apilar');
+  f('n', 'Cantidad', '1', '', true); f('L', 'Largo de cada una (m)', '0.05', 'Va a lo largo del semirremolque', true); f('A', 'Ancho de cada una (m)', '0.05', 'Va a lo ancho: entran las hileras que quepan en 2,50 m', true); f('H', 'Alto de cada una (m)', '0.05');
+  f('W', 'Peso de cada una (kg)', '50'); f('pisos', 'Pisos (apiladas)', '1', '1 = sin apilar', true);
   c.appendChild(el('p', 'hint', '')).id = 'sLdInfo';
+  var rowT = el('label', 'chk'), ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!ld.todas;
+  ck.onchange = function(){ SIM.ld.todas = ck.checked; };
+  rowT.appendChild(ck); rowT.appendChild(document.createTextNode(' Mover todas juntas al arrastrar (también con la tecla Mayús)')); c.appendChild(rowT);
   var ac = el('div', 'sgrp'); ac.style.display = 'flex'; ac.style.flexWrap = 'wrap';
-  var b1 = el('button', 'sm', 'Centrar'); b1.type = 'button'; b1.onclick = function(){ SIM.ld.off = null; simRender(); };
+  var b1 = el('button', 'sm', 'Ordenar de nuevo'); b1.type = 'button'; b1.onclick = function(){ SIM.ld.pcs = null; simRender(); };
   var b2 = el('button', 'sm', 'Acomodar para repartir mejor'); b2.type = 'button';
-  b2.onclick = function(){ var r; try { r = simCalc(SIM.norma); } catch(e){ return; } if(r.err) return; var geo = simGeom(), pl = simLdPlace(geo), bs = simLdBest(r, geo); if(bs){ SIM.ld.u = pl.u; SIM.ld.off = bs.off; simRender(); } };
+  b2.onclick = function(){
+    var r; try { r = simCalc(SIM.norma); } catch(e){ return; } if(r.err) return;
+    var bs = simLdOpt(r, simGeom()), m = $('sLdMsg');
+    if(!bs){ if(m) m.textContent = 'No entran todas en la caja: reducí la cantidad o las medidas.'; return; }
+    SIM.ld.pcs = bs.pcs; simRender(); m = $('sLdMsg'); if(m) m.textContent = 'Listo: cada carga quedó en el lugar que mejor reparte el peso entre los ejes.';
+  };
   var b3 = el('button', 'sm', 'Quitar carga'); b3.type = 'button'; b3.onclick = function(){ SIM.ld = null; simBuild(); simRender(); };
   ac.appendChild(b1); ac.appendChild(b2); ac.appendChild(b3); c.appendChild(ac);
-  c.appendChild(el('p', 'hint', 'Arrastrá la carga en el croquis hacia adelante o atrás: el peso de cada grupo de ejes se recalcula al instante.'));
+  c.appendChild(el('p', 'hint', '')).id = 'sLdMsg';
+  c.appendChild(el('p', 'hint', 'Arrastrá cada carga en el croquis o en la vista desde arriba (también para cambiarla de hilera): el peso de cada grupo de ejes se recalcula al instante.'));
   box.appendChild(c);
 }
 /* ---- resultado del reparto con la carga puesta ---- */
 function simLdCard(box, r, geo, rep, pl){
   var lay = pl.lay, D = LD_TIPOS[lay.tipo], cr = el('div', 'card'), pc = rep.pbt / r.pbtc, bad = [];
   cr.appendChild(el('h3', '', 'Carga simulada: ' + lay.n + ' × ' + D.n));
-  cr.appendChild(el('p', 'sub2', 'Carga total ' + fkg(lay.kg) + ' kg (' + ft(lay.kg / 1000) + ' t). Peso bruto con las taras: ' + fkg(rep.pbt) + ' kg de ' + fkg(r.pbtc) + ' kg permitidos (' + Math.round(pc * 100) + ' %).'));
+  var sb = el('p', 'sub2', ''); sb.appendChild(document.createTextNode('Carga total ' + fkg(lay.kg) + ' kg (' + ft(lay.kg / 1000) + ' t). Peso bruto con las taras: ' + fkg(rep.pbt) + ' kg de ' + fkg(r.pbtc) + ' kg permitidos ('));
+  var sp = el('b', rep.pbt > r.pbtc + 0.5 ? 'bad' : 'ok', Math.round(pc * 100) + ' %'); sb.appendChild(sp); sb.appendChild(document.createTextNode(').')); cr.appendChild(sb);
   if(rep.pbt > r.pbtc + 0.5) bad.push('Se pasa del peso bruto máximo por ' + fkg(rep.pbt - r.pbtc) + ' kg.');
   rep.flat.forEach(function(g, q){
     var v = rep.loads[q], nm = 'El grupo ' + g.code + ' del ' + g.unit.nombre.toLowerCase();
     if(v > g.lim + 0.5) bad.push(nm + ' lleva ' + fkg(v) + ' kg y el límite es ' + fkg(g.lim) + ' kg: ' + (v <= g.lim + g.tol ? 'solo entra con la tolerancia de pesaje (+' + fkg(g.tol) + ' kg), que no es peso para cargar a propósito.' : 'se pasa por ' + fkg(v - g.lim) + ' kg.'));
   });
-  if(lay.len > pl.plen + 0.001) bad.push('La carga ocupa ' + ft(lay.len) + ' m y la caja tiene ' + ft(pl.plen) + ' m: no entra.');
+  if(pl.need > pl.haveLen + 0.001) bad.push('La carga necesita ' + ft(pl.need) + ' m de caja en fila y hay ' + ft(pl.haveLen) + ' m: no entra.');
+  else if(simLdOverlap(pl)) bad.push('Hay cargas superpuestas: separalas o usá "Ordenar de nuevo".');
   if(lay.A > LD_ANCHOMAX) bad.push('El ancho de la carga (' + ft(lay.A) + ' m) pasa los 2,60 m: necesita permiso especial.');
   if(LD_PISO + lay.hTot > LD_ALTMAX) bad.push('La altura total estimada es ' + ft(LD_PISO + lay.hTot) + ' m (con la plataforma a unos 1,40 m del piso) y el máximo es 4,10 m.');
   rep.avisos.forEach(function(a){ bad.push(a); });
@@ -1644,33 +1718,52 @@ function simLdCard(box, r, geo, rep, pl){
   else cr.appendChild(el('p', 'ok', 'Todo en orden: ningún grupo de ejes se pasa de su límite y el peso total entra en el máximo de la norma.'));
   var tt = el('table', 'mini'), tbb = el('tbody');
   rep.flat.forEach(function(g, q){
-    var v = rep.loads[q], p = v / g.lim, dif = g.lim - v, tr = el('tr', q === rep.quien ? 'lim' : '');
+    var v = rep.loads[q], p = v / g.lim, dif = g.lim - v, exc = dif < -0.5, tr = el('tr', q === rep.quien ? 'lim' : '');
     tr.appendChild(el('td', '', g.unit.nombre + ' · ' + g.code + (q === rep.quien ? '  ← el más exigido' : '')));
-    tr.appendChild(el('td', 'n', fkg(v) + ' de ' + fkg(g.lim) + ' kg (' + Math.round(p * 100) + ' %) · ' + (dif >= 0 ? 'sobran ' + fkg(dif) + ' kg' : 'se pasa ' + fkg(-dif) + ' kg')));
-    tbb.appendChild(tr);
+    var td = el('td', 'n', fkg(v) + ' de ' + fkg(g.lim) + ' kg (' + Math.round(p * 100) + ' %) · '); td.appendChild(el('b', exc ? 'bad' : 'ok', exc ? 'se pasa ' + fkg(-dif) + ' kg' : 'dentro del límite, sobran ' + fkg(dif) + ' kg'));
+    tr.appendChild(td); tbb.appendChild(tr);
   });
   tt.appendChild(tbb); cr.appendChild(tt);
   var mx = 0; try { mx = simLdMax(r, geo); } catch(e){}
-  cr.appendChild(el('p', 'sub2', mx > 0 ? 'Con estas medidas, este peso y esta posición ' + (mx === 1 ? 'entra como máximo 1 unidad (' : 'entran como máximo ' + mx + ' unidades (') + fkg(mx * lay.W) + ' kg) sin pasarse en ningún eje ni del peso total.' : 'Ni siquiera una unidad entra sin pasarse en algún eje o en el peso total con esta posición.'));
-  cr.appendChild(el('p', 'hint', 'Se acomodan ' + lay.across + (lay.across === 1 ? ' hilera' : ' hileras') + ' a lo ancho y ' + lay.cols + ' a lo largo (ocupan ' + ft(lay.len) + ' m de los ' + ft(pl.plen) + ' m de la caja). Estimación: el peso de cada pieza se aplica en su centro y las taras y medidas son de referencia. No reemplaza el pesaje.'));
+  cr.appendChild(el('p', 'sub2', mx > 0 ? 'Con estas medidas y este peso, acomodadas en bloque (adelante, al centro, atrás o separadas parejo) ' + (mx === 1 ? 'entra como máximo 1 unidad (' : 'entran como máximo ' + mx + ' unidades (') + fkg(mx * lay.W) + ' kg) sin pasarse en ningún eje ni del peso total.' : 'Ni siquiera una unidad entra sin pasarse en algún eje o en el peso total.'));
+  cr.appendChild(el('p', 'hint', 'Hay ' + lay.across + (lay.across === 1 ? ' hilera' : ' hileras') + ' a lo ancho y ' + lay.cols + ' a lo largo. Estimación: el peso de cada pieza se aplica en su centro y las taras y medidas son de referencia. No reemplaza el pesaje.'));
   box.appendChild(cr);
 }
-/* ---- arrastrar la carga con el mouse o el dedo ---- */
+/* ---- arrastrar cada carga con el mouse o el dedo ---- */
 var SIM_DRAG = null;
 function simDragInit(){
   var box = $('sRes');
   box.addEventListener('pointerdown', function(e){
-    var t = e.target && e.target.closest ? e.target.closest('[data-cg]') : null; if(!t || !SIM.ld) return;
+    var t = e.target && e.target.closest ? e.target.closest('[data-fp]') : null; if(!t || !SIM.ld) return;
     var svg = t.ownerSVGElement || t.closest('svg'), ctm = svg && svg.getScreenCTM(); if(!ctm || !ctm.a) return;
     var geo = simGeom(), pl = simLdPlace(geo); if(!pl) return;
-    SIM_DRAG = { x: e.clientX, sc: ctm.a, x0: pl.x0, geo: geo, w: pl.lay.len * geo.M };
+    SIM_DRAG = { i: +t.getAttribute('data-fp'), sx: e.clientX, sc: ctm.a, inv: ctm.inverse(), lt: +svg.getAttribute('data-lt'), hp: +svg.getAttribute('data-hp'), plan: svg.getAttribute('data-plan') === '1', geo: geo, pl: pl, all: !!(SIM.ld.todas || e.shiftKey) };
     e.preventDefault();
   });
   window.addEventListener('pointermove', function(e){
-    if(!SIM_DRAG || !SIM.ld) return;
-    var d = SIM_DRAG, nx = d.x0 + (e.clientX - d.x) / d.sc, cx = nx + d.w / 2, pls = simLdPlats(d.geo), bu = pls[0], bd = Infinity;
-    pls.forEach(function(u){ var G = d.geo.units[u], dd = cx < G.boxL ? G.boxL - cx : (cx > G.boxR ? cx - G.boxR : 0); if(dd < bd){ bd = dd; bu = u; } });
-    SIM.ld.u = bu; SIM.ld.off = (nx - d.geo.units[bu].boxL) / d.geo.M;
+    var d = SIM_DRAG; if(!d || !SIM.ld) return;
+    var M = d.geo.M, lay = d.pl.lay, dxm = (e.clientX - d.sx) / d.sc / M, pcs = d.pl.fps.map(function(p){ return { u: p.u, x: p.x, lane: p.lane }; });
+    if(d.all){
+      var lo = -Infinity, hi = Infinity;
+      d.pl.fps.forEach(function(p){ var h = Math.max(0, d.pl.plens[p.u] - lay.L); lo = Math.max(lo, -p.x); hi = Math.min(hi, h - p.x); });
+      if(lo > hi) return;
+      var sh = Math.max(lo, Math.min(hi, dxm)); pcs = d.pl.fps.map(function(p){ return { u: p.u, x: p.x + sh, lane: p.lane }; });
+    } else {
+      var p0 = d.pl.fps[d.i], cxl = p0.X + dxm * M, cc = cxl + lay.L * M / 2, bu = d.pl.pls[0], bd = Infinity, lane = p0.lane;
+      d.pl.pls.forEach(function(u){ var G = d.geo.units[u], dd = cc < G.boxL ? G.boxL - cc : (cc > G.boxR ? cc - G.boxR : 0); if(dd < bd){ bd = dd; bu = u; } });
+      if(d.plan){
+        var q = new DOMPoint(e.clientX, e.clientY).matrixTransform(d.inv);
+        lane = Math.max(0, Math.min(lay.across - 1, Math.floor((q.y - d.lt) / d.hp)));
+      }
+      var hi2 = Math.max(0, d.pl.plens[bu] - lay.L), xd = Math.max(0, Math.min(hi2, (cxl - d.geo.units[bu].boxL) / M));
+      function libre(x){ var j; for(j = 0; j < pcs.length; j++) if(j !== d.i && pcs[j].u === bu && pcs[j].lane === lane && Math.abs(pcs[j].x - x) < lay.L - 1e-6) return false; return true; }
+      var xs = null;
+      if(libre(xd)) xs = xd;
+      else { var cand = []; pcs.forEach(function(o, j){ if(j !== d.i && o.u === bu && o.lane === lane){ cand.push(o.x + lay.L); cand.push(o.x - lay.L); } }); cand = cand.map(function(c2){ return Math.max(0, Math.min(hi2, c2)); }).filter(libre); if(cand.length){ cand.sort(function(a, b){ return Math.abs(a - xd) - Math.abs(b - xd); }); xs = cand[0]; } }
+      if(xs === null) return;
+      pcs[d.i] = { u: bu, x: xs, lane: lane };
+    }
+    SIM.ld.pcs = pcs;
     simRender();
   });
   function fin(){ SIM_DRAG = null; }
