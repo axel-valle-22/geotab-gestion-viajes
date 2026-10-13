@@ -877,7 +877,7 @@ var KEY_AX = { s1: ['s'], w1: ['ancha'], d1: ['dual'], ss: ['s', 's'], ds: ['dua
 var KEY_CODE = { s1: 'S1', w1: 'S1', d1: 'D1', ss: 'S2', ds: 'M2', dw: 'M2', ww: 'S2', dd: 'D2', ddd: 'D3', dds: 'M3', www: 'S3' };
 var CODE_KEY = { S1: 's1', D1: 'd1', D2: 'dd', D3: 'ddd', S2: 'ss' };
 var SIM_NOM = { rigido: ['Camión'], acoplado: ['Camión', 'Acoplado'], semi: ['Tractor', 'Semirremolque'], bitren: ['Tractor', '1.er semirremolque', '2.º semirremolque'] };
-var SIM_DEF = { rigido: 'S1-D2', semi: 'S1-D2-D2', acoplado: 'S1-D2-D2-D2', bitren: 'S1-D2-D2-D2' };
+var SIM_DEF = { rigido: 'S1-D2', semi: 'S1-D2-D2', acoplado: 'S1-D2-D2-D2', bitren: 'S1-D2-D3-D3' };
 var SIM = { norma: 'nqn', comp: 'semi', car: 'baranda', sus: ['mec', 'mec', 'mec'], cv: '', us: [['s1', 'dd'], ['dd']], g: [], ld: null };
 var SIM_M = 34, SIM_PT = 44, SIM_X0 = 18;
 
@@ -1249,7 +1249,6 @@ function simSvg(r, geo, rep){
       for(var cx = x1 + 60; cx < right - 20; cx += 52) back.push(R(cx, cx + 3, base - 7, base, '#374151', null, 0));
       for(var ml = x1 + 70; ml < right - 40; ml += 70) back.push(R(ml, ml + 5, base + 2, base + 5, '#F59E0B', null, 1));
       var sx1 = kp + 88, sx2 = G.gs[0].xs[0] - 27;
-      if(sx2 - sx1 > 30) back.push(R(sx1, sx2, 16, base - 3, 'url(#smBox)', '#8A94A3', 3) + Ln(sx1 + 3, base - 12, sx2 - 3, base - 12, '#B6BDC9', 1) + Ln(sx1 + 3, 24, sx2 - 3, 24, '#B6BDC9', 1));
       back.push(carroceria(x1, boxR, bt, TOP, ui)); deckOf[ui] = bt + 3;
       back.push('<circle cx="' + kp + '" cy="' + Y(base) + '" r="3.5" fill="#111827"/>');
       back.push(R(right - 14, right + 3, base - 14, base - 9, '#4B5563', '#111827', 1) + R(right - 12, right - 9, base - 14, base, '#4B5563', null, 0));
