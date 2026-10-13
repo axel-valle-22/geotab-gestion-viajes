@@ -962,6 +962,9 @@ function simReparto(r, geo, cargo){
   var M = geo.M, comp = SIM.comp, n = r.units.length, i;
   var U = r.units.map(function(u){ return r.groups.filter(function(g){ return g.unit === u; }); });
   function gc(g){ return (g.ejes[0].x + g.ejes[g.ejes.length - 1].x) / 2 / M; }
+  function nx(g){ return g.ejes.length; }
+  function wm(gs){ var sn = 0, sw = 0; gs.forEach(function(g){ sn += nx(g); sw += nx(g) * gc(g); }); return sw / sn; }
+  function nsum(gs){ var q = 0; gs.forEach(function(g){ q += nx(g); }); return q; }
   function mean(a){ return a.reduce(function(s, v){ return s + v; }, 0) / a.length; }
   var tara = [], L = [], XG = [], XC;
   for(i = 0; i < n; i++){
@@ -976,30 +979,30 @@ function simReparto(r, geo, cargo){
     var out = [], kpl = [], k, j;
     for(k = 0; k < n; k++) out.push(U[k].map(function(){ return 0; }));
     function truck(Pt){
-      var cF = gc(U[0][0]), rg = U[0].slice(1), cR = rg.length ? mean(rg.map(gc)) : cF, Tt = tara[0], Ff, Fr;
+      var cF = gc(U[0][0]), rg = U[0].slice(1), cR = rg.length ? wm(rg) : cF, Tt = tara[0], Ff, Fr;
       if(Math.abs(cR - cF) < 0.1){ Ff = 0; Fr = Tt + Pt; }
       else { var fr = Pt * (XC[0] - cF) / (cR - cF); Ff = Tt * fs + (Pt - fr); Fr = Tt * (1 - fs) + fr; }
-      out[0][0] = Ff; rg.forEach(function(g){ out[0][U[0].indexOf(g)] = Fr / rg.length; });
+      out[0][0] = Ff; rg.forEach(function(g){ out[0][U[0].indexOf(g)] = Fr * nx(g) / nsum(rg); });
     }
     if(comp === 'rigido'){ truck(Pi[0]); }
     else if(comp === 'acoplado'){
       truck(Pi[0]);
       var W = tara[1] + Pi[1], gg = U[1];
       if(gg.length < 2){ out[1][0] = W; }
-      else { var cf = gc(gg[0]), cr = mean(gg.slice(1).map(gc)), fa = Math.abs(cr - cf) < 0.1 ? W / 2 : (tara[1] * (cr - XG[1]) + Pi[1] * (cr - XC[1])) / (cr - cf); out[1][0] = fa; for(j = 1; j < gg.length; j++) out[1][j] = (W - fa) / (gg.length - 1); }
+      else { var cf = gc(gg[0]), cr = wm(gg.slice(1)), fa = Math.abs(cr - cf) < 0.1 ? W / 2 : (tara[1] * (cr - XG[1]) + Pi[1] * (cr - XC[1])) / (cr - cf); out[1][0] = fa; for(j = 1; j < gg.length; j++) out[1][j] = (W - fa) * nx(gg[j]) / nsum(gg.slice(1)); }
     } else {
       var fkN = 0, posN = 0;
       for(k = n - 1; k >= 1; k--){
-        var Wk = tara[k] + Pi[k], kpm = geo.units[k].kp / M, cA = mean(U[k].map(gc)), den = cA - kpm, FA, Fk;
+        var Wk = tara[k] + Pi[k], kpm = geo.units[k].kp / M, cA = wm(U[k]), den = cA - kpm, FA, Fk;
         if(Math.abs(den) < 0.3){ FA = Wk + fkN; Fk = 0; }
         else { FA = (tara[k] * (XG[k] - kpm) + Pi[k] * (XC[k] - kpm) + fkN * (posN - kpm)) / den; Fk = Wk + fkN - FA; }
-        for(j = 0; j < U[k].length; j++) out[k][j] = FA / U[k].length;
+        for(j = 0; j < U[k].length; j++) out[k][j] = FA * nx(U[k][j]) / nsum(U[k]);
         kpl[k] = Fk; fkN = Fk; posN = kpm;
       }
-      var cF0 = gc(U[0][0]), rg0 = U[0].slice(1), cR0 = rg0.length ? mean(rg0.map(gc)) : cF0, kp1 = geo.units[1].kp / M, Tt = tara[0], Ff0, Fr0;
+      var cF0 = gc(U[0][0]), rg0 = U[0].slice(1), cR0 = rg0.length ? wm(rg0) : cF0, kp1 = geo.units[1].kp / M, Tt = tara[0], Ff0, Fr0;
       if(Math.abs(cR0 - cF0) < 0.1){ Ff0 = 0; Fr0 = Tt + fkN; }
       else { var share = fkN * (cR0 - kp1) / (cR0 - cF0); Ff0 = Tt * fs + share; Fr0 = Tt * (1 - fs) + fkN - share; }
-      out[0][0] = Ff0; rg0.forEach(function(g){ out[0][U[0].indexOf(g)] = Fr0 / rg0.length; });
+      out[0][0] = Ff0; rg0.forEach(function(g){ out[0][U[0].indexOf(g)] = Fr0 * nx(g) / nsum(rg0); });
     }
     return { g: out, kp: kpl };
   }
@@ -1307,7 +1310,7 @@ function simSvg(r, geo, rep){
   return '<svg viewBox="0 ' + (-EX) + ' ' + W + ' ' + (H + EX) + '" role="img" aria-label="Croquis de la formación ' + r.code + '" style="display:block;margin:0 auto;width:100%;min-width:' + Math.round(Math.min(W, 1100) * 0.8) + 'px;max-width:' + Math.round(W * 1.4) + 'px;height:auto;font-family:inherit">' + defs +
     '<rect x="0" y="' + GY + '" width="' + W + '" height="5" fill="#D9DDE4"/><line x1="0" y1="' + GY + '" x2="' + W + '" y2="' + GY + '" stroke="#9CA3AF" stroke-width="1.5"/>' + shad.join('') +
     back.join('') + front.join('') + susp.join('') + whl.join('') + fend.join('') + lab.join('') + tops.join('') + cargoS + '<g pointer-events="none">' + railS + '</g>' +
-    '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">' + (rep && rep.cargo ? 'Con la carga: peso bruto ' + ft(rep.pbt / 1000) + ' t de ' + ft(r.pbtc / 1000) + ' t permitidos' : rep && rep.ok ? 'Con este armado: peso bruto máximo ' + ft(rep.pbt / 1000) + ' t (carga útil ' + ft(rep.P / 1000) + ' t)' : 'Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t') + '</text></svg>';
+    '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0078A1">' + (rep && rep.cargo ? 'Con la carga: peso bruto ' + ft(rep.pbt / 1000) + ' t de ' + ft(r.pbtc / 1000) + ' t permitidos' : rep && rep.ok ? 'Con este armado, cargando al máximo: peso bruto ' + ft(rep.pbt / 1000) + ' t (carga útil ' + ft(rep.P / 1000) + ' t)' : 'Peso bruto máximo del conjunto: ' + ft(r.pbtc / 1000) + ' t') + '</text></svg>';
 }
 
 function simRender(){
@@ -1358,13 +1361,13 @@ function simRender(){
       rep.flat.forEach(function(g, q){ var pc = rep.loads[q] / g.lim, tr = el('tr', q === rep.quien ? 'lim' : ''); tr.appendChild(el('td', '', g.unit.nombre + ' · ' + g.code + (q === rep.quien ? '  ← llega primero al límite' : ''))); tr.appendChild(el('td', 'n', fkg(rep.loads[q]) + ' de ' + fkg(g.lim) + ' kg (' + Math.round(pc * 100) + ' %)')); tbb.appendChild(tr); });
       tt.appendChild(tbb); cr.appendChild(tt);
     }
-    cr.appendChild(el('p', 'hint', 'Estimación: la carga se supone pareja a lo largo de la caja y el peso se reparte en partes iguales entre los grupos de ejes de cada unidad. Las taras y las medidas son de referencia: cambialas por las de tu unidad. No reemplaza el pesaje.'));
+    cr.appendChild(el('p', 'hint', 'Estimación: la carga se supone pareja a lo largo de la caja y dentro de cada unidad el peso se reparte en partes iguales entre sus ejes (un eje suelto lleva menos que un tándem). Las taras y las medidas son de referencia: cambialas por las de tu unidad. No reemplaza el pesaje.'));
     box.appendChild(cr);
   }
   /* croquis */
   var cs = el('div', 'card'); cs.appendChild(el('h3', '', 'Croquis de la formación'));
   var sw = el('div', 'tw sktw'); sw.innerHTML = simSvg(r, geo, rep) + (ldp ? simPlanta(geo) : ''); cs.appendChild(sw);
-  cs.appendChild(el('p', 'hint', 'Las ruedas duales se dibujan con dos cubiertas (se ve la de atrás asomando) y la superancha con un aro celeste. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
+  cs.appendChild(el('p', 'hint', 'Las ruedas duales se dibujan con dos cubiertas (se ve la de atrás asomando) y la superancha con un aro celeste. Mientras no cargues nada, el croquis muestra cómo queda cada grupo de ejes cuando se carga lo máximo posible: el grupo que llega primero a su límite se pinta en rojo (100 %) y es el que frena la carga; los demás todavía tienen margen. Debajo de cada grupo de ejes se ve el máximo que soporta, su tolerancia y el tipo de suspensión: con elásticos (ballestas) o con bolsas de aire celestes. Los puntos celestes marcan los enganches.'));
   box.appendChild(cs); sw.scrollLeft = slp;
   /* explicación */
   var ce2 = el('div', 'card'); ce2.appendChild(el('h3', '', 'Cómo leer este resultado'));
