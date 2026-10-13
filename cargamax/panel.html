@@ -65,7 +65,7 @@
       </section>
       <section class="card filt">
         <label class="wide">Buscar<input type="text" id="uTxt" placeholder="Nombre o patente"></label>
-        <label>Tipo<select id="uTipo"><option value="">Todos</option><option value="_sin">Sin clasificar</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>
+        <label>Tipo<select id="uTipo"><option value="">Todos</option><option value="_sin">Sin clasificar</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="carreton">Carretón</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>
         <label>Datos<select id="uEst"><option value="">Todos</option><option value="incompleto">Incompletos</option><option value="completo">Completos</option><option value="verificado">Verificados</option></select></label>
         <button id="uAdd" class="sm primary">Agregar unidad</button><button id="uCsv" class="sm">Exportar CSV</button>
       </section>
@@ -193,7 +193,7 @@ var NORMAS = {
   }
 };
 var COMP_TXT = { rigido: 'camión', semi: 'tractor con semirremolque', acoplado: 'camión con acoplado', bitren: 'bitrén' };
-var TIPOS = { tractor: 'Tractor', camion: 'Camión', semi: 'Semirremolque', acoplado: 'Acoplado', otro: 'No aplica' };
+var TIPOS = { tractor: 'Tractor', camion: 'Camión', semi: 'Semirremolque', carreton: 'Carretón', acoplado: 'Acoplado', otro: 'No aplica' };
 var ESTADOS = [['', 'Sin estado'], ['por_iniciar', 'Por iniciar'], ['borrador', 'En borrador'], ['doc_faltante', 'Documentación faltante'], ['aprobacion_pendiente', 'Aprobación pendiente'], ['pago_pendiente', 'Pago pendiente'], ['renovacion_lista', 'Renovación lista'], ['en_carpetas', 'En carpetas'], ['vtv_por_vencer', 'VTV por vencer'], ['vtv_vencida', 'VTV vencida'], ['renovar_demanda', 'Renovar a demanda'], ['no_renovar', 'No renovar']];
 var EST_PERM = {}; ESTADOS.forEach(function(e){ EST_PERM[e[0]] = e[1]; });
 var EN_TRAMITE = { por_iniciar: 1, borrador: 1, doc_faltante: 1, aprobacion_pendiente: 1, pago_pendiente: 1 };
@@ -208,6 +208,15 @@ function ft(n){ return Number(n).toLocaleString('es-AR', { minimumFractionDigits
 function num(v){ if(v === '' || v === null || v === undefined) return null; var n = Number(String(v).replace(',', '.')); return isNaN(n) ? null : n; }
 function nowIso(){ return new Date().toISOString(); }
 function fdate(iso){ try{ return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }); }catch(e){ return iso || ''; } }
+/* nombre del tipo de la unidad: el carretón se llama según los ejes que tenga cargados */
+function tipoNom(u){
+  if(!u) return '';
+  if(u.tipo !== 'carreton') return TIPOS[u.tipo] || '';
+  if(!u.ejes || !u.ejes.length) return 'Carretón';
+  var gs = grupos(u).groups, n = u.ejes.length;
+  if(gs.length === 1) return n === 1 ? 'Carretón 1 eje' : (n === 2 ? 'Carretón tándem' : (n === 3 ? 'Carretón tridem' : 'Carretón ' + n + ' ejes'));
+  return 'Carretón ' + n + ' ejes (' + gs.map(function(g){ return g.code; }).join('-') + ')';
+}
 function today(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
 
 /* ===================== EJES Y GRUPOS ===================== */
@@ -251,7 +260,7 @@ function calcular(s){
   } else if(t1 === 'camion'){
     if(s.u3){ r.err = 'Un camión no lleva dos remolques en esta calculadora. Usá un tractor para el bitrén.'; return r; }
     comp = s.u2 ? 'acoplado' : 'rigido';
-    if(s.u2 && s.u2.tipo === 'semi') r.avisos.push(s.u2.nombre + ' está clasificado como semirremolque y se está usando con un camión.');
+    if(s.u2 && (s.u2.tipo === 'semi' || s.u2.tipo === 'carreton')) r.avisos.push(s.u2.nombre + ' está clasificado como ' + (s.u2.tipo === 'carreton' ? 'carretón' : 'semirremolque') + ' y se está usando con un camión.');
   } else {
     r.err = 'La unidad principal tiene que estar clasificada como tractor o camión (pestaña Unidades).'; return r;
   }
@@ -429,7 +438,7 @@ function fillLists(){
     var o2 = document.createElement('option'); o2.value = u.nombre; c.appendChild(o2);
     var o = document.createElement('option'); o.value = u.nombre;
     if(u.tipo === 'tractor' || u.tipo === 'camion') a.appendChild(o);
-    else if(u.tipo === 'semi' || u.tipo === 'acoplado') b.appendChild(o);
+    else if(u.tipo === 'semi' || u.tipo === 'carreton' || u.tipo === 'acoplado') b.appendChild(o);
   });
 }
 function selCalc(){
@@ -566,10 +575,10 @@ function renderUnidades(){
     var tr = el('tr'), e = estado(u);
     var tdN = el('td', 'nm', u.nombre); if(u.kind === 'manual' && !u.gid){ var bm = el('span', 'bdg', 'sin Geotab'); bm.style.marginLeft = '6px'; tdN.appendChild(bm); } tr.appendChild(tdN);
     var td = el('td'), sel = document.createElement('select'); sel.className = 'ti';
-    [['', '— elegir —'], ['tractor', 'Tractor'], ['camion', 'Camión'], ['semi', 'Semirremolque'], ['acoplado', 'Acoplado'], ['otro', 'No aplica']].forEach(function(o){ var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op); });
+    [['', '— elegir —'], ['tractor', 'Tractor'], ['camion', 'Camión'], ['semi', 'Semirremolque'], ['carreton', 'Carretón'], ['acoplado', 'Acoplado'], ['otro', 'No aplica']].forEach(function(o){ var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op); });
     sel.value = u.tipo || '';
     sel.onchange = function(){ setTipo(u, sel.value); };
-    td.appendChild(sel); tr.appendChild(td);
+    td.appendChild(sel); if(u.tipo === 'carreton'){ var tg = el('div', 'hint', tipoNom(u)); tg.style.marginTop = '2px'; td.appendChild(tg); } tr.appendChild(td);
     tr.appendChild(el('td', '', u.patente || ''));
     tr.appendChild(el('td', '', ejesCode(u) || '–'));
     tr.appendChild(el('td', 'n', u.tara > 0 ? fkg(u.tara) : '–'));
@@ -579,7 +588,7 @@ function renderUnidades(){
     var tdB = el('td'), bt = el('button', 'sm', u.tipo && u.tipo !== 'otro' ? 'Ficha' : 'Ficha'); bt.onclick = function(){ openFicha(u); }; tdB.appendChild(bt); tr.appendChild(tdB);
     tb.appendChild(tr);
   });
-  $('uMsg').textContent = list.length + ' de ' + act.length + ' unidades. Clasificá cada una (tractor, camión, semirremolque, acoplado o no aplica) y abrí la ficha para cargar tara, ejes y potencia.';
+  $('uMsg').textContent = list.length + ' de ' + act.length + ' unidades. Clasificá cada una (tractor, camión, semirremolque, carretón, acoplado o no aplica) y abrí la ficha para cargar tara, ejes y potencia.';
 }
 function setTipo(u, v){
   getDb().then(function(d){ return d.collection(COL_U).doc(u.id).set({ tipo: v, editPor: me || '', editFecha: nowIso() }, { merge: true }); }).then(function(){
@@ -591,9 +600,9 @@ function setTipo(u, v){
 var ET = [];
 function openFicha(u){
   var box = $('modBox');
-  box.innerHTML = '<div class="lh"><h2 id="fTitle"></h2><button id="fClose" class="sm">Cerrar</button></div>' +
+  box.innerHTML = '<div class="lh"><h2 id="fTitle"></h2><span id="fTipoTag" class="bdg" hidden></span><button id="fClose" class="sm">Cerrar</button></div>' +
   '<div class="grid g3">' +
-  '<label>Tipo<select id="fTipo"><option value="">— elegir —</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>' +
+  '<label>Tipo<select id="fTipo"><option value="">— elegir —</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="carreton">Carretón</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>' +
   '<label>Patente<input id="fPat" type="text"></label>' +
   '<label>Marca y modelo<input id="fMod" type="text"></label>' +
   '<label>Tara (kg)<input id="fTara" type="number" inputmode="numeric" min="0"></label>' +
@@ -605,7 +614,7 @@ function openFicha(u){
   '</div>' +
   '<h3>Ejes</h3>' +
   '<p class="hint">Cargá los ejes de adelante hacia atrás. La distancia es entre el centro del eje y el anterior: si es mayor a 1,20 m y menor a 2,40 m forman un tándem; a 2,40 m o más cuentan como ejes separados.</p>' +
-  '<div class="presets"><span>Plantillas:</span><button class="sm" data-p="t42">Tractor 4x2</button><button class="sm" data-p="t64">Tractor / camión 6x4</button><button class="sm" data-p="s1">Semi 1 eje</button><button class="sm" data-p="s2">Semi tándem</button><button class="sm" data-p="s3">Semi tridem</button><button class="sm" data-p="a2">Acoplado 2 ejes</button></div>' +
+  '<div class="presets"><span>Plantillas:</span><button class="sm" data-p="t42">Tractor 4x2</button><button class="sm" data-p="t64">Tractor / camión 6x4</button><button class="sm" data-p="s1">Semi 1 eje</button><button class="sm" data-p="s2">Semi tándem</button><button class="sm" data-p="s3">Semi tridem</button><button class="sm vc" data-p="c1">Carretón 1 eje</button><button class="sm vc" data-p="c2">Carretón tándem</button><button class="sm vc" data-p="c3">Carretón tridem</button><button class="sm" data-p="a2">Acoplado 2 ejes</button></div>' +
   '<div id="fEjes"></div><div class="acts"><button id="fAdd" class="sm">Agregar eje</button></div>' +
   '<p id="fPrev" class="hint"></p>' +
   '<label>Observaciones<textarea id="fNota" rows="2"></textarea></label>' +
@@ -617,8 +626,8 @@ function openFicha(u){
   $('fPot').value = u.potencia > 0 ? u.potencia : ''; $('fCmt').value = u.cmt > 0 ? u.cmt : ''; $('fPbt').value = u.pbt > 0 ? u.pbt : '';
   $('fNota').value = u.nota || ''; $('fVer').checked = !!u.verificado;
   ET = (u.ejes || []).map(function(e){ return { r: e.r || 'dual', d: (e.d === null || e.d === undefined) ? '' : e.d }; });
-  function vt(){ var t = $('fTipo').value; [].forEach.call(box.querySelectorAll('.vt'), function(l){ l.hidden = !(t === 'tractor' || t === 'camion'); }); }
-  vt(); $('fTipo').onchange = vt;
+  function vt(){ var t = $('fTipo').value; [].forEach.call(box.querySelectorAll('.vt'), function(l){ l.hidden = !(t === 'tractor' || t === 'camion'); }); [].forEach.call(box.querySelectorAll('.vc'), function(b){ b.style.display = t === 'carreton' ? '' : 'none'; }); }
+  vt(); fTag(); $('fTipo').onchange = function(){ vt(); fTag(); };
   renderEjes(u);
   $('fSusp').onchange = function(){ prevEjes(u); };
   $('fAdd').onclick = function(){ ET.push({ r: 'dual', d: ET.length ? 1.35 : '' }); renderEjes(u); };
@@ -630,9 +639,9 @@ function preset(p){
   var S = function(d){ return { r: 'simple', d: d }; }, D = function(d){ return { r: 'dual', d: d }; };
   if(p === 't42') ET = [S(''), D(3.6)];
   else if(p === 't64') ET = [S(''), D(3.6), D(1.35)];
-  else if(p === 's1') ET = [D('')];
-  else if(p === 's2') ET = [D(''), D(1.35)];
-  else if(p === 's3') ET = [D(''), D(1.35), D(1.35)];
+  else if(p === 's1' || p === 'c1') ET = [D('')];
+  else if(p === 's2' || p === 'c2') ET = [D(''), D(1.35)];
+  else if(p === 's3' || p === 'c3') ET = [D(''), D(1.35), D(1.35)];
   else if(p === 'a2') ET = [D(''), D(3.5)];
 }
 function renderEjes(u){
@@ -649,7 +658,10 @@ function renderEjes(u){
   });
   prevEjes(u);
 }
+/* el nombre del carretón se actualiza solo cuando cambian los ejes */
+function fTag(){ var g = $('fTipoTag'), t = $('fTipo'); if(!g || !t) return; if(t.value === 'carreton'){ g.hidden = false; g.textContent = tipoNom({ tipo: 'carreton', ejes: ET, nombre: '' }); } else g.hidden = true; }
 function prevEjes(u){
+  fTag();
   var p = $('fPrev'); if(!p) return;
   if(!ET.length){ p.textContent = 'Todavía no hay ejes cargados.'; return; }
   var g = grupos({ ejes: ET, susp: $('fSusp').value, nombre: u.nombre });
@@ -673,7 +685,7 @@ function saveFicha(u){
   m.textContent = 'Guardando…';
   getDb().then(function(x){ return x.collection(COL_U).doc(u.id).set(d, { merge: true }); }).then(function(){
     for(var k in d) u[k] = d[k];
-    logReg(u.nombre, 'Actualizó la ficha' + (d.verificado ? ' (verificada)' : '') + ': ' + (TIPOS[d.tipo] || 'sin tipo') + ', tara ' + (d.tara ? fkg(d.tara) + ' kg' : 'sin dato') + ', ejes ' + (ejesCode(u) || 'sin dato'));
+    logReg(u.nombre, 'Actualizó la ficha' + (d.verificado ? ' (verificada)' : '') + ': ' + (tipoNom(u) || 'sin tipo') + ', tara ' + (d.tara ? fkg(d.tara) + ' kg' : 'sin dato') + ', ejes ' + (ejesCode(u) || 'sin dato'));
     fillLists(); renderUnidades(); recalc(); m.textContent = 'Guardado.';
     setTimeout(closeMod, 500);
   }).catch(function(e){ m.textContent = errTxt(e); });
@@ -1874,7 +1886,7 @@ function openUnidad(){
   '<div class="grid g3">' +
   '<label>Número interno<input id="nInt" type="text" placeholder="T277, R60, P170…"></label>' +
   '<label>Patente<input id="nPat" type="text" placeholder="AC777QL"></label>' +
-  '<label>Tipo<select id="nTipo"><option value="">— elegir —</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>' +
+  '<label>Tipo<select id="nTipo"><option value="">— elegir —</option><option value="tractor">Tractor</option><option value="camion">Camión</option><option value="semi">Semirremolque</option><option value="carreton">Carretón</option><option value="acoplado">Acoplado</option><option value="otro">No aplica</option></select></label>' +
   '<label class="wide">Marca y modelo (opcional)<input id="nMod" type="text"></label>' +
   '</div>' +
   '<div class="acts"><button id="nSave" class="primary">Agregar</button><span id="nMsg" class="hint"></span></div>';
@@ -1913,7 +1925,7 @@ function exportCsv(){
   var out = [cols.join(';')];
   function q(v){ v = (v === null || v === undefined) ? '' : String(v); return '"' + v.replace(/"/g, '""') + '"'; }
   U.filter(function(u){ return u.activo !== false; }).forEach(function(u){
-    out.push([u.nombre, TIPOS[u.tipo] || '', u.patente, u.modelo, u.tara || '', u.taraFuente, u.susp, u.potencia || '', u.cmt || '', u.pbt || '', ejesCode(u), EST_TXT[estado(u).e], u.verPor, u.nota].map(q).join(';'));
+    out.push([u.nombre, tipoNom(u), u.patente, u.modelo, u.tara || '', u.taraFuente, u.susp, u.potencia || '', u.cmt || '', u.pbt || '', ejesCode(u), EST_TXT[estado(u).e], u.verPor, u.nota].map(q).join(';'));
   });
   var blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unidades-carga-maxima-' + today() + '.csv';
