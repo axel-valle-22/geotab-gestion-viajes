@@ -95,7 +95,7 @@
         <label title="Ocupación de calzada: estudio que solicita Vialidad para corroborar el permiso y entregarlo">Ocupación de calzada (OC)<select id="pOc"><option value="">Todos</option><option value="con">Con OC</option><option value="sin">Sin OC</option></select></label>
       </section>
       <section class="card">
-        <div class="acts" style="margin-top:0"><button id="pNew" class="primary">Nuevo permiso</button><button id="pCsv" class="sm">Exportar CSV</button><span id="pMsg" class="hint"></span></div>
+        <div class="acts" style="margin-top:0"><button id="pNew" class="primary">Nuevo permiso</button><button id="pCsv" class="sm">Exportar CSV</button><button id="pXl" class="sm" title="Cargar las planillas Excel actualizadas (NQN y NACIONALES) y actualizar los permisos">Actualizar desde Excel</button><span id="pMsg" class="hint"></span></div>
         <div class="tw"><table id="pTbl"><thead><tr><th>Jur.</th><th>Servicio</th><th>Formación</th><th>Carga</th><th>N°</th><th>Tramo</th><th>Vence</th><th>Renov.</th><th>Dimensiones</th><th>Estado</th><th title="Ocupación de calzada">OC</th><th>PDF</th><th></th></tr></thead><tbody id="pTb"></tbody></table></div>
         <p class="hint">Estos permisos son para cargas sobredimensionadas (largo, ancho o alto). Las dimensiones son opcionales: cargá las que figuren en el permiso.</p>
       </section>
@@ -925,6 +925,365 @@ function openPermiso(p){
   };
   $('mod').hidden = false; box.scrollTop = 0;
 }
+/* ===================== LECTOR DE PLANILLAS .XLSX (sin librerías) ===================== */
+/* Un .xlsx es un zip con XML adentro: se lee con DecompressionStream del navegador. Se necesitan los colores de relleno (estado del trámite). */
+function xlTxt(v){ if(v === null || v === undefined) return ''; if(v instanceof Date) return v.toISOString().slice(0, 10); return String(v).trim().replace(/\s+/g, ' '); }
+function xlPlate(s){ return String(s === null || s === undefined ? '' : s).toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function xlFecha(v){
+  if(v instanceof Date) return v.toISOString().slice(0, 10);
+  var s = xlTxt(v), m = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/.exec(s);
+  if(m){ var d = +m[1], mo = +m[2], y = +m[3]; if(y < 100) y += 2000; return (y < 1000 ? '0' + y : '' + y).padStart(4, '0') + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+  return '';
+}
+function xlNumLargo(s){ var m = /^\s*(\d{1,2}(?:[.,]\d{1,2})?)\b\s*(.*)$/.exec(xlTxt(s)); return m ? { n: parseFloat(m[1].replace(',', '.')), r: m[2].trim() } : { n: null, r: xlTxt(s) }; }
+function xlKind(interno){
+  var i = String(interno).toUpperCase();
+  if('TMH'.indexOf(i.charAt(0)) >= 0 && /^[TMH]\d/.test(i)) return 'tractor';
+  if(/^R\d/.test(i)) return 'semi';
+  if(/^P\d/.test(i)) return 'camion';
+  if(/^G\d/.test(i)) return 'otro';
+  return 'acoplado';
+}
+function xlInflate(bytes){ return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(function(b){ return new Uint8Array(b); }); }
+function xlZip(buf){
+  var u8 = new Uint8Array(buf), dv = new DataView(buf), n = u8.length, eocd = -1, i;
+  for(i = n - 22; i >= Math.max(0, n - 70000); i--){ if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; } }
+  if(eocd < 0) throw new Error('No es un archivo .xlsx válido (si es un .xls viejo, abrilo en Excel y guardalo como .xlsx).');
+  var cnt = dv.getUint16(eocd + 10, true), off = dv.getUint32(eocd + 16, true), files = {}, dec = new TextDecoder('utf-8');
+  for(i = 0; i < cnt; i++){
+    if(dv.getUint32(off, true) !== 0x02014b50) break;
+    var nl = dv.getUint16(off + 28, true), xl = dv.getUint16(off + 30, true), cl = dv.getUint16(off + 32, true);
+    files[dec.decode(u8.subarray(off + 46, off + 46 + nl))] = { meth: dv.getUint16(off + 10, true), csz: dv.getUint32(off + 20, true), lo: dv.getUint32(off + 42, true) };
+    off += 46 + nl + xl + cl;
+  }
+  return { names: Object.keys(files), read: function(name){
+    var f = files[name]; if(!f) return Promise.resolve(null);
+    var st = f.lo + 30 + dv.getUint16(f.lo + 26, true) + dv.getUint16(f.lo + 28, true), data = u8.subarray(st, st + f.csz);
+    if(f.meth === 0) return Promise.resolve(dec.decode(data));
+    if(f.meth !== 8) return Promise.reject(new Error('El .xlsx usa una compresión que no se puede leer.'));
+    return xlInflate(data).then(function(b){ return dec.decode(b); });
+  } };
+}
+function xlXml(s){ var d = new DOMParser().parseFromString(s, 'application/xml'); if(d.getElementsByTagName('parsererror').length) throw new Error('El .xlsx tiene un XML dañado.'); return d; }
+function xlColNum(ref){ var m = /^([A-Z]+)(\d+)$/.exec(ref), c = 0, i; for(i = 0; i < m[1].length; i++) c = c * 26 + m[1].charCodeAt(i) - 64; return [+m[2], c]; }
+function xlIsDateFmt(id, code){
+  if((id >= 14 && id <= 22) || (id >= 45 && id <= 47)) return true;
+  if(!code) return false;
+  var c = String(code).replace(/"[^"]*"/g, '').replace(/\\./g, '').replace(/\[[^\]]*\]/g, '');
+  return /[dmyhsDMYHS]/.test(c) && !/^general$/i.test(c);
+}
+function xlLoad(buf){
+  if(typeof DecompressionStream === 'undefined') return Promise.reject(new Error('Este navegador no puede leer archivos .xlsx: usá Chrome o Edge actualizado.'));
+  var z; try { z = xlZip(buf); } catch(e){ return Promise.reject(e); }
+  var G = { sheets: [], ss: [], xfs: [], fills: [], nf: {} };
+  return Promise.all([z.read('xl/workbook.xml'), z.read('xl/_rels/workbook.xml.rels'), z.read('xl/sharedStrings.xml'), z.read('xl/styles.xml')]).then(function(r){
+    if(!r[0] || !r[1]) throw new Error('No es un archivo .xlsx válido.');
+    var rels = {}; [].forEach.call(xlXml(r[1]).getElementsByTagName('Relationship'), function(x){ rels[x.getAttribute('Id')] = x.getAttribute('Target'); });
+    [].forEach.call(xlXml(r[0]).getElementsByTagName('sheet'), function(s){
+      var t = rels[s.getAttribute('r:id')] || ''; t = t.charAt(0) === '/' ? t.slice(1) : 'xl/' + t;
+      G.sheets.push({ name: s.getAttribute('name'), path: t });
+    });
+    if(r[2]) [].forEach.call(xlXml(r[2]).getElementsByTagName('si'), function(si){
+      var s = ''; [].forEach.call(si.getElementsByTagName('t'), function(t){ if(t.parentNode.nodeName !== 'rPh') s += t.textContent; }); G.ss.push(s);
+    });
+    if(r[3]){
+      var sx = xlXml(r[3]);
+      [].forEach.call(sx.getElementsByTagName('numFmt'), function(x){ G.nf[x.getAttribute('numFmtId')] = x.getAttribute('formatCode'); });
+      var fl = sx.getElementsByTagName('fills')[0];
+      if(fl) [].forEach.call(fl.getElementsByTagName('fill'), function(f){
+        var pf = f.getElementsByTagName('patternFill')[0], k = '';
+        if(pf && pf.getAttribute('patternType') && pf.getAttribute('patternType') !== 'none'){
+          var fg = pf.getElementsByTagName('fgColor')[0];
+          if(fg){
+            if(fg.getAttribute('rgb')) k = fg.getAttribute('rgb');
+            else if(fg.getAttribute('theme') !== null) k = 't' + fg.getAttribute('theme') + '/' + (Math.round(parseFloat(fg.getAttribute('tint') || '0') * 10) / 10).toFixed(1);
+          }
+        }
+        G.fills.push(k);
+      });
+      var cx = sx.getElementsByTagName('cellXfs')[0];
+      if(cx) [].forEach.call(cx.children, function(x){ var id = +(x.getAttribute('numFmtId') || 0); G.xfs.push({ fill: G.fills[+(x.getAttribute('fillId') || 0)] || '', date: xlIsDateFmt(id, G.nf[id]) }); });
+    }
+    return G;
+  }).then(function(G){
+    return Promise.all(G.sheets.map(function(s){ return z.read(s.path); })).then(function(xs){
+      G.sheets.forEach(function(s, i){ s.cells = xlCells(xs[i], G); });
+      return G;
+    });
+  });
+}
+/* devuelve { rows: {fila: {col: {v, fill}}}, maxRow, maxCol } con las celdas combinadas (salvo la primera) vacías, como las ve Excel */
+function xlCells(xml, G){
+  var out = { rows: {}, maxRow: 0, maxCol: 0 };
+  if(!xml) return out;
+  var d = xlXml(xml), skip = {};
+  [].forEach.call(d.getElementsByTagName('mergeCell'), function(m){
+    var p = m.getAttribute('ref').split(':'); if(p.length < 2) return;
+    var a = xlColNum(p[0]), b = xlColNum(p[1]), r, c;
+    for(r = a[0]; r <= b[0]; r++) for(c = a[1]; c <= b[1]; c++) if(r !== a[0] || c !== a[1]) skip[r + ',' + c] = 1;
+  });
+  [].forEach.call(d.getElementsByTagName('c'), function(c){
+    var rc = xlColNum(c.getAttribute('r')), r = rc[0], k = rc[1], t = c.getAttribute('t'), xf = G.xfs[+(c.getAttribute('s') || 0)] || { fill: '', date: false }, ve = c.getElementsByTagName('v')[0], v = null;
+    if(r > out.maxRow) out.maxRow = r; if(k > out.maxCol) out.maxCol = k;
+    if(skip[r + ',' + k]) return;
+    if(t === 's') v = ve ? (G.ss[+ve.textContent] === undefined ? '' : G.ss[+ve.textContent]) : null;
+    else if(t === 'inlineStr'){ var s = ''; [].forEach.call(c.getElementsByTagName('t'), function(x){ s += x.textContent; }); v = s; }
+    else if(t === 'str') v = ve ? ve.textContent : null;
+    else if(t === 'b') v = ve ? ve.textContent === '1' : null;
+    else if(t === 'e') v = null;
+    else if(ve && ve.textContent !== ''){
+      var n = Number(ve.textContent);
+      v = xf.date && isFinite(n) ? new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000) : n;
+    }
+    (out.rows[r] = out.rows[r] || {})[k] = { v: v, fill: xf.fill };
+  });
+  return out;
+}
+var XL_LEG = { nqn: { 't5/0.4': 'vtv_por_vencer', 'FFFF7979': 'vtv_vencida', 't7/0.8': 'pago_pendiente', 't9/0.8': 'renovacion_lista' },
+  nac: { 't5/0.8': 'borrador', 't7/0.8': 'aprobacion_pendiente', 't2/-0.2': 'no_renovar', 'FFFF7979': 'doc_faltante' } };
+/* Convierte las hojas de una planilla en permisos y unidades. Jurisdicción: "N° WEB" = Neuquén, "N° EXPEDIENTE" = Nacional. */
+function xlExtract(G){
+  var res = { permisos: [], units: {}, hojas: [], avisos: [] };
+  G.sheets.forEach(function(ws){
+    var C = ws.cells, hdr = 0, r, c;
+    function g(r, c){ var x = c && C.rows[r] && C.rows[r][c]; return x ? x.v : null; }
+    function fill(r, c){ var x = c && C.rows[r] && C.rows[r][c]; return x ? x.fill : ''; }
+    for(r = 1; r < 20; r++){ if(['TRACTOR', 'PETROLERO', 'GRUAS'].indexOf(xlTxt(g(r, 1)).toUpperCase()) >= 0){ hdr = r; break; } }
+    if(!hdr){ res.avisos.push('La hoja «' + ws.name + '» no tiene el encabezado esperado (TRACTOR / PETROLERO / GRUAS): se ignoró.'); return; }
+    var H = {}; for(c = 1; c <= C.maxCol; c++){ var h = xlTxt(g(hdr, c)).toUpperCase(); if(h) (H[h] = H[h] || []).push(c); }
+    var two = xlTxt(g(hdr, 1)).toUpperCase() === 'TRACTOR';
+    var jur = H['N° WEB'] ? 'nqn' : (H['N° EXPEDIENTE'] ? 'nac' : '');
+    var cNro = jur === 'nqn' ? H['N° WEB'][0] : (jur ? H['N° EXPEDIENTE'][0] : 0);
+    if(!jur || !H['CARGA'] || !H['VIGENCIA'] || !H['DESDE'] || !H['HASTA'] || !H['OBSERVACIONES'] || !H['DOMINIO']){ res.avisos.push('La hoja «' + ws.name + '» no tiene todas las columnas esperadas (N° WEB o N° EXPEDIENTE, CARGA, VIGENCIA, DESDE, HASTA, OBSERVACIONES, DOMINIO): se ignoró.'); return; }
+    var cCarga = H['CARGA'][0], cVig = H['VIGENCIA'][0], cDes = H['DESDE'][0], cHas = H['HASTA'][0], cRen = H['RENOVACIONES'] ? H['RENOVACIONES'][0] : 0, cObs = H['OBSERVACIONES'][0], cMod = H['MODELO'] ? H['MODELO'][0] : 0, cDom = H['DOMINIO'];
+    if(two && cDom.length < 2){ res.avisos.push('La hoja «' + ws.name + '» no tiene las dos columnas DOMINIO: se ignoró.'); return; }
+    res.hojas.push({ jur: jur, hoja: ws.name });
+    var curT = null, curR = null, orden = 0;
+    for(r = hdr + 1; r <= C.maxRow; r++){
+      var t = xlTxt(g(r, 1)), td = xlPlate(g(r, cDom[0])), sinnro = false;
+      if(two){
+        var rr = xlTxt(g(r, 3)), rd = xlPlate(g(r, cDom[1]));
+        if(t) curT = [t, td];
+        if(rr) curR = [rr, rd]; else if(t) curR = null;
+        if(t && td) res.units[td] = { interno: t, patente: td, tipo: 'tractor' };
+        if(rr && rd) res.units[rd] = { interno: rr, patente: rd, tipo: xlKind(rr) };
+      } else {
+        if(t){ curT = [t, td]; curR = null; }
+        if(t && td){ res.units[td] = { interno: t, patente: td, tipo: xlKind(t) }; if(cMod && xlTxt(g(r, cMod))) res.units[td].modelo = xlTxt(g(r, cMod)); }
+      }
+      var nro = xlTxt(g(r, cNro));
+      if(!nro){ if(xlTxt(g(r, cCarga)) && xlTxt(g(r, cCarga)) !== '-' && curT) sinnro = true; else continue; }
+      if(!curT){ res.avisos.push('Hoja «' + ws.name + '», fila ' + r + ': hay un permiso sin tractor/camión arriba: se ignoró.'); continue; }
+      orden++;
+      var est = sinnro ? 'por_iniciar' : '', cc = [cNro, cVig, cRen, cObs], i;
+      for(i = 0; i < cc.length; i++){ if(!cc[i]) continue; var k = fill(r, cc[i]); if(XL_LEG[jur][k]){ est = XL_LEG[jur][k]; break; } }
+      var obs = xlTxt(g(r, cObs)), largo = null;
+      if(jur === 'nqn'){ if(g(r, cObs) !== null && g(r, cObs) !== undefined){ var nl = xlNumLargo(g(r, cObs)); largo = nl.n; obs = nl.r; } else obs = ''; }
+      var vig = xlFecha(g(r, cVig));
+      if(g(r, cVig) !== null && g(r, cVig) !== undefined && !vig) res.avisos.push('Hoja «' + ws.name + '», fila ' + r + ': la vigencia «' + xlTxt(g(r, cVig)) + '» no se pudo leer como fecha.');
+      res.permisos.push({ jur: jur, servicio: ws.name, tractor: curT[0], tractorPat: curT[1], semi: curR ? curR[0] : '', semiPat: curR ? curR[1] : '',
+        carga: xlTxt(g(r, cCarga)), numero: nro, vigHasta: vig, tramoDesde: xlTxt(g(r, cDes)), tramoHasta: xlTxt(g(r, cHas)), renov: cRen ? xlTxt(g(r, cRen)) : '',
+        largo: largo, obs: obs, estado: est, orden: orden, hoja: ws.name, fila: r });
+    }
+  });
+  return res;
+}
+
+/* ===================== ACTUALIZAR PERMISOS DESDE EXCEL ===================== */
+/* Compara las planillas (TDP-PLANILLA NQN / NACIONALES) con lo cargado y, recién después de mostrar los cambios, los aplica.
+   Se toca solo lo que sale de la planilla; los PDF, la OC, las medidas, el peso autorizado y los permisos cargados a mano no se pisan. */
+var XL_FLD = ['servicio', 'tractorPat', 'semiPat', 'carga', 'numero', 'vigHasta', 'tramoDesde', 'tramoHasta', 'renov', 'largo', 'estado', 'obs'];
+var XL_FTXT = { servicio: 'Servicio', tractorPat: 'Patente del tractor', semiPat: 'Patente del semi', carga: 'Carga', numero: 'N° expediente / web', vigHasta: 'Vence', tramoDesde: 'Tramo desde', tramoHasta: 'Tramo hasta', renov: 'Renovación', largo: 'Largo (m)', estado: 'Estado', obs: 'Observaciones' };
+var XLS = null;
+function xlNz(s){ return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function xlNum(s){ return String(s || '').toUpperCase().replace(/\s+/g, ''); }
+function xlShow(f, v){
+  if(v === null || v === undefined || v === '' || v === 0 && f === 'largo') return '(vacío)';
+  if(f === 'vigHasta') return fday(v);
+  if(f === 'estado') return EST_PERM[v] || v;
+  return String(v);
+}
+function xlPlan(R, UU, PP){
+  var now = nowIso(), por = (me || '') + ' (planilla Excel)', plan = { nuevos: [], mod: [], igual: 0, ignorados: [], baja: [], units: [], tipos: [], writes: [], avisos: R.avisos.slice() };
+  var byPlate = {}, byId = {};
+  UU.forEach(function(u){ byId[u.id] = u; var pl = xlNz(u.patente) || xlNz(parsePat(u.nombre)); if(pl && (!byPlate[pl] || (byPlate[pl].activo === false && u.activo !== false))) byPlate[pl] = u; });
+  function patOf(id, txt){ var u = id ? byId[id] : null; return xlNz(u && u.patente) || xlNz(parsePat(u && u.nombre)) || xlNz(parsePat(txt)); }
+  Object.keys(R.units).forEach(function(pl){
+    var d = R.units[pl], ex = byPlate[pl];
+    if(ex){ if(!ex.tipo && d.tipo && d.tipo !== 'semi'){ plan.tipos.push(ex.nombre); plan.writes.push([COL_U, ex.id, { tipo: d.tipo, editPor: por, editFecha: now }]); } return; }
+    var u = { kind: 'manual', nombre: d.interno + ' - ' + pl, interno: d.interno, patente: pl, tipo: d.tipo, modelo: d.modelo || '', activo: true, creada: now, act: now, editPor: por, editFecha: now };
+    plan.units.push(u.nombre); plan.writes.push([COL_U, 'm_' + pl, u]); u.id = 'm_' + pl; byPlate[pl] = u; byId[u.id] = u;
+  });
+  var covered = {}; R.hojas.forEach(function(h){ covered[h.jur + '|' + h.hoja.toUpperCase()] = 1; });
+  var E = PP.map(function(p){ return { p: p, jur: p.jur, hoja: String(p.hoja || p.servicio || '').toUpperCase(), tp: patOf(p.tractorId, p.tractorTxt), sp: patOf(p.semiId, p.semiTxt), num: xlNum(p.numero), used: false, fila: p.fila || 0 }; });
+  var rows = R.permisos.map(function(r){ return { r: r, tp: xlNz(r.tractorPat), sp: xlNz(r.semiPat), num: xlNum(r.numero), hoja: r.hoja.toUpperCase(), pair: null }; });
+  function pair(row, ex){ row.pair = ex; ex.used = true; }
+  /* 1) mismo tractor, semi y número de expediente */
+  var m1 = {}; E.forEach(function(e){ if(e.num) (m1[e.jur + '|' + e.tp + '|' + e.sp + '|' + e.num] = m1[e.jur + '|' + e.tp + '|' + e.sp + '|' + e.num] || []).push(e); });
+  rows.forEach(function(w){ if(!w.num) return; var l = m1[w.r.jur + '|' + w.tp + '|' + w.sp + '|' + w.num] || [], i; for(i = 0; i < l.length; i++) if(!l[i].used){ pair(w, l[i]); return; } });
+  /* 2) el mismo trámite renovado: misma formación y hoja (cambió el número, la vigencia, etc.) */
+  function closest(w, c){ var b = null; c.forEach(function(e){ if(!b || Math.abs(e.fila - w.r.fila) < Math.abs(b.fila - w.r.fila)) b = e; }); return b; }
+  var tiers = [
+    function(w, e){ return e.jur === w.r.jur && e.hoja === w.hoja && e.tp === w.tp && e.sp === w.sp && String(e.p.carga || '') === w.r.carga && String(e.p.tramoDesde || '') === w.r.tramoDesde && String(e.p.tramoHasta || '') === w.r.tramoHasta; },
+    function(w, e){ return e.jur === w.r.jur && e.hoja === w.hoja && e.tp === w.tp && e.sp === w.sp && String(e.p.carga || '') === w.r.carga; }
+  ];
+  function cand(e){ return !e.used && e.p.origen === 'planilla' && !e.p.eliminado; }
+  tiers.forEach(function(f){ rows.forEach(function(w){ if(w.pair) return; var c = E.filter(function(e){ return cand(e) && f(w, e); }), b = closest(w, c); if(b) pair(w, b); }); });
+  rows.forEach(function(w){
+    if(w.pair) return;
+    var f = function(x){ return x.jur === w.r.jur && x.hoja === w.hoja && x.tp === w.tp && x.sp === w.sp; };
+    var c = E.filter(function(e){ return cand(e) && f(e); }), o = rows.filter(function(x){ return !x.pair && f({ jur: x.r.jur, hoja: x.hoja, tp: x.tp, sp: x.sp }); });
+    if(c.length === 1 && o.length === 1) pair(w, c[0]);
+  });
+  var uniq = 0;
+  rows.forEach(function(w){
+    var r = w.r, snap = { servicio: r.servicio, tractorPat: w.tp, semiPat: w.sp, carga: r.carga, numero: r.numero, vigHasta: r.vigHasta, tramoDesde: r.tramoDesde, tramoHasta: r.tramoHasta, renov: r.renov, largo: r.largo || 0, estado: r.estado || '', obs: r.obs },
+      lbl = (r.tractor + (r.semi ? ' + ' + r.semi : '')) + ' · ' + r.hoja + (r.numero ? ' · ' + r.numero : ' · sin número');
+    var t = byPlate[w.tp], s1 = w.sp ? byPlate[w.sp] : null;
+    function unitFields(d){ d.tractorId = t ? t.id : ''; d.tractorTxt = t ? t.nombre : r.tractor + ' - ' + w.tp; d.semiId = s1 ? s1.id : ''; d.semiTxt = s1 ? s1.nombre : (r.semi ? r.semi + ' - ' + w.sp : ''); }
+    if(!w.pair){
+      var d = { jur: r.jur, servicio: r.servicio, semi2Id: '', carga: r.carga, numero: r.numero, vigDesde: '', vigHasta: r.vigHasta, tramoDesde: r.tramoDesde, tramoHasta: r.tramoHasta, renov: r.renov, largo: r.largo || 0, pbtc: 0, estado: r.estado || '', obs: r.obs,
+        excesoEje: false, activo: true, orden: r.orden, origen: 'planilla', hoja: r.hoja, fila: r.fila, creada: now, editPor: por, editFecha: now, xl: snap, xlFecha: now };
+      unitFields(d);
+      plan.nuevos.push({ lbl: lbl, vig: r.vigHasta, est: r.estado });
+      plan.writes.push([COL_P, 'px' + Date.now().toString(36) + (uniq++).toString(36) + Math.random().toString(36).slice(2, 5), d]);
+      return;
+    }
+    var e = w.pair, p = e.p;
+    if(p.origen !== 'planilla'){ plan.ignorados.push(lbl + ' (cargado a mano)'); return; }
+    if(p.eliminado){
+      if(p.xlBaja){ plan.mod.push({ lbl: lbl, ch: [['Permiso', 'dado de baja', 'vuelve a figurar en la planilla']] }); plan.writes.push([COL_P, p.id, { eliminado: false, xlBaja: null, xl: snap, xlFecha: now, editPor: por, editFecha: now }]); }
+      else plan.ignorados.push(lbl + ' (eliminado en el sistema)');
+      return;
+    }
+    var cur = { servicio: p.servicio || '', tractorPat: e.tp, semiPat: e.sp, carga: p.carga || '', numero: p.numero || '', vigHasta: p.vigHasta || '', tramoDesde: p.tramoDesde || '', tramoHasta: p.tramoHasta || '', renov: p.renov || '', largo: Number(p.largo || 0), estado: p.estado || '', obs: p.obs || '' },
+      ch = [], d2 = {}, sn = p.xl || null;
+    XL_FLD.forEach(function(f){
+      if(f === 'largo' && !r.largo) return;
+      var nv = snap[f];
+      if(String(nv) === String(cur[f])) return;
+      if(sn && String(sn[f]) === String(nv)) return; /* la planilla no cambió: se respeta lo editado en el sistema */
+      ch.push([XL_FTXT[f], xlShow(f, cur[f]), xlShow(f, nv)]); d2[f] = nv;
+    });
+    if(d2.tractorPat !== undefined || d2.semiPat !== undefined){ var tmp = {}; unitFields(tmp); d2.tractorId = tmp.tractorId; d2.tractorTxt = tmp.tractorTxt; d2.semiId = tmp.semiId; d2.semiTxt = tmp.semiTxt; delete d2.tractorPat; delete d2.semiPat; }
+    var snapDif = JSON.stringify(sn) !== JSON.stringify(snap);
+    if(ch.length){ d2.hoja = r.hoja; d2.fila = r.fila; d2.orden = r.orden; d2.xl = snap; d2.xlFecha = now; d2.editPor = por; d2.editFecha = now; plan.mod.push({ lbl: lbl, ch: ch }); plan.writes.push([COL_P, p.id, d2]); }
+    else { plan.igual++; if(snapDif) plan.writes.push([COL_P, p.id, { xl: snap, hoja: r.hoja, fila: r.fila, orden: r.orden }]); }
+  });
+  E.forEach(function(e){
+    if(e.used || e.p.origen !== 'planilla' || e.p.eliminado || !covered[e.jur + '|' + e.hoja]) return;
+    plan.baja.push({ lbl: formName(e.p) + ' · ' + (e.p.hoja || e.p.servicio || '') + ' · ' + (e.p.numero || 'sin número'), id: e.p.id });
+  });
+  plan.candBaja = E.filter(function(e){ return e.p.origen === 'planilla' && !e.p.eliminado && covered[e.jur + '|' + e.hoja]; }).length;
+  return plan;
+}
+function xlSec(box, tit, n, rows, open){
+  if(!n) return;
+  var d = el('details'); if(open) d.open = true;
+  d.appendChild(el('summary', '', tit + ' (' + n + ')')); d.firstChild.style.cssText = 'cursor:pointer;font-weight:600;padding:4px 0';
+  var w = el('div', 'tw'); w.style.maxHeight = '260px'; w.style.overflow = 'auto';
+  var t = el('table', 'mini'), tb = el('tbody'); rows.slice(0, 400).forEach(function(r){ tb.appendChild(r); });
+  t.appendChild(tb); w.appendChild(t); d.appendChild(w);
+  if(rows.length > 400) d.appendChild(el('p', 'hint', 'Se muestran los primeros 400.'));
+  box.appendChild(d);
+}
+function xlTr(a){ var tr = el('tr'); a.forEach(function(x){ tr.appendChild(el('td', '', x)); }); return tr; }
+function xlRender(plan){
+  var o = $('xlOut'); o.innerHTML = '';
+  var k = el('div', 'acts'); k.style.cssText = 'margin:6px 0;gap:8px;flex-wrap:wrap';
+  [['Nuevos', plan.nuevos.length], ['Modificados', plan.mod.length], ['Sin cambios', plan.igual], ['Ya no figuran', plan.baja.length], ['Unidades nuevas', plan.units.length]].forEach(function(a){
+    var b = el('span', 'bdg ' + (a[1] ? 'st' : ''), a[0] + ': ' + a[1]); k.appendChild(b);
+  });
+  o.appendChild(k);
+  if(plan.avisos.length) xlSec(o, 'Avisos al leer el Excel', plan.avisos.length, plan.avisos.map(function(a){ return xlTr([a]); }), true);
+  xlSec(o, 'Permisos nuevos', plan.nuevos.length, plan.nuevos.map(function(n){ return xlTr([n.lbl, n.vig ? 'vence ' + fday(n.vig) : 'sin vigencia', n.est ? (EST_PERM[n.est] || n.est) : '']); }), true);
+  var mr = []; plan.mod.forEach(function(m){ m.ch.forEach(function(c, i){ mr.push(xlTr([i === 0 ? m.lbl : '', c[0], c[1] + '  →  ' + c[2]])); }); });
+  xlSec(o, 'Permisos modificados', plan.mod.length, mr, true);
+  if(plan.baja.length){
+    var bx = el('label', 'chk'); bx.style.margin = '8px 0'; var cb = el('input'); cb.type = 'checkbox'; cb.id = 'xlBaja';
+    var many = plan.candBaja >= 8 && plan.baja.length > plan.candBaja * 0.25;
+    cb.checked = !many; bx.appendChild(cb); bx.appendChild(document.createTextNode((plan.baja.length === 1 ? ' Dar de baja el permiso que ya no figura en la planilla' : ' Dar de baja los ' + plan.baja.length + ' permisos que ya no figuran en la planilla') + ' (queda en el filtro «Eliminados» y se puede restaurar)'));
+    o.appendChild(bx);
+    if(many) o.appendChild(el('p', 'hint', 'Ojo: son muchos permisos de golpe (más de la cuarta parte). Revisá que sea la planilla correcta y la más reciente antes de marcar esta opción.'));
+    xlSec(o, 'Ya no figuran en la planilla', plan.baja.length, plan.baja.map(function(b){ return xlTr([b.lbl]); }), false);
+  }
+  xlSec(o, 'Unidades nuevas que se van a crear (sin medidas: completá la ficha en Unidades)', plan.units.length, plan.units.map(function(n){ return xlTr([n]); }), false);
+  xlSec(o, 'Se omiten (no se tocan)', plan.ignorados.length, plan.ignorados.map(function(n){ return xlTr([n]); }), false);
+  var nw = plan.writes.length + (plan.baja.length ? 0 : 0);
+  if(!plan.nuevos.length && !plan.mod.length && !plan.baja.length && !plan.units.length) o.appendChild(el('p', 'hint', 'No hay cambios para aplicar: el sistema ya coincide con la planilla.'));
+}
+function xlLast(){
+  var h = $('xlLast'); if(!h) return;
+  getDb().then(function(d){ return d.collection(COL_R).orderBy('fecha', 'desc').limit(200).get(); }).then(function(s){
+    var f = null; s.forEach(function(x){ var v = x.data(); if(!f && v.unidad === 'Planillas Excel') f = v; });
+    if($('xlLast')) $('xlLast').textContent = f ? 'Última actualización desde Excel: ' + new Date(f.fecha).toLocaleString('es-AR') + (f.por ? ' · ' + f.por : '') : 'Todavía no se actualizó desde Excel con este botón.';
+  }).catch(function(){});
+}
+function xlOpen(){
+  var box = $('modBox'); XLS = { plan: null, busy: false };
+  box.innerHTML = '<div class="lh"><h2>Actualizar permisos desde Excel</h2><button id="xlClose" class="sm">Cerrar</button></div>' +
+    '<p class="hint" id="xlLast"></p>' +
+    '<p class="hint">Elegí las planillas actualizadas (TDP-PLANILLA NQN y/o NACIONALES; se pueden elegir las dos juntas con Ctrl). Primero se muestra qué va a cambiar y recién después se aplica. No se tocan los PDF, la OC, las medidas, el peso autorizado ni los permisos cargados a mano. Si un dato se cambió en el sistema y en la planilla sigue igual, se respeta lo del sistema.</p>' +
+    '<label>Planillas (.xlsx)<input id="xlFile" type="file" accept=".xlsx" multiple></label>' +
+    '<div id="xlOut"></div>' +
+    '<div class="acts"><button id="xlGo" class="primary" disabled>Aplicar cambios</button><span id="xlMsg" class="hint"></span></div>';
+  $('xlClose').onclick = closeMod; $('xlFile').onchange = xlRead; $('xlGo').onclick = xlApply;
+  $('mod').hidden = false; box.scrollTop = 0; xlLast();
+}
+function xlRead(){
+  var fs = [].slice.call($('xlFile').files), m = $('xlMsg'), go = $('xlGo'); go.disabled = true; XLS.plan = null; $('xlOut').innerHTML = '';
+  if(!fs.length){ m.textContent = ''; return; }
+  m.textContent = 'Leyendo las planillas…';
+  var R = { permisos: [], units: {}, hojas: [], avisos: [] }, names = [];
+  fs.reduce(function(pr, f){
+    return pr.then(function(){ return f.arrayBuffer(); }).then(xlLoad).then(function(G){
+      var x = xlExtract(G);
+      if(!x.hojas.length) throw new Error('«' + f.name + '» no tiene ninguna hoja con el formato esperado (TRACTOR / PETROLERO / GRUAS arriba a la izquierda).');
+      x.hojas.forEach(function(h){ if(R.hojas.some(function(q){ return q.jur === h.jur && q.hoja === h.hoja; })) throw new Error('Hay dos planillas de la misma jurisdicción con la hoja «' + h.hoja + '». Elegí una sola de cada tipo (NQN y NACIONALES).'); });
+      R.permisos = R.permisos.concat(x.permisos); R.hojas = R.hojas.concat(x.hojas); R.avisos = R.avisos.concat(x.avisos); names.push(f.name);
+      Object.keys(x.units).forEach(function(pl){ var u = x.units[pl]; if(R.units[pl] && R.units[pl].modelo && !u.modelo) u.modelo = R.units[pl].modelo; R.units[pl] = u; });
+    });
+  }, Promise.resolve()).then(function(){
+    m.textContent = 'Comparando con lo cargado…';
+    return getDb().then(function(d){ return Promise.all([d.collection(COL_U).get(), d.collection(COL_P).get()]); });
+  }).then(function(r){
+    var UU = [], PP = []; r[0].forEach(function(s){ var x = s.data(); x.id = s.id; UU.push(x); }); r[1].forEach(function(s){ var x = s.data(); x.id = s.id; PP.push(x); });
+    var plan = xlPlan(R, UU, PP); plan.files = names; plan.nPerm = R.permisos.length; XLS.plan = plan;
+    xlRender(plan);
+    var vis = plan.nuevos.length || plan.mod.length || plan.baja.length || plan.units.length || plan.tipos.length;
+    if(vis){ go.disabled = false; m.textContent = 'Revisá los cambios y tocá «Aplicar cambios».'; return; }
+    m.textContent = 'Sin cambios: el sistema ya coincide con la planilla.';
+    if(plan.writes.length) return xlCommit(plan.writes).then(function(){ m.textContent = 'Sin cambios: el sistema ya coincide con la planilla. (Se guardó la referencia interna de la planilla.)'; xlLast(); });
+  }).catch(function(e){ m.textContent = (e && e.message) || errTxt(e); });
+}
+function xlCommit(ws){
+  return getDb().then(function(d){
+    var i = 0, m = $('xlMsg');
+    function next(){
+      if(i >= ws.length) return Promise.resolve();
+      var b = d.batch(); ws.slice(i, i + 400).forEach(function(w){ b.set(d.collection(w[0]).doc(w[1]), w[2], { merge: true }); }); i += 400;
+      return b.commit().then(function(){ if(m && ws.length > 400) m.textContent = 'Guardando… ' + Math.min(i, ws.length) + ' de ' + ws.length; return next(); });
+    }
+    return next();
+  });
+}
+function xlApply(){
+  var plan = XLS && XLS.plan, m = $('xlMsg'); if(!plan || XLS.busy) return;
+  XLS.busy = true; $('xlGo').disabled = true; $('xlFile').disabled = true; m.textContent = 'Guardando…';
+  var now = nowIso(), por = (me || '') + ' (planilla Excel)', ws = plan.writes.slice(), baja = $('xlBaja') && $('xlBaja').checked ? plan.baja : [];
+  baja.forEach(function(b){ ws.push([COL_P, b.id, { eliminado: true, xlBaja: now, editPor: por, editFecha: now }]); });
+  xlCommit(ws).then(function(){ return getDb(); }).then(function(d){ return Promise.all([d.collection(COL_U).get(), d.collection(COL_P).get()]); }).then(function(r){
+    U = []; P = []; r[0].forEach(function(s){ var x = s.data(); x.id = s.id; U.push(x); }); r[1].forEach(function(s){ var x = s.data(); x.id = s.id; P.push(x); });
+    sortU(); reindex(); renderAll();
+    var txt = 'Actualizó los permisos desde Excel (' + plan.files.join(', ') + '): ' + plan.nuevos.length + ' nuevos, ' + plan.mod.length + ' modificados, ' + baja.length + ' dados de baja, ' + plan.units.length + ' unidades nuevas';
+    return logReg('Planillas Excel', txt).then(function(){
+      XLS.busy = false; m.textContent = 'Listo: ' + plan.nuevos.length + ' nuevos, ' + plan.mod.length + ' modificados, ' + baja.length + ' dados de baja' + (plan.units.length ? ', ' + plan.units.length + ' unidades nuevas (completá su ficha en Unidades)' : '') + '.';
+      $('pMsg').textContent = 'Actualizado desde Excel el ' + new Date().toLocaleString('es-AR') + '.';
+      $('xlOut').innerHTML = ''; XLS.plan = null; xlLast(); $('xlFile').value = ''; $('xlFile').disabled = false;
+    });
+  }).catch(function(e){ XLS.busy = false; $('xlFile').disabled = false; m.textContent = errTxt(e) + ' Si se cortó a la mitad, volvé a elegir la planilla: lo ya guardado no se repite.'; });
+}
+
 function exportPermCsv(){
   var cols = ['Jurisdicción', 'Servicio', 'Tractor / camión', 'Semirremolque', 'Carga', 'N° expediente / web', 'Tramo desde', 'Tramo hasta', 'Vigencia desde', 'Vigencia hasta', 'Renovación', 'Largo (m)', 'Ancho (m)', 'Alto (m)', 'Peso autorizado (kg)', 'Estado', 'Activo', 'Ocupación de calzada (OC)', 'Observaciones'];
   var out = [cols.join(';')];
@@ -2273,7 +2632,7 @@ function init(){
   $('cSaveForm').onclick = saveFormacion;
   $('uTxt').oninput = renderUnidades;
   ['uTipo', 'uEst'].forEach(function(i){ $(i).onchange = renderUnidades; });
-  $('uCsv').onclick = exportCsv; $('pNew').onclick = function(){ openPermiso(null); }; $('uAdd').onclick = openUnidad; $('pCsv').onclick = exportPermCsv;
+  $('uCsv').onclick = exportCsv; $('pNew').onclick = function(){ openPermiso(null); }; $('uAdd').onclick = openUnidad; $('pCsv').onclick = exportPermCsv; $('pXl').onclick = xlOpen;
   /* el cuadro de texto solo filtra al escribir (si también lo hiciera al perder el foco, el primer clic en "Editar" se perdería) */
   $('pTxt').oninput = renderPermisos;
   ['pJur', 'pSrv', 'pVenc', 'pEst', 'pOrd', 'pPdf', 'pOc'].forEach(function(i){ $(i).onchange = renderPermisos; });
