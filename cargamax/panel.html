@@ -619,6 +619,7 @@ function openFicha(u){
   '<div class="presets"><span>Plantillas:</span><button class="sm" data-p="t42">Tractor 4x2</button><button class="sm" data-p="t64">Tractor / camión 6x4</button><button class="sm" data-p="s1">Semi 1 eje</button><button class="sm" data-p="s2">Semi tándem</button><button class="sm" data-p="s3">Semi tridem</button><button class="sm vc" data-p="c1">Carretón 1 eje</button><button class="sm vc" data-p="c2">Carretón tándem</button><button class="sm vc" data-p="c3">Carretón tridem</button><button class="sm" data-p="a2">Acoplado 2 ejes</button></div>' +
   '<div id="fEjes"></div><div class="acts"><button id="fAdd" class="sm">Agregar eje</button></div>' +
   '<p id="fPrev" class="hint"></p>' +
+  '<p id="fPeso" class="hint"></p><div class="acts"><button id="fPesoUse" class="sm" type="button" hidden>Usar la suma como tara</button></div>' +
   '<h3>Medidas para el croquis</h3>' +
   '<p class="hint">Opcionales: sirven para dibujar la unidad acá y en la calculadora, y para simular cargas. Lo que dejes en blanco se dibuja con una medida de referencia.</p>' +
   '<div class="grid g3">' +
@@ -640,9 +641,9 @@ function openFicha(u){
   $('fPot').value = u.potencia > 0 ? u.potencia : ''; $('fCmt').value = u.cmt > 0 ? u.cmt : ''; $('fPbt').value = u.pbt > 0 ? u.pbt : '';
   $('fNota').value = u.nota || ''; $('fVer').checked = !!u.verificado;
   $('fLargo').value = u.largo > 0 ? u.largo : ''; $('fCola').value = u.cola > 0 ? u.cola : ''; $('fPlato').value = (typeof u.plato === 'number') ? u.plato : ''; $('fPlato2').value = (typeof u.plato2 === 'number') ? u.plato2 : ''; $('fFs').value = u.fs > 0 ? u.fs : ''; $('fEquip').value = u.equip || '';
-  ET = (u.ejes || []).map(function(e){ return { r: e.r || 'dual', d: (e.d === null || e.d === undefined) ? '' : e.d }; });
+  ET = (u.ejes || []).map(function(e){ return { r: e.r || 'dual', d: (e.d === null || e.d === undefined) ? '' : e.d, kg: e.kg > 0 ? e.kg : '' }; });
   function vt(){ var t = $('fTipo').value; [].forEach.call(box.querySelectorAll('.vt'), function(l){ l.hidden = !(t === 'tractor' || t === 'camion'); }); [].forEach.call(box.querySelectorAll('.vc'), function(b){ b.style.display = t === 'carreton' ? '' : 'none'; }); }
-  vt(); fVis($('fTipo').value); fTag(); $('fTipo').onchange = function(){ vt(); fVis($('fTipo').value); fTag(); fCroq(u); };
+  vt(); fVis($('fTipo').value); fTag(); $('fTipo').onchange = function(){ vt(); fVis($('fTipo').value); fTag(); pesoSync(u, false); fCroq(u); };
   ['fLargo', 'fCola', 'fPlato', 'fPlato2', 'fFs'].forEach(function(id){ $(id).oninput = function(){ fCroq(u); }; });
   $('fEquip').onchange = function(){ fCroq(u); };
   renderEjes(u);
@@ -670,6 +671,8 @@ function renderEjes(u){
     var l = el('label', '', i === 0 ? 'Primer eje' : 'Distancia al eje anterior (m)');
     if(i > 0){ var inp = document.createElement('input'); inp.type = 'number'; inp.step = '0.05'; inp.min = '0'; inp.value = e.d; inp.oninput = function(){ e.d = inp.value === '' ? '' : Number(inp.value); prevEjes(u); }; l.appendChild(inp); }
     row.appendChild(l);
+    var lk = el('label', '', 'Peso en balanza (kg)'), ik = document.createElement('input'); ik.type = 'number'; ik.min = '0'; ik.step = '10'; ik.setAttribute('inputmode', 'numeric'); ik.placeholder = 'opcional'; ik.value = e.kg > 0 ? e.kg : '';
+    ik.oninput = function(){ e.kg = ik.value === '' ? '' : Number(ik.value); pesoSync(u, true); }; lk.appendChild(ik); row.appendChild(lk);
     var x = el('button', 'sm', 'Quitar'); x.onclick = function(){ ET.splice(i, 1); renderEjes(u); }; row.appendChild(x);
     c.appendChild(row);
   });
@@ -677,8 +680,31 @@ function renderEjes(u){
 }
 /* el nombre del carretón se actualiza solo cuando cambian los ejes */
 function fTag(){ var g = $('fTipoTag'), t = $('fTipo'); if(!g || !t) return; if(t.value === 'carreton'){ g.hidden = false; g.textContent = tipoNom({ tipo: 'carreton', ejes: ET, nombre: '' }); } else g.hidden = true; }
+/* pesaje por eje (VTV o balanza): da la tara y el porcentaje sobre el eje delantero */
+function pesoSync(u, user){
+  var p = $('fPeso'), b = $('fPesoUse'); if(!p || !b) return;
+  b.hidden = true;
+  var ks = ET.map(function(e){ var v = num(e.kg); return v > 0 ? v : 0; }), n = ks.length, falt = [], sum = 0, t = $('fTipo').value;
+  ks.forEach(function(v, i){ if(v > 0) sum += v; else falt.push(i + 1); });
+  if(!n || falt.length === n){ p.textContent = 'Si tenés el pesaje por eje (VTV o balanza), cargalo en cada eje: para tractores, camiones y acoplados la tara y el porcentaje sobre el eje delantero se calculan solos.'; return; }
+  if(falt.length){ p.textContent = 'Faltan los pesos de los ejes: ' + falt.join(', ') + '. Con todos cargados se calcula la tara.'; return; }
+  var pc = Math.round(ks[0] / sum * 1000) / 10, txt = 'Suma de los ejes: ' + fkg(sum) + ' kg';
+  if(t === 'tractor' || t === 'camion'){
+    txt += ' · eje delantero ' + fkg(ks[0]) + ' kg (' + ft(pc) + ' % de la tara).';
+    if(user){ $('fTara').value = sum; $('fFs').value = pc; txt += ' Se cargaron como tara y como porcentaje sobre el eje delantero.' + ($('fTaraF').value ? '' : ' Elegí de dónde sale la tara (VTV o balanza).'); }
+    else txt += ' La tara y el porcentaje salen de estos pesos cuando los modificás.';
+  } else if(t === 'acoplado'){
+    txt += '.';
+    if(user){ $('fTara').value = sum; txt += ' Se cargó como tara.' + ($('fTaraF').value ? '' : ' Elegí de dónde sale la tara (VTV o balanza).'); }
+  } else {
+    txt += '. Si la unidad se pesó desenganchada, la suma no incluye lo que apoya en el pivote: usala como tara solo si se pesó completa.';
+    b.hidden = false; b.onclick = function(){ $('fTara').value = sum; fCroq(u); };
+  }
+  p.textContent = txt;
+  if(user) fCroq(u);
+}
 function prevEjes(u){
-  fTag(); try { fCroq(u); } catch(e){ console.error(e); }
+  fTag(); try { pesoSync(u, false); fCroq(u); } catch(e){ console.error(e); }
   var p = $('fPrev'); if(!p) return;
   if(!ET.length){ p.textContent = 'Todavía no hay ejes cargados.'; return; }
   var g = grupos({ ejes: ET, susp: $('fSusp').value, nombre: u.nombre });
@@ -695,7 +721,7 @@ function saveFicha(u){
     largo: num($('fLargo').value) > 0 ? num($('fLargo').value) : null, cola: num($('fCola').value) > 0 ? num($('fCola').value) : null,
     plato: num($('fPlato').value), plato2: num($('fPlato2').value), fs: num($('fFs').value) > 0 ? num($('fFs').value) : null,
     equip: $('fTipo').value === 'tractor' ? $('fEquip').value : '',
-    ejes: ET.map(function(e, i){ return { r: e.r, d: i === 0 ? null : (e.d === '' || e.d === null || e.d === undefined ? null : Number(e.d)) }; }),
+    ejes: ET.map(function(e, i){ return { r: e.r, d: i === 0 ? null : (e.d === '' || e.d === null || e.d === undefined ? null : Number(e.d)), kg: num(e.kg) > 0 ? num(e.kg) : null }; }),
     editPor: me || '', editFecha: nowIso()
   };
   if(d.verificado && !u.verificado){ d.verPor = me || ''; d.verFecha = nowIso(); }
@@ -1963,6 +1989,7 @@ function simUnitGeo(u, ui, comp){
   if(u.tara > 0) g.tara = u.tara; else miss.push('tara');
   if(ui === 0){
     if(u.fs > 0) g.fs = u.fs;
+    else { var kk = (u.ejes || []).map(function(e){ return e.kg; }), ks = 0; kk.forEach(function(v){ ks += v > 0 ? v : 0; }); if(kk.length && kk.every(function(v){ return v > 0; })) g.fs = kk[0] / ks * 100; }
     if(idx.length > 1) g.wb = Math.max(1, ctr(1) - ctr(0));
     if(idx.length > 2) g.gap = Math.max(1.3, first(2) - last(1));
     if(comp === 'semi' || comp === 'bitren'){
