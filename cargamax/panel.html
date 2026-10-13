@@ -621,6 +621,7 @@ function openFicha(u){
   '<div class="presets"><span>Plantillas:</span><button class="sm" data-p="t42">Tractor 4x2</button><button class="sm" data-p="t64">Tractor / camión 6x4</button><button class="sm" data-p="s1">Semi 1 eje</button><button class="sm" data-p="s2">Semi tándem</button><button class="sm" data-p="s3">Semi tridem</button><button class="sm vc" data-p="c1">Carretón 1 eje</button><button class="sm vc" data-p="c2">Carretón tándem</button><button class="sm vc" data-p="c3">Carretón tridem</button><button class="sm" data-p="a2">Acoplado 2 ejes</button></div>' +
   '<div id="fEjes"></div><div class="acts"><button id="fAdd" class="sm">Agregar eje</button></div>' +
   '<p id="fPrev" class="hint"></p>' +
+  '<label class="chk" id="fConSemiW"><input type="checkbox" id="fConSemi"> Estos pesos se tomaron con el semirremolque enganchado (la suma incluye lo que apoya en la quinta rueda: no es la tara del tractor)</label>' +
   '<p id="fPeso" class="hint"></p><div class="acts"><button id="fPesoUse" class="sm" type="button" hidden>Usar la suma como tara</button></div>' +
   '<h3>Medidas para el croquis</h3>' +
   '<p class="hint">Opcionales: sirven para dibujar la unidad acá y en la calculadora, y para simular cargas. Lo que dejes en blanco se dibuja con una medida de referencia.</p>' +
@@ -641,7 +642,7 @@ function openFicha(u){
   $('fTipo').value = u.tipo || ''; $('fPat').value = u.patente || ''; $('fMod').value = u.modelo || '';
   $('fTara').value = u.tara > 0 ? u.tara : ''; $('fTaraF').value = u.taraFuente || ''; $('fSusp').value = u.susp || '';
   $('fPot').value = u.potencia > 0 ? u.potencia : ''; $('fCmt').value = u.cmt > 0 ? u.cmt : ''; $('fPbt').value = u.pbt > 0 ? u.pbt : '';
-  $('fNota').value = u.nota || ''; $('fVer').checked = !!u.verificado;
+  $('fNota').value = u.nota || ''; $('fVer').checked = !!u.verificado; $('fConSemi').checked = !!u.pesoConSemi;
   $('fLargo').value = u.largo > 0 ? u.largo : ''; $('fCola').value = u.cola > 0 ? u.cola : ''; $('fPlato').value = (typeof u.plato === 'number') ? u.plato : ''; $('fPlato2').value = (typeof u.plato2 === 'number') ? u.plato2 : ''; $('fFs').value = u.fs > 0 ? u.fs : ''; $('fEquip').value = u.equip || '';
   ET = (u.ejes || []).map(function(e){ return { r: e.r || 'dual', d: (e.d === null || e.d === undefined) ? '' : e.d, kg: e.kg > 0 ? e.kg : '' }; });
   function vt(){ var t = $('fTipo').value; [].forEach.call(box.querySelectorAll('.vt'), function(l){ l.hidden = !(t === 'tractor' || t === 'camion'); }); [].forEach.call(box.querySelectorAll('.vc'), function(b){ b.style.display = t === 'carreton' ? '' : 'none'; }); }
@@ -650,6 +651,8 @@ function openFicha(u){
   $('fEquip').onchange = function(){ fCroq(u); };
   renderEjes(u);
   $('fSusp').onchange = function(){ prevEjes(u); };
+  $('fConSemi').onchange = function(){ pesoSync(u, false); };
+  $('fTara').oninput = function(){ pesoSync(u, false); };
   $('fAdd').onclick = function(){ ET.push({ r: 'dual', d: ET.length ? 1.35 : '' }); renderEjes(u); };
   [].forEach.call(box.querySelectorAll('.presets button'), function(b){ b.onclick = function(){ preset(b.getAttribute('data-p')); renderEjes(u); }; });
   $('fClose').onclick = closeMod; $('fSave').onclick = function(){ saveFicha(u); };
@@ -685,16 +688,23 @@ function fTag(){ var g = $('fTipoTag'), t = $('fTipo'); if(!g || !t) return; if(
 /* pesaje por eje (VTV o balanza): da la tara y el porcentaje sobre el eje delantero */
 function pesoSync(u, user){
   var p = $('fPeso'), b = $('fPesoUse'); if(!p || !b) return;
-  b.hidden = true;
+  b.hidden = true; b.textContent = 'Usar la suma como tara';
+  if($('fConSemiW')) $('fConSemiW').hidden = !($('fTipo').value === 'tractor' || $('fTipo').value === 'camion');
   var ks = ET.map(function(e){ var v = num(e.kg); return v > 0 ? v : 0; }), n = ks.length, falt = [], sum = 0, t = $('fTipo').value;
   ks.forEach(function(v, i){ if(v > 0) sum += v; else falt.push(i + 1); });
   if(!n || falt.length === n){ p.textContent = 'Si tenés el pesaje por eje (VTV o balanza), cargalo en cada eje: para tractores, camiones y acoplados la tara y el porcentaje sobre el eje delantero se calculan solos.'; return; }
   if(falt.length){ p.textContent = 'Faltan los pesos de los ejes: ' + falt.join(', ') + '. Con todos cargados se calcula la tara.'; return; }
-  var pc = Math.round(ks[0] / sum * 1000) / 10, txt = 'Suma de los ejes: ' + fkg(sum) + ' kg';
+  var pc = Math.round(ks[0] / sum * 1000) / 10, txt = 'Suma de los ejes: ' + fkg(sum) + ' kg', tara = num($('fTara').value) || 0, cs = $('fConSemi').checked && (t === 'tractor' || t === 'camion');
   if(t === 'tractor' || t === 'camion'){
-    txt += ' · eje delantero ' + fkg(ks[0]) + ' kg (' + ft(pc) + ' % de la tara).';
-    if(user){ $('fTara').value = sum; $('fFs').value = pc; txt += ' Se cargaron como tara y como porcentaje sobre el eje delantero.' + ($('fTaraF').value ? '' : ' Elegí de dónde sale la tara (VTV o balanza).'); }
-    else txt += ' La tara y el porcentaje salen de estos pesos cuando los modificás.';
+    if(cs){
+      txt += ' · eje delantero ' + fkg(ks[0]) + ' kg. Se pesó con el semirremolque enganchado: la suma incluye lo que apoya en la quinta rueda (unos 2.500 a 3.500 kg con el semi vacío), así que NO es la tara del tractor y no se carga sola. Cargá la tara del tractor solo (cédula más equipos, o mejor un pesaje en balanza sin el semi).';
+      if(tara > 0){ var f2 = Math.round(ks[0] / tara * 1000) / 10; txt += ' El eje delantero casi no cambia con el semi enganchado: con la tara cargada (' + fkg(tara) + ' kg) daría ' + ft(f2) + ' % sobre el eje delantero.'; b.hidden = false; b.textContent = 'Usar ' + ft(f2) + ' % sobre el eje delantero'; b.onclick = function(){ $('fFs').value = f2; fCroq(u); }; }
+    } else {
+      txt += ' · eje delantero ' + fkg(ks[0]) + ' kg (' + ft(pc) + ' % de la tara).';
+      if(user){ $('fTara').value = sum; $('fFs').value = pc; txt += ' Se cargaron como tara y como porcentaje sobre el eje delantero.' + ($('fTaraF').value ? '' : ' Elegí de dónde sale la tara (VTV o balanza).'); }
+      else if(tara > 0 && Math.abs(tara - sum) / sum > 0.03) txt += ' OJO: la tara cargada (' + fkg(tara) + ' kg) no coincide con la suma de los ejes (diferencia de ' + fkg(Math.abs(sum - tara)) + ' kg). Si el pesaje se hizo con el semirremolque enganchado, tildá la casilla de arriba; si no, revisá cuál de los dos datos es el correcto.';
+      else txt += ' La tara y el porcentaje salen de estos pesos cuando los modificás.';
+    }
   } else if(t === 'acoplado'){
     txt += '.';
     if(user){ $('fTara').value = sum; txt += ' Se cargó como tara.' + ($('fTaraF').value ? '' : ' Elegí de dónde sale la tara (VTV o balanza).'); }
@@ -719,7 +729,7 @@ function saveFicha(u){
     tipo: $('fTipo').value, patente: $('fPat').value.trim().toUpperCase(), modelo: $('fMod').value.trim(),
     tara: num($('fTara').value) || 0, taraFuente: $('fTaraF').value, susp: $('fSusp').value,
     potencia: num($('fPot').value) || 0, cmt: num($('fCmt').value) || 0, pbt: num($('fPbt').value) || 0,
-    nota: $('fNota').value.trim(), verificado: $('fVer').checked,
+    nota: $('fNota').value.trim(), verificado: $('fVer').checked, pesoConSemi: $('fConSemi').checked && ($('fTipo').value === 'tractor' || $('fTipo').value === 'camion'),
     largo: num($('fLargo').value) > 0 ? num($('fLargo').value) : null, cola: num($('fCola').value) > 0 ? num($('fCola').value) : null,
     plato: num($('fPlato').value), plato2: num($('fPlato2').value), fs: num($('fFs').value) > 0 ? num($('fFs').value) : null,
     equip: $('fTipo').value === 'tractor' ? $('fEquip').value : '',
