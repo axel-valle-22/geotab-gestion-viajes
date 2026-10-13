@@ -2150,7 +2150,7 @@ var CSS = [
 "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');",
 "#cmx{--accent:#00A6E0;--accent-dark:#0078A1;--accent-light:#E3F5FB;--page:#F4F5F8;--card:#fff;--border:#ECEDF2;--text:#20232B;--muted:#6B7280;--bad:#D92D20;--ok:#12805C;--warn:#B54708;--shadow:0 2px 10px rgba(17,24,39,.06),0 1px 2px rgba(17,24,39,.05);background:var(--page);color:var(--text);font-family:Poppins,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;min-height:100vh;box-sizing:border-box}",
 "#cmx *{box-sizing:border-box}",
-"#cmx .wrap{max-width:1180px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:14px}",
+"#cmx .wrap{max-width:none;margin:0 auto;padding:16px 24px;display:flex;flex-direction:column;gap:14px}",
 "#cmx .card{background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);padding:16px}",
 "#cmx .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px}",
 "#cmx .top img{height:36px;width:auto;object-fit:contain}",
@@ -2202,11 +2202,12 @@ var CSS = [
 "#cmx td.rs{font-weight:600;font-size:.8rem}",
 "#cmx ul.avs{margin:12px 0 0;padding-left:18px;font-size:.82rem}#cmx ul.avs li{margin:3px 0;color:var(--muted)}#cmx ul.avs li.bad{color:var(--bad);font-weight:600}",
 "#cmx .mod{position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:9999;display:flex;justify-content:center;align-items:flex-start;padding:128px 12px 24px;overflow:auto}",
-"#cmx .box{width:100%;max-width:760px;max-height:calc(100vh - 170px);overflow:auto;padding-top:0}",
+"#cmx .box{width:100%;max-width:min(1040px,96vw);max-height:calc(100vh - 170px);overflow:auto;padding-top:0}",
 "#cmx .lh{position:sticky;top:0;background:var(--card);display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0 10px;z-index:2;border-bottom:1px solid var(--border);margin-bottom:12px}",
 "#cmx .presets{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}#cmx .presets span{font-size:.8rem;color:var(--muted)}",
 "#cmx .eje{display:grid;grid-template-columns:70px minmax(140px,1fr) minmax(180px,1fr) auto;gap:10px;align-items:end;margin:8px 0}",
 "#cmx .eje .en{font-weight:600;padding-bottom:10px}",
+"@media(min-width:1100px){#cmx #cRes,#cmx #sRes,#cmx #kRes{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}#cmx #cRes>.card,#cmx #sRes>.card,#cmx #kRes>.card{margin:0}#cmx #cRes>.card:last-child,#cmx #sRes>.card:has(.sktw),#cmx #kRes>.card:has(.sktw){grid-column:1/-1}}",
 "@media(max-width:640px){#cmx .eje{grid-template-columns:1fr 1fr}#cmx .filt .wide{grid-column:auto}}"
 ].join('\n');
 (function(){ try{ if(document.getElementById('cmxStyle')) return; var s = document.createElement('style'); s.id = 'cmxStyle'; s.textContent = CSS; (document.head || document.documentElement).appendChild(s); }catch(e){} })();
