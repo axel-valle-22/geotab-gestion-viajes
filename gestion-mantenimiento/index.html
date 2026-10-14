@@ -604,7 +604,10 @@ function toISO(v){if(v==null||v==='')return '';
   if(v&&typeof v.toDate==='function'){try{return iso(v.toDate())}catch(e){return ''}}
   if(v&&typeof v.seconds==='number')return iso(new Date(v.seconds*1000));
   if(v instanceof Date)return isNaN(v)?'':iso(v);return ''}
-function applyDocs(data){try{applyDocs0(data)}catch(e){aErr('VTV (Gestión Documental)',e);S.docs=[]}}
+/* Ajuste 14/10: Gestion Documental guarda cada documento como registro suelto en gd_data (_reg:'documento'),
+   porque gd_data/main llego al tope de 1 MB de Firestore. Se suman a los que pueda traer todavia main. */
+function gdDocsQuery(){try{return ADDIN.gdRef?ADDIN.gdRef.parent.where('_reg','==','documento'):null}catch(e){return null}}
+function applyDocs(data){try{var ds={};((data&&data.documentos)||[]).forEach(function(d){if(d&&d.id)ds[d.id]=d});(ADDIN.gdDocs||[]).forEach(function(d){if(d&&d.id)ds[d.id]=d});applyDocs0(data?Object.assign({},data,{documentos:Object.keys(ds).map(function(k){return ds[k]})}):null)}catch(e){aErr('VTV (Gestión Documental)',e);S.docs=[]}}
 function applyDocs0(data){
   S.docs=[];if(!data){return}
   var ents=data.entidades||[],docs=data.documentos||[],byId={};ents.forEach(function(e){byId[e.id]=e});
@@ -627,7 +630,7 @@ window.GM_START=function(api){
   setStep('Conectando con la base del módulo…');
   var fbP=fbInit().then(function(){
     persistP=ADDIN.docRef.get().then(function(s){return s.exists?JSON.parse(s.data().payload):null});
-    gdP=ADDIN.gdRef.get().then(function(s){return s.exists?s.data():null});
+    gdP=Promise.all([ADDIN.gdRef.get(),(gdDocsQuery()?gdDocsQuery().get():Promise.resolve(null)).catch(function(e){aErr('gd documentos',e);return null})]).then(function(rr){if(rr[1])ADDIN.gdDocs=rr[1].docs.map(function(x){return x.data()});return rr[0].exists?rr[0].data():null});
     return true}).catch(function(e){aErr('Firestore',e);ADDIN.saveErr='No se pudo conectar con la base de datos. Los cambios quedan solo en este navegador.';return false});
   setStep('Leyendo entidades de MyGeotab…');
   var g=function(t){return aCall('Get',{typeName:t,search:{}}).catch(function(e){aErr('Get '+t,e);return []})};
@@ -645,7 +648,8 @@ function subscribe(){
     try{var p=JSON.parse(d.payload);['cfg','talleres','planes','svc','ots','averias','vales','cubiertas','cubLib','nextOT','nextAv','nextChk','audit'].forEach(function(k){if(p[k]!==undefined)S[k]=p[k]});
       var fi=p.fichas||{};S.units.forEach(function(u){var f=fi[u.gt.id];if(!f)return;['tipo','funcion','flota','anio','motor','planes','estado','vida','comb'].forEach(function(k){if(f[k]!==undefined)u[k]=f[k]});if(!u.tel&&f.odo!==undefined){u.odo=f.odo;u.odoFecha=f.odoF;u.odoFuente='Manual'}if(!u.tel&&f.hs!==undefined){u.horas=f.hs;u.horasFecha=f.hsF;u.horasFuente='Manual'}});
       if(!$('#gm-modal').innerHTML)softRender()}catch(e){aErr('sincronización',e)}},function(e){aErr('onSnapshot gm',e)});
-  if(ADDIN.gdRef)ADDIN.gdRef.onSnapshot(function(s){if(!s.exists)return;ADDIN.gd=s.data();applyDocs(ADDIN.gd);softRender()},function(e){aErr('onSnapshot gd',e)})}
+  if(ADDIN.gdRef)ADDIN.gdRef.onSnapshot(function(s){if(!s.exists)return;ADDIN.gd=s.data();applyDocs(ADDIN.gd);softRender()},function(e){aErr('onSnapshot gd',e)});
+  var q=gdDocsQuery();if(q)q.onSnapshot(function(sn){ADDIN.gdDocs=sn.docs.map(function(x){return x.data()});if(ADDIN.gd){applyDocs(ADDIN.gd);softRender()}},function(e){aErr('onSnapshot gd documentos',e)})}
 function reloadAll(){ADDIN.ready=false;ADDIN.errors=[];ADDIN.raw={};render();var p=persistObj();try{localStorage.setItem(CACHE_KEY,JSON.stringify(p))}catch(e){}window.GM_START(ADDIN.api)}
 
 /* ---------- baseline de servicios para planes asignados antes de tener lectura ---------- */
