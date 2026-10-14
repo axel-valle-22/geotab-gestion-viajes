@@ -79,7 +79,7 @@
     <section id="pPer" class="pane" hidden>
       <section class="kpis" id="pKpis">
         <div class="card kpi clk" data-f="vigente"><span>Vigentes</span><b id="pkVig" class="ok">0</b></div>
-        <div class="card kpi clk" data-f="porvencer"><span>Por vencer (15 días)</span><b id="pkPv" class="warn">0</b></div>
+        <div class="card kpi clk" data-f="porvencer"><span>Por vencer (10 días)</span><b id="pkPv" class="warn">0</b></div>
         <div class="card kpi clk" data-f="vencido"><span>Vencidos</span><b id="pkVen" class="bad">0</b></div>
         <div class="card kpi clk" data-f="sinfecha"><span>Sin vigencia cargada</span><b id="pkSin">0</b></div>
         <div class="card kpi clk" data-f="" title="Mostrar todos los permisos (saca el filtro de vigencia)"><span>Total</span><b id="pkTot">0</b></div>
@@ -196,11 +196,15 @@ var NORMAS = {
 };
 var COMP_TXT = { rigido: 'camión', semi: 'tractor con semirremolque', acoplado: 'camión con acoplado', bitren: 'bitrén' };
 var TIPOS = { tractor: 'Tractor', camion: 'Camión', semi: 'Semirremolque', carreton: 'Carretón', acoplado: 'Acoplado', otro: 'No aplica' };
-var ESTADOS = [['', 'Sin estado'], ['por_iniciar', 'Por iniciar'], ['borrador', 'En borrador'], ['doc_faltante', 'Documentación faltante'], ['aprobacion_pendiente', 'Aprobación pendiente'], ['pago_pendiente', 'Pago pendiente'], ['renovacion_lista', 'Renovación lista'], ['en_carpetas', 'En carpetas'], ['vtv_por_vencer', 'VTV por vencer'], ['vtv_vencida', 'VTV vencida'], ['renovar_demanda', 'Renovar a demanda'], ['no_renovar', 'No renovar']];
+var ESTADOS = [['', 'Sin estado'], ['por_iniciar', 'Por iniciar'], ['borrador', 'En borrador'], ['doc_faltante', 'Documentación faltante'], ['aprobacion_pendiente', 'Aprobación pendiente'], ['pago_pendiente', 'Pago pendiente'], ['renovacion_lista', 'Renovación lista'], ['en_carpetas', 'En carpetas'], ['vtv_por_vencer', 'Documentación a vencer'], ['vtv_vencida', 'VTV vencida'], ['renovar_demanda', 'Renovar a demanda'], ['no_renovar', 'No renovar']];
 var EST_PERM = {}; ESTADOS.forEach(function(e){ EST_PERM[e[0]] = e[1]; });
+/* Ajuste 14/10: estados que se ofrecen en el filtro "Estado del tramite" y al editar un permiso (en este orden).
+   Los demas (por iniciar, borrador, renovacion lista, en carpetas, VTV vencida) ya no se ofrecen, pero se siguen
+   reconociendo en EST_PERM para mostrar bien permisos viejos que los tengan guardados. */
+var ESTADOS_VIS = ['pago_pendiente', 'aprobacion_pendiente', 'vtv_por_vencer', 'doc_faltante', 'renovar_demanda', 'no_renovar'];
 var EN_TRAMITE = { por_iniciar: 1, borrador: 1, doc_faltante: 1, aprobacion_pendiente: 1, pago_pendiente: 1 };
 var JUR_TXT = { nqn: 'Neuquén', nac: 'Nacional' };
-var VENC_DIAS = 15;
+var VENC_DIAS = 10;
 
 /* ===================== ESTADO ===================== */
 var db = null, U = [], UBY = {}, P = [], H = [], me = '', inited = false, loaded = false, synced = false, tab = 'calc', lastCalc = null;
@@ -777,7 +781,7 @@ function renderPermisos(){
   /* servicios y estados disponibles */
   var sv = $('pSrv'), sel = sv.value, ss = {}; P.forEach(function(p){ if(p.servicio) ss[p.servicio] = 1; });
   sv.innerHTML = '<option value="">Todos</option>'; Object.keys(ss).sort().forEach(function(k){ var o = document.createElement('option'); o.value = k; o.textContent = k; sv.appendChild(o); }); sv.value = ss[sel] ? sel : '';
-  var es = $('pEst'), se = es.value; if(!es.options.length){ var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Todos'; es.appendChild(o0); var o1 = document.createElement('option'); o1.value = '_sin'; o1.textContent = 'Sin estado'; es.appendChild(o1); ESTADOS.slice(1).forEach(function(e){ var o = document.createElement('option'); o.value = e[0]; o.textContent = e[1]; es.appendChild(o); }); } es.value = se;
+  var es = $('pEst'), se = es.value; if(!es.options.length){ var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Todos'; es.appendChild(o0); var o1 = document.createElement('option'); o1.value = '_sin'; o1.textContent = 'Sin estado'; es.appendChild(o1); ESTADOS_VIS.forEach(function(k){ var o = document.createElement('option'); o.value = k; o.textContent = EST_PERM[k]; es.appendChild(o); }); } es.value = se;
   /* resumen */
   var c = { vigente: 0, porvencer: 0, vencido: 0, sinfecha: 0 }; P.forEach(function(p){ var v = vencEst(p); if(c[v] !== undefined) c[v]++; });
   $('pkVig').textContent = c.vigente; $('pkPv').textContent = c.porvencer; $('pkVen').textContent = c.vencido; $('pkSin').textContent = c.sinfecha; var nP = P.filter(function(q){ return !q.eliminado; }).length; $('pkTot').textContent = nP;
@@ -941,7 +945,7 @@ function openPermiso(p){
   '<label class="chk"><input type="checkbox" id="xExc"> El permiso autoriza exceso por eje (la calculadora no aplica la suma de límites por eje)</label>' +
   '<label class="chk"><input type="checkbox" id="xAct"> Permiso activo</label>' +
   '<div class="acts"><button id="xSave" class="primary">Guardar</button>' + (!nuevo ? (p.eliminado ? '<button id="xRes" class="sm" type="button">Restaurar permiso</button>' : '<button id="xDel" class="sm" type="button" style="color:var(--bad);border-color:var(--bad)">Eliminar permiso</button>') : '') + '<span id="xMsg" class="hint"></span></div>';
-  var xe = $('xEst'); ESTADOS.forEach(function(e){ var o = document.createElement('option'); o.value = e[0]; o.textContent = e[1]; xe.appendChild(o); });
+  var xe = $('xEst'); [''].concat(ESTADOS_VIS).concat(p.estado && ESTADOS_VIS.indexOf(p.estado) < 0 ? [p.estado] : []).forEach(function(k){ var o = document.createElement('option'); o.value = k; o.textContent = EST_PERM[k] || k; xe.appendChild(o); });
   $('xJur').value = p.jur || 'nqn'; $('xSrv').value = p.servicio || ''; $('xEst').value = p.estado || '';
   $('xT').value = uName(p.tractorId, p.tractorTxt); $('xS1').value = uName(p.semiId, p.semiTxt); $('xS2').value = uName(p.semi2Id, '');
   $('xCarga').value = p.carga || ''; $('xNum').value = p.numero || ''; $('xRen').value = p.renov || '';
