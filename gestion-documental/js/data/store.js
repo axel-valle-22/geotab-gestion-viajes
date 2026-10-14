@@ -391,18 +391,38 @@ const GD = (function () {
       _fbDb = firebase.firestore();
       _fbDocRef = _fbDb.collection("gd_data").doc("main");
       _fbArchivosCol = _fbDb.collection("gd_archivos");
+      _fbAudRef = _fbDb.collection("gd_data").doc("auditoria");
+      _fbDocsQuery = _fbDb.collection("gd_data").where("_reg", "==", "documento");
       _fbDocRef.onSnapshot(
         (snap) => {
-          _fbReady = true;
-          const d = snap.exists ? snap.data() : null;
-          if (d) {
-            _data = Object.assign(vacio(), d);
-            saveToLS();
-            corregirFechasViejas();
-          }
-          notify();
+          _fbMainLoaded = true;
+          _mainSnap = snap.exists ? snap.data() : null;
+          _rearmarDatos();
         },
         (err) => console.error("Firestore onSnapshot error", err)
+      );
+      _fbDocsQuery.onSnapshot(
+        (snap) => {
+          _fbDocsLoaded = true;
+          const m = {};
+          snap.docs.forEach((d) => {
+            const x = d.data();
+            delete x._reg;
+            if (!x.id) x.id = d.id;
+            m[x.id] = x;
+          });
+          _colDocs = m;
+          _rearmarDatos();
+        },
+        (err) => console.error("Firestore onSnapshot error (documentos)", err)
+      );
+      _fbAudRef.onSnapshot(
+        (snap) => {
+          _fbAudLoaded = true;
+          _colAud = (snap.exists && Array.isArray(snap.data().items)) ? snap.data().items : [];
+          _rearmarDatos();
+        },
+        (err) => console.error("Firestore onSnapshot error (auditoria)", err)
       );
       return true;
     });
@@ -440,17 +460,110 @@ const GD = (function () {
     }
   }
 
-  async function persistir() {
+  /* ── Ajuste 14/10: los documentos ya no van adentro de gd_data/main ──────────
+     Firestore no acepta documentos de mas de 1 MB y gd_data/main (entidades +
+     2000 documentos + auditoria) llego a ese tope el 9/10. Desde ese dia cada
+     documento NUEVO fallaba al guardarse sin avisar: el PDF quedaba subido en
+     gd_archivos pero el documento desaparecia de la pantalla.
+     Ahora:
+       - gd_data/main ........ entidades, tipos, funciones, alertas, reportes, choferes
+       - gd_data/<id doc> .... un registro por documento (campo _reg: "documento")
+       - gd_data/auditoria ... ultimos 500 movimientos ({ items: [...] })
+     En memoria (_data.documentos / _data.auditoria) todo sigue igual que antes,
+     asi que el resto del modulo no cambia. Al guardar solo se escriben los
+     documentos que cambiaron. Si gd_data/main todavia trae documentos (formato
+     viejo, o una pestaña con la version anterior abierta), se pasan solos a
+     registros sueltos y se vacia el array. */
+  let _fbAudRef = null, _fbDocsQuery = null;
+  let _fbMainLoaded = false, _fbDocsLoaded = false, _fbAudLoaded = false;
+  let _mainSnap = null, _colDocs = {}, _colAud = [];
+  let _guardadoDocs = {}; // id -> JSON del documento tal como esta en Firestore
+  let _migrando = false;
+
+  function _limpio(o) { return JSON.parse(JSON.stringify(o)); }
+  function _todoCargado() { return _fbMainLoaded && _fbDocsLoaded && _fbAudLoaded; }
+
+  function _rearmarDatos() {
+    if (!_todoCargado()) return;
+    _fbReady = true;
+    const d = _mainSnap || {};
+    const legDocs = Array.isArray(d.documentos) ? d.documentos : [];
+    const legAud = Array.isArray(d.auditoria) ? d.auditoria : [];
+    // documentos: los registros sueltos mandan; del array viejo solo se toma lo que falta o es mas nuevo
+    const docs = Object.assign({}, _colDocs);
+    _guardadoDocs = {};
+    Object.keys(_colDocs).forEach((id) => { _guardadoDocs[id] = JSON.stringify(_colDocs[id]); });
+    let hayLegado = false;
+    legDocs.forEach((x) => {
+      if (!x || !x.id) return;
+      hayLegado = true;
+      const c = docs[x.id];
+      if (!c || (x.actualizadoEn || 0) > (c.actualizadoEn || 0)) docs[x.id] = x;
+    });
+    const audIds = {};
+    const aud = [];
+    _colAud.concat(legAud).forEach((a) => { if (a && a.id && !audIds[a.id]) { audIds[a.id] = 1; aud.push(a); } });
+    aud.sort((a, b) => (b.fecha || 0) - (a.fecha || 0));
+    if (aud.length > 500) aud.length = 500;
+    _data = Object.assign(vacio(), d, { documentos: Object.values(docs), auditoria: aud });
     saveToLS();
-    guardarAddInDataBackup();
-    if (_fbDocRef) {
-      try {
-        await _fbDocRef.set(_data, { merge: false });
-      } catch (err) {
-        console.error("No se pudo guardar en Firestore (queda el respaldo en AddInData/localStorage)", err);
-      }
+    corregirFechasViejas();
+    notify();
+    if ((hayLegado || legAud.length) && !_migrando) {
+      _migrando = true;
+      persistir().finally(() => { _migrando = false; });
     }
   }
+
+  let _ultimoAvisoError = 0;
+  function _avisarErrorGuardado(err) {
+    console.error("No se pudo guardar en Firestore", err);
+    if (typeof document === "undefined" || Date.now() - _ultimoAvisoError < 30000) return;
+    _ultimoAvisoError = Date.now();
+    try {
+      const div = document.createElement("div");
+      div.style.cssText = "position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:999999;background:#b91c1c;color:#fff;padding:12px 18px;border-radius:8px;font:600 14px sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.25);max-width:90%";
+      div.textContent = "ATENCION: el ultimo cambio NO se pudo guardar en la base (" + ((err && (err.code || err.message)) || "error") + "). No sigas cargando y avisale a sistemas.";
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 15000);
+    } catch (e) { /* sin DOM */ }
+  }
+
+  async function persistir() {
+    saveToLS();
+    if (!_fbDocRef) return;
+    if (!_todoCargado()) { _persistirPendiente = true; return; }
+    try {
+      const ops = [];
+      const vivos = {};
+      (_data.documentos || []).forEach((doc) => {
+        if (!doc || !doc.id) return;
+        vivos[doc.id] = 1;
+        const limpio = _limpio(doc);
+        const js = JSON.stringify(limpio);
+        if (_guardadoDocs[doc.id] !== js) ops.push({ id: doc.id, data: Object.assign({}, limpio, { _reg: "documento" }), js });
+      });
+      Object.keys(_guardadoDocs).forEach((id) => { if (!vivos[id]) ops.push({ id, borrar: true }); });
+      for (let i = 0; i < ops.length; i += 400) {
+        const batch = _fbDb.batch();
+        ops.slice(i, i + 400).forEach((op) => {
+          const ref = _fbDb.collection("gd_data").doc(op.id);
+          if (op.borrar) batch.delete(ref); else batch.set(ref, op.data);
+        });
+        await batch.commit();
+        ops.slice(i, i + 400).forEach((op) => { if (op.borrar) delete _guardadoDocs[op.id]; else _guardadoDocs[op.id] = op.js; });
+      }
+      const aud = (_data.auditoria || []).slice(0, 500);
+      await _fbAudRef.set({ items: _limpio(aud) });
+      // main sin documentos ni auditoria (ya estan guardados aparte, recien arriba)
+      const main = _limpio(Object.assign({}, _data, { documentos: [], auditoria: [], docsSeparados: true }));
+      await _fbDocRef.set(main, { merge: false });
+    } catch (err) {
+      _avisarErrorGuardado(err);
+    }
+  }
+  let _persistirPendiente = false;
+  setInterval(() => { if (_persistirPendiente && _todoCargado()) { _persistirPendiente = false; persistir(); } }, 2000);
 
   async function init(api) {
     _api = api || null;
