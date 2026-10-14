@@ -1215,6 +1215,90 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
   }
   probar(0);
 }
+/* Ajuste 14/10 (caso C258 - Veschi, Faro): cuando el coordinador modifica el recorrido (agrega, quita, reordena o
+   mueve un sitio) y la unidad YA esta parada dentro de uno de los sitios del recorrido nuevo, Seguimiento tiene que
+   reflejarlo en el acto. Antes habia que esperar al proximo ciclo de checkDwellAlerts (60 s) mas la confirmacion de
+   permanencia (MIN_DWELL_MIN) y, si el viaje estaba "demorado por no salir del origen", ademas la confirmacion de
+   salida del origen: mientras tanto seguia diciendo "Por salir a: <sitio>" con el camion adentro de ese sitio.
+   Esto consulta la posicion actual una sola vez y, si la unidad esta dentro de una parada (fuera del origen):
+   - sella el ingreso a esa parada (luego se ajusta a la hora real de llegada con el historial de GPS),
+   - si el viaje todavia figuraba planificado / demorado en origen, lo pasa a EN CURSO (ya salio del origen). */
+/* La posicion GPS actual cae dentro de una parada del recorrido (no del origen/destino) y fuera de la geocerca del
+   origen: la unidad ya salio del origen aunque todavia no se haya confirmado la salida (ajuste 14/10). */
+function gvUnidadEnParadaFueraDeOrigen(v, r){
+  try{
+    if(!v || !r || r.latitude == null) return false;
+    var pos = { lat: r.latitude, lng: r.longitude };
+    if(v.origen && typeof v.origen.lat === 'number' && GV.isWithinSite(pos, v.origen)) return false;
+    var sites = siteListFor(v); if(!sites.length) return false;
+    var doneIds = []; Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) doneIds.push(k); });
+    var at = GV.pickSiteAt(pos, sites, { doneIds: doneIds });
+    return !!(at && at.id.indexOf('parada') === 0);
+  }catch(e){ return false; }
+}
+function gvReevaluarViajeAhora(viajeId){
+  try{
+    if(!gApi) return;
+    var v0 = GV.Storage.getViaje(viajeId);
+    if(!v0 || !v0.vehiculoId) return;
+    if(!(v0.estado === 'en_curso' || v0.estado === 'demorado' || v0.estado === 'planificado') || v0.llegadaDestinoPendienteEn) return;
+    gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v0.vehiculoId } } }, function(res){
+      try{
+        if(!res || !res.length || res[0].latitude == null) return;
+        var r = res[0];
+        var pos = { lat: r.latitude, lng: r.longitude };
+        try{ gLivePos[viajeId] = { lat: r.latitude, lng: r.longitude, t: Date.now() }; }catch(__eLP){}
+        var v = GV.Storage.getViaje(viajeId);
+        if(!v || v.llegadaDestinoPendienteEn) return;
+        var sites = siteListFor(v);
+        if(!sites.length) return;
+        var doneIds = [];
+        Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) doneIds.push(k); });
+        var atSite = GV.pickSiteAt(pos, sites, { stickyId: v.dwellState ? v.dwellState.siteId : null, doneIds: doneIds });
+        var refrescar = function(){ try{ renderTrips(); }catch(e){} try{ renderTracking(); }catch(e){} try{ renderStats(); }catch(e){} };
+        /* Solo paradas: origen y destino tienen su propia logica (salida confirmada / llegada a destino). */
+        if(!atSite || atSite.id.indexOf('parada') !== 0){ refrescar(); return; }
+        /* Si la parada se superpone con el origen (origen = primera carga) lo resuelve gvIniciaEnPrimerSitio en el ciclo normal. */
+        if(v.origen && typeof v.origen.lat === 'number' && GV.isWithinSite(pos, v.origen)){ refrescar(); return; }
+        /* Igual que el auto-inicio normal: un viaje planificado no arranca mas de 30 min antes de lo programado
+           (la unidad puede estar en ese sitio por otra tarea). */
+        if(v.estado === 'planificado' && (Date.now() - new Date(v.fechaSalida).getTime()) <= -30*60*1000){ refrescar(); return; }
+        var ahora = new Date().toISOString();
+        var sr = Object.assign({}, v.sitiosReal || {});
+        var st = Object.assign({}, sr[atSite.id] || {});
+        if(st.egreso){ refrescar(); return; }
+        var patch = {};
+        var selloIngreso = false;
+        if(!st.ingreso){
+          st.ingreso = ahora; sr[atSite.id] = st; patch.sitiosReal = sr; selloIngreso = true;
+          patch.dwellState = { siteId: atSite.id, arrivedAt: ahora, alertado: false, lastAlertBucket: -1, confirmado: true };
+        } else if(!v.dwellState || v.dwellState.siteId !== atSite.id){
+          patch.dwellState = { siteId: atSite.id, arrivedAt: st.ingreso, alertado: false, lastAlertBucket: -1, confirmado: true };
+        }
+        var sinArrancar = v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn);
+        if(sinArrancar){
+          if(!(sr.origen && sr.origen.egreso)){ sr.origen = Object.assign({}, sr.origen || {}, { egreso: v.salidaOrigenTentativaDesde || st.ingreso }); patch.sitiosReal = sr; }
+          var demoraMs = Math.max(0, new Date(sr.origen.egreso).getTime() - new Date(v.fechaSalida).getTime());
+          patch.estado = 'en_curso';
+          patch.iniciadoEn = v.iniciadoEn || sr.origen.egreso;
+          patch.autoIniciado = true;
+          patch.salidaOrigenTentativaDesde = null;
+          if(demoraMs > 20*60*1000){ patch.salioConDemora = true; patch.demoraSalidaMin = Math.round(demoraMs/60000); }
+        }
+        if(!Object.keys(patch).length){ refrescar(); return; }
+        GV.Storage.updateViaje(v.id, patch).then(function(){
+          if(sinArrancar){
+            try{ GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': se modifico el recorrido y la unidad ya esta en sitio en ' + (atSite.label || 'la parada') + ': el viaje pasa a en curso.', fecha: ahora, viajeId: v.id }); }catch(__eAl){}
+          }
+          /* El ingreso se sello con "ahora": se corrige a la hora real en que entro, mirando el historial de GPS. */
+          if(selloIngreso){ try{ gvRefinarIngresoGps(GV.Storage.getViaje(v.id) || v, atSite, ahora); }catch(__eRf){} }
+          refrescar();
+        });
+      }catch(__eRV){ console.error('gvReevaluarViajeAhora', __eRV); }
+    });
+  }catch(__eRV0){ console.error('gvReevaluarViajeAhora', __eRV0); }
+}
+
 function checkDwellAlerts(){
   if(!gApi) return;
 /* Ajuste 7/10: viaje abierto, sin aviso de llegada pendiente, pero con ingreso al destino sin egreso guardado (queda de un aviso
@@ -1285,7 +1369,7 @@ try{
           GV.Storage.addAlerta({ id: 'al_' + v.id + '_autoinicio', tipo: 'info', mensaje: __msgAuto + (puedeIniciar(v) ? '' : ' El gerenciamiento de riesgos todavia no fue aprobado.'), fecha: new Date().toISOString(), viajeId: v.id });
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
-        } else { return; }
+        } else { if(gvUnidadEnParadaFueraDeOrigen(v, r)){ gvReevaluarViajeAhora(v.id); return; } return; }
       } else if(v.estado === 'demorado' && v.demoradoOrigen){
         /* Aca NO se exige puedeIniciar(v): la deteccion de que la unidad ya se alejo del origen es
            un hecho fisico (GPS), no depende de si el gerenciamiento fue aprobado -- si se exigiera,
@@ -1317,6 +1401,7 @@ try{
           if(gPanelView === 'lista'){ renderTrips(); }
           renderStats();
         } else {
+           if(gvUnidadEnParadaFueraDeOrigen(v, r)){ gvReevaluarViajeAhora(v.id); return; } 
            // Sigue en el origen, todavia no salio: no seguir evaluando nada mas este ciclo. Evita que el chequeo de llegada a destino de mas abajo -- que solo mira la posicion GPS actual, sin exigir que la unidad se haya ido antes -- confunda seguir parada en origen con haber llegado a destino, cuando origen y destino son el mismo predio ida y vuelta. Bug real: viaje 258 del 4 de septiembre de 2026, se cerro solo a los 22 minutos de la demora con las 5 paradas de carga y descarga todavia pendientes.
                     return;
         }
@@ -1905,7 +1990,13 @@ try{
     }
   }
 }catch(__eP2){}
-if(v && (v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn))){
+/* Ajuste 14/10 (caso C258 - Veschi): se modifico el recorrido poniendo Faro como primer sitio cuando la unidad YA estaba
+   ahi. El viaje seguia "demorado por no salir del origen" y esta rama decia "Por salir a: Faro" aunque sitiosReal ya
+   tenia el ingreso a Faro sellado. Si algun sitio del recorrido (que no sea el origen) ya tiene ingreso/egreso real, la
+   unidad ya no esta "por salir": se sigue al barrido normal de hitos, que dice "En sitio: <nombre>". */
+var __avanceReal = false;
+try{ Object.keys(sr).forEach(function(k){ if(k === 'origen' || k === 'destino') return; if(sr[k] && (sr[k].ingreso || sr[k].egreso)) __avanceReal = true; }); }catch(__eAR){}
+if(!__avanceReal && v && (v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn))){
 var __prox = null;
 for(var k=0; k<hitos.length; k++){ if(hitos[k].id !== 'origen'){ __prox = hitos[k]; break; } }
 if(!__prox) __prox = hitos[0];
@@ -3528,6 +3619,7 @@ renderItinerario(cachedRoute, cachedFullHist);
 closeEs();
 try{ renderTrips(); }catch(e){}
 try{ renderStats(); }catch(e){}
+gvReevaluarViajeAhora(v.id);
 });
 });
 }
@@ -3586,6 +3678,7 @@ if(__dwAct && (__dwAct.siteId === siteId || (__vAct.sitiosReal && __vAct.sitiosR
 GV.Storage.updateViaje(v.id, patch).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
+gvReevaluarViajeAhora(v.id);
 });
 });
 }
@@ -3649,6 +3742,7 @@ var terminar = function(){
 GV.Storage.updateViaje(v.id, patch).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){
 closeDetalle(); abrirDetalleViaje(v.id);
 renderStats(); renderTrips(); renderTracking(); renderAlertas();
+gvReevaluarViajeAhora(v.id);
 });
 };
 if(!tenia){ terminar(); return; }
@@ -3674,6 +3768,7 @@ var paradas = (v.paradas||[]).concat([nuevaParada]);
 GV.Storage.updateViaje(v.id, { paradas: paradas }).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
+gvReevaluarViajeAhora(v.id);
 });
 });
 }
@@ -3729,6 +3824,7 @@ var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
 GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: __remap.sitiosReal, dwellState: __remap.dwellState }).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
+gvReevaluarViajeAhora(v.id);
 });
 }
 
@@ -3762,6 +3858,7 @@ var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
 GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: __remap.sitiosReal, dwellState: __remap.dwellState }).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
+gvReevaluarViajeAhora(v.id);
 });
 }
 
