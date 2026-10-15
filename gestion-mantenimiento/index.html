@@ -781,7 +781,7 @@ function vFallas(){
 
 /* ================= estado de interfaz ================= */
 var TD=today();
-var UI={view:'dash',dashTab:'ind',gerTipo:'',gerMeses:5,flotaTab:'info',flotaQ:'',flotaTipo:'',flotaSit:'',prevTab:'cal',prevFilter:'',calY:TD.getFullYear(),calM:TD.getMonth(),calSel:iso(TD),planTab:'mis',avFilter:'Pendiente',avSel:[],otQ:'',otEstado:'',otTipo:'',otTaller:'',otMec:'',otVista:'orden',combTab:'consumo',combMes:4,rendFilter:'',ralVista:'veh',ralTol:5,regQ:'',regOpen:{},cubQ:'',cubSec:'list',cubGes:'dia',cubLibTab:'cfg',cubUnit:'',cubEst:'',cubMarca:'',cubUni:'',cubMq:'',cubNivel:'',prevUnit:'',bell:false,regFilter:'',entQ:'',entOrg:'',entTipo:'',chkF:'',vtvF:'',vtvQ:'',fallaQ:'',fallaEst:'',fallaWin:'7',menuOpen:{},menuMob:false};
+var UI={view:'dash',dashTab:'ind',gerTipo:'',gerMeses:5,flotaTab:'oper',flotaQ:'',flotaTipo:'',flotaSit:'',prevTab:'cal',prevFilter:'',calY:TD.getFullYear(),calM:TD.getMonth(),calSel:iso(TD),planTab:'mis',avFilter:'Pendiente',avSel:[],otQ:'',otEstado:'',otTipo:'',otTaller:'',otMec:'',otVista:'orden',combTab:'consumo',combMes:4,rendFilter:'',ralVista:'veh',ralTol:5,regQ:'',regOpen:{},cubQ:'',cubSec:'list',cubGes:'dia',cubLibTab:'cfg',cubUnit:'',cubEst:'',cubMarca:'',cubUni:'',cubMq:'',cubNivel:'',prevUnit:'',bell:false,regFilter:'',entQ:'',entOrg:'',entTipo:'',chkF:'',vtvF:'',vtvQ:'',fallaQ:'',fallaEst:'',fallaWin:'7',menuOpen:{},menuMob:false};
 var ICON={
  dash:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>',
  flota:'<path d="M2 6h11v9H2z"/><path d="M13 9h5l3 3v3h-8z"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/>',
@@ -889,17 +889,50 @@ function catCosts(tipoSel){var pre=0,cor=0,np=0,nc=0;S.ots.forEach(function(o){i
   return '<div class="legend" style="gap:14px"><div><i style="background:'+C.info+'"></i>Preventivo<b>'+money(pre)+'</b></div>'+meter(pre/t,'info')+'<div><i style="background:'+C.warn+'"></i>Correctivo<b>'+money(cor)+'</b></div>'+meter(cor/t,'warn')+'</div><p class="muted small">'+np+' órdenes preventivas y '+nc+' correctivas cerradas con importe. Relación correctivo/total: '+Math.round(cor/t*100)+'%.</p>'}
 
 /* ================= FLOTA ================= */
+/* ================= OPERATIVIDAD POR CLIENTE (ajuste 15/10) =================
+   Pantallazo de la flota de un cliente: que unidades estan operativas, cuales en reparacion o fuera de servicio,
+   que ordenes de trabajo tienen abiertas, en que estado, con que avance (tareas hechas / tareas de la orden) y
+   hace cuantos dias empezo la reparacion. Situacion:
+   - Fuera de servicio: la unidad esta marcada asi.
+   - En reparación: marcada "En taller", o con una orden En proceso o Pausada.
+   - Operativa c/ pendientes: habilitada, con ordenes abiertas que todavia no empezaron.
+   - Operativa: habilitada y sin ordenes abiertas. */
+function otsAbiertasDe(uid){return S.ots.filter(function(o){return o.unitId===uid&&o.estado!=='Cerrada'&&o.estado!=='Descartada'})}
+function operInfo(u){var ab=otsAbiertasDe(u.id),rep=ab.filter(function(o){return o.estado==='En proceso'||o.estado==='Pausada'});
+  var sit=u.estado==='Fuera de servicio'?'Fuera de servicio':(u.estado==='En taller'||rep.length)?'En reparación':ab.length?'Operativa c/ pendientes':'Operativa';
+  var ini=null;(rep.length?rep:ab).forEach(function(o){if(o.fInicio&&(!ini||o.fInicio<ini))ini=o.fInicio});
+  var dias=(sit==='En reparación'||sit==='Fuera de servicio')&&ini?Math.max(0,Math.round((new Date(iso(TD)+'T12:00:00')-new Date(ini+'T12:00:00'))/864e5)):null;
+  return {sit:sit,ots:ab,dias:dias,ini:ini}}
+function otAvance(o){var t=o.tareas||[];if(!t.length)return null;return t.filter(function(x){return x.d}).length/t.length}
+function flotaOperHtml(L){
+  var ord={'Fuera de servicio':0,'En reparación':1,'Operativa c/ pendientes':2,'Operativa':3},col={'Operativa':'ok','Operativa c/ pendientes':'info','En reparación':'warn','Fuera de servicio':'bad'};
+  var I=L.map(function(u){return {u:u,i:operInfo(u)}});
+  /* resumen por cliente (sobre toda la flota, no solo lo filtrado) */
+  var porCli={};S.units.forEach(function(u){var cs=(u.clientes&&u.clientes.length)?u.clientes:['Sin cliente'];var i=operInfo(u);cs.forEach(function(c){var x=porCli[c]||(porCli[c]={n:0,op:0,rep:0,fs:0});x.n++;if(i.sit==='Operativa'||i.sit==='Operativa c/ pendientes')x.op++;else if(i.sit==='En reparación')x.rep++;else x.fs++})});
+  var cards=Object.keys(porCli).sort(function(a,b){return a==='Sin cliente'?1:b==='Sin cliente'?-1:a.localeCompare(b)}).map(function(c){var x=porCli[c],pc=Math.round(x.op/(x.n||1)*100),on=(UI.flotaCli===c)||(c==='Sin cliente'&&UI.flotaCli==='__sin');
+    return '<button type="button" class="kpi'+(on?' on':'')+'" data-act="flotaCliSet" data-c="'+esc(c==='Sin cliente'?'__sin':c)+'" style="text-align:left"><span class="l">'+esc(c)+'</span><span class="v" style="color:'+(pc>=90?'var(--ok-ink,#059669)':pc>=70?'var(--warn-ink,#d97706)':'var(--bad-ink,#dc2626)')+'">'+pc+'%</span><span class="s">'+x.op+' de '+x.n+' operativas'+(x.rep?' · '+x.rep+' en reparación':'')+(x.fs?' · '+x.fs+' fuera de servicio':'')+'</span></button>'}).join('');
+  var nOp=I.filter(function(x){return x.i.sit.indexOf('Operativa')===0}).length,nRep=I.filter(function(x){return x.i.sit==='En reparación'}).length,nFs=I.filter(function(x){return x.i.sit==='Fuera de servicio'}).length;
+  var head='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:12px">'+cards+'</div>'+
+    '<div class="note" style="margin-bottom:12px"><b>'+(UI.flotaCli?(UI.flotaCli==='__sin'?'Sin cliente':esc(UI.flotaCli)):'Toda la flota')+':</b> '+nOp+' operativa'+(nOp===1?'':'s')+' · '+nRep+' en reparación · '+nFs+' fuera de servicio · '+Math.round(nOp/(I.length||1)*100)+'% operativa. Tocá un cliente para ver solo sus unidades.</div>';
+  I.sort(function(a,b){return (ord[a.i.sit]-ord[b.i.sit])||((b.i.dias||0)-(a.i.dias||0))});
+  var rows=I.map(function(x){var u=x.u,i=x.i;
+    var ots=i.ots.length?i.ots.map(function(o){var t=tallerById(o.tallerId),av=otAvance(o),lp=(o.estado==='Pausada'&&o.pausas&&o.pausas.length)?o.pausas[o.pausas.length-1]:null;
+      return '<div style="padding:4px 0;border-bottom:1px dashed var(--line,#e5e7eb)"><a href="#" data-act="otOpen" data-id="'+o.id+'" style="font-weight:700;color:var(--accent-dark,#0078A1)">#'+o.nro+'</a> '+esc(o.titulo||'Sin descripción')+' <span class="muted small">· '+esc(o.tipo)+(t?' · '+esc(t.nombre):'')+'</span> '+pill(o.estado)+(lp?'<div class="muted small">Pausada: '+esc(lp.motivo||'')+(lp.reanuda?' · reanuda '+fd(lp.reanuda):'')+'</div>':'')+
+        '<div style="display:flex;align-items:center;gap:8px;margin-top:3px"><div style="flex:1;max-width:180px">'+(av==null?'':meter(av,'ok'))+'</div><span class="small num">'+(av==null?'<span class="muted">sin tareas cargadas</span>':Math.round(av*100)+'% ('+(o.tareas||[]).filter(function(y){return y.d}).length+'/'+(o.tareas||[]).length+' tareas)')+'</span><span class="muted small">desde '+fd(o.fInicio)+'</span></div></div>'}).join(''):'<span class="muted small">Sin órdenes abiertas</span>';
+    return '<tr><td>'+ent(u)+'</td><td>'+esc((u.clientes||[]).join(', ')||'—')+'</td><td><span class="pill '+col[i.sit]+'">'+esc(i.sit)+'</span></td><td style="min-width:320px">'+ots+'</td><td class="num">'+(i.dias==null?'—':'<b>'+i.dias+'</b> día'+(i.dias===1?'':'s'))+'</td><td class="r"><button class="btn sm" data-act="otNew" data-u="'+u.id+'">+ Orden</button></td></tr>'});
+  return head+tbl(['Unidad','Cliente','Situación','Órdenes de trabajo abiertas · estado · avance','En reparación hace',''],rows,'No hay unidades para este filtro.')}
 function vFlota(){
   var U=S.units,mot=U.filter(function(u){return u.motor});
   var pc=function(f,list){list=list||U;var n=list.filter(f).length;return Math.round(n/(list.length||1)*100)};
   var kp=[['Preventivo',pc(function(u){return prevEstado(u)==='Al día'},U.filter(function(u){return u.planes.length})),'al día'],['Odómetro',pc(function(u){return dataEstado(u,'odo')==='Bueno'},mot),'con datos vigentes'],['Horómetro',pc(function(u){return dataEstado(u,'hs')==='Bueno'},mot),'con datos vigentes'],['Checklist',pc(function(u){return chkEstado(u)==='Vigente'}),'vigente'],['Vida útil',pc(function(u){var v=vidaInfo(u);return v&&v.e==='Bueno'},U.filter(function(u){return u.vida})),'en buen estado']];
-  var tabs=tabsHtml('flotaTab',[['info','Información'],['est','Estados'],['odo','Odómetro'],['hs','Horómetro'],['comb','Combustible'],['vida','Vida útil']],UI.flotaTab);
+  var tabs=tabsHtml('flotaTab',[['oper','Operatividad'],['info','Información'],['est','Estados'],['odo','Odómetro'],['hs','Horómetro'],['comb','Combustible'],['vida','Vida útil']],UI.flotaTab);
   var q=UI.flotaQ.toLowerCase(),L=U.filter(function(u){return (!q||(u.nombre+' '+u.patente+' '+u.marca+' '+u.modelo).toLowerCase().indexOf(q)>=0)&&(!UI.flotaTipo||u.tipo===UI.flotaTipo)&&(!UI.flotaSit||u.estado===UI.flotaSit)&&(!UI.flotaCli||(UI.flotaCli==='__sin'?!(u.clientes||[]).length:(u.clientes||[]).indexOf(UI.flotaCli)>=0))});
   var clis=[];U.forEach(function(u){(u.clientes||[]).forEach(function(c){if(clis.indexOf(c)<0)clis.push(c)})});clis.sort();
   var tipos=[];U.forEach(function(u){if(tipos.indexOf(u.tipo)<0)tipos.push(u.tipo)});
   var filt='<div class="bar"><input id="f-fq" data-ui="flotaQ" type="search" placeholder="Buscar por unidad, patente, marca o modelo" value="'+esc(UI.flotaQ)+'" style="width:min(340px,100%)"><select id="f-ft" data-ui="flotaTipo" aria-label="Tipo">'+selectOpts(tipos,UI.flotaTipo,'Todos los tipos')+'</select><select id="f-fs" data-ui="flotaSit" aria-label="Situación">'+selectOpts(['Habilitado','En taller','Fuera de servicio'],UI.flotaSit,'Toda situación')+'</select><select id="f-fc" data-ui="flotaCli" aria-label="Cliente">'+selectOpts(clis.concat([['__sin','Sin cliente']]),UI.flotaCli||'','Todos los clientes')+'</select><span class="sp"></span><span class="muted small">'+L.length+' de '+U.length+' unidades</span></div>';
   var body='';
-  if(UI.flotaTab==='info')body=tbl(['Unidad','Equipo en Geotab','Tipo','Función','Flota','Año','Planes','Situación'],L.map(function(u){return '<tr><td>'+ent(u)+'</td><td>'+orgPill(u)+'</td><td>'+esc(u.tipo)+'</td><td>'+esc(u.funcion)+'</td><td>'+esc(u.flota)+'</td><td class="num">'+u.anio+'</td><td><div class="chips">'+(u.planes.length?u.planes.map(function(p){return '<span class="chip">'+esc(planById(p).nombre)+'</span>'}).join(''):'<span class="muted small">Sin plan</span>')+'</div></td><td><select data-act-change="setSit" data-id="'+u.id+'" aria-label="Situación de '+esc(u.nombre)+'">'+selectOpts(['Habilitado','En taller','Fuera de servicio'],u.estado)+'</select></td></tr>'}));
+  if(UI.flotaTab==='oper')body=flotaOperHtml(L);
+  else if(UI.flotaTab==='info')body=tbl(['Unidad','Equipo en Geotab','Tipo','Función','Flota','Año','Planes','Situación'],L.map(function(u){return '<tr><td>'+ent(u)+'</td><td>'+orgPill(u)+'</td><td>'+esc(u.tipo)+'</td><td>'+esc(u.funcion)+'</td><td>'+esc(u.flota)+'</td><td class="num">'+u.anio+'</td><td><div class="chips">'+(u.planes.length?u.planes.map(function(p){return '<span class="chip">'+esc(planById(p).nombre)+'</span>'}).join(''):'<span class="muted small">Sin plan</span>')+'</div></td><td><select data-act-change="setSit" data-id="'+u.id+'" aria-label="Situación de '+esc(u.nombre)+'">'+selectOpts(['Habilitado','En taller','Fuera de servicio'],u.estado)+'</select></td></tr>'}));
   else if(UI.flotaTab==='est')body=tbl(['Unidad','Preventivo','VTV','Odómetro','Horómetro','Checklist','Uso mínimo','Situación'],L.map(function(u){return '<tr><td>'+ent(u)+'</td><td>'+pill(prevEstado(u))+'</td><td>'+pill(vtvInfo(u).e)+'</td><td>'+pill(dataEstado(u,'odo'))+'</td><td>'+pill(dataEstado(u,'hs'))+'</td><td>'+pill(chkEstado(u))+'</td><td>'+pill(regEstado(u).e)+'</td><td>'+pill(u.estado)+'</td></tr>'}));
   else if(UI.flotaTab==='odo'||UI.flotaTab==='hs'){var o=UI.flotaTab==='odo';
     body=tbl(['Unidad',o?'Odómetro actual':'Horómetro actual','Último registro','Origen del dato',''],L.map(function(u){var v=o?u.odo:u.horas,f=o?u.odoFuente:u.horasFuente,fe=o?u.odoFecha:u.horasFecha;return '<tr><td>'+ent(u)+'</td><td class="num">'+(v==null?'<span class="muted">Sin dato</span>':n0(v)+(o?' km':' hs'))+'</td><td>'+fd(fe)+'</td><td>'+(f?'<span class="pill '+(f==='Geotab'?'acc':'warn')+'">'+(f==='Geotab'?'Geotab (telemetría)':'Carga manual')+'</span>':'—')+'</td><td class="r"><button class="btn sm" data-act="recal" data-id="'+u.id+'" data-w="'+(o?'odo':'hs')+'">'+(u.tel?'Recalibrar':'Cargar lectura')+'</button></td></tr>'}))}
@@ -1540,6 +1573,7 @@ var ACT={
    S.checks.push(c);S.checks.sort(function(a,b){return a.fecha<b.fecha?1:a.fecha>b.fecha?-1:0});save();closeModal();render();toast('Checklist registrado'+(c.defectos.length?' y '+c.defectos.length+' averías creadas.':'.'))},
  go:function(d,el,arg){if(arg==='cub')UI.cubSec='list';go(arg)},
  tab:function(d){UI[d.k]=d.v;render()},
+ flotaCliSet:function(d){UI.flotaCli=(UI.flotaCli===d.c)?'':d.c;render()},
  fallaF:function(d,el,arg){UI.fallaEst=UI.fallaEst===arg?'':arg;render()},
  fallaGo:function(){UI.fallaGo=!UI.fallaGo;render()},
  bell:function(){UI.bell=!UI.bell;render()},
