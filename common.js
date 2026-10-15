@@ -1359,7 +1359,7 @@ GV.duracionCamionSeg = function(distanciaM, duracionAutoSeg){
   var porVelocidad = (distanciaM || 0) / 1000 / (GV.VEL_PROMEDIO_MAX_CAMION_KMH || 60) * 3600;
   return Math.max(porFactor, porVelocidad);
 };
-GV.getRoute = function(points){
+GV.__getRouteOSRM = function(points){
 return new Promise(function(resolve){
 try{
 if(!points || points.length < 2){ resolve(null); return; }
@@ -1376,6 +1376,81 @@ resolve({ coords: coords, distance: route.distance, duration: legs.length ? durT
 }).catch(function(){ resolve(null); });
 }catch(e){ resolve(null); }
 });
+};
+
+/* ---------------- Memoria de rutas (Ajuste 15/10) ----------------
+   Cada vez que una unidad hace un tramo entre dos sitios (sale de A y entra a B), se guarda el
+   recorrido REAL del GPS de ese tramo: km, minutos de manejo (sin contar paradas de 30 min o mas)
+   y el camino. La proxima vez que se planifique un viaje entre esos mismos dos puntos (a menos de
+   500 m de cada uno), GV.getRoute usa el PROMEDIO de los ultimos 5 recorridos reales para la
+   distancia y el tiempo, y dibuja el camino del ultimo. Si no hay historial, calcula como antes. */
+GV.RUTA_RADIO_KM = 0.5;
+GV.rutaClave = function(a, b){
+  function r(x){ return Number(x).toFixed(3); }
+  return 'ruta_' + r(a.lat) + '_' + r(a.lng) + '__' + r(b.lat) + '_' + r(b.lng);
+};
+GV.buscarRutaAprendida = function(a, b){
+  var R = (GV.Storage && GV.Storage.getRutas) ? GV.Storage.getRutas() : null;
+  if(!R || !a || !b) return null;
+  var k = GV.rutaClave(a, b);
+  if(R[k] && R[k].n) return { id: k, r: R[k] };
+  var mejor = null, mejorD = 1e9;
+  Object.keys(R).forEach(function(id){
+    var x = R[id]; if(!x || !x.n || !x.a || !x.b) return;
+    var da = GV.distKm(a, x.a), db = GV.distKm(b, x.b);
+    if(da === null || db === null || da > GV.RUTA_RADIO_KM || db > GV.RUTA_RADIO_KM) return;
+    if(da + db < mejorD){ mejorD = da + db; mejor = { id: id, r: x }; }
+  });
+  return mejor;
+};
+GV.rutaGeoDecode = function(s){
+  if(!s) return [];
+  return String(s).split(';').map(function(p){ var q = p.split(','); return [parseFloat(q[0]), parseFloat(q[1])]; }).filter(function(c){ return !isNaN(c[0]) && !isNaN(c[1]); });
+};
+GV.rutaGeoEncode = function(pts){
+  /* Simplifica el recorrido (Douglas-Peucker, ~30 m) para que entre holgado en Firestore. */
+  if(!pts || pts.length < 2) return '';
+  var tol = 0.0003;
+  function dps(arr){
+    if(arr.length < 3) return arr;
+    var a = arr[0], b = arr[arr.length - 1], idx = -1, maxD = 0;
+    var dx = b[1] - a[1], dy = b[0] - a[0], L = Math.sqrt(dx * dx + dy * dy) || 1e-12;
+    for(var i = 1; i < arr.length - 1; i++){
+      var d = Math.abs(dy * arr[i][1] - dx * arr[i][0] + b[1] * a[0] - b[0] * a[1]) / L;
+      if(d > maxD){ maxD = d; idx = i; }
+    }
+    if(maxD <= tol) return [a, b];
+    var l = dps(arr.slice(0, idx + 1)), r = dps(arr.slice(idx));
+    return l.slice(0, -1).concat(r);
+  }
+  var s = dps(pts);
+  while(s.length > 400){ tol *= 2; s = dps(pts); }
+  return s.map(function(c){ return c[0].toFixed(5) + ',' + c[1].toFixed(5); }).join(';');
+};
+GV.getRoute = function(points){
+  if(!points || points.length < 2) return Promise.resolve(null);
+  var mem = [];
+  for(var i = 0; i < points.length - 1; i++){ mem.push(GV.buscarRutaAprendida(points[i], points[i + 1])); }
+  if(!mem.some(function(m){ return !!m; })) return GV.__getRouteOSRM(points);
+  return Promise.all(mem.map(function(m, i){
+    if(m){
+      var c = GV.rutaGeoDecode(m.r.geo);
+      if(c.length < 2) c = [[points[i].lat, points[i].lng], [points[i + 1].lat, points[i + 1].lng]];
+      return Promise.resolve({ coords: c, leg: { distance: (m.r.kmProm || 0) * 1000, duration: (m.r.minProm || 0) * 60, aprendida: { n: m.r.n, ultima: m.r.geoFecha || m.r.actualizado || null } } });
+    }
+    return GV.__getRouteOSRM([points[i], points[i + 1]]).then(function(rt){
+      if(!rt) return null;
+      return { coords: rt.coords, leg: (rt.legs && rt.legs[0]) || { distance: rt.distance, duration: rt.duration } };
+    });
+  })).then(function(parts){
+    if(parts.some(function(p){ return !p; })){
+      /* Si un tramo sin memoria no se pudo calcular, se arma igual con linea recta para ese tramo. */
+      parts = parts.map(function(p, i){ return p || { coords: [[points[i].lat, points[i].lng], [points[i + 1].lat, points[i + 1].lng]], leg: { distance: (GV.distKm(points[i], points[i + 1]) || 0) * 1000, duration: GV.duracionCamionSeg((GV.distKm(points[i], points[i + 1]) || 0) * 1000, 0) } }; });
+    }
+    var coords = [], legs = [], dist = 0, dur = 0, apr = 0;
+    parts.forEach(function(p){ coords = coords.concat(p.coords); legs.push(p.leg); dist += p.leg.distance || 0; dur += p.leg.duration || 0; if(p.leg.aprendida) apr++; });
+    return { coords: coords, distance: dist, duration: dur, legs: legs, tramosAprendidos: apr };
+  });
 };
 
 /* ---------------- Historial de posiciones (LogRecord) ---------------- */
@@ -1537,6 +1612,34 @@ GV.Storage = (function(){
   var MAX_BYTES_MES = 800 * 1024; // margen bajo el limite de 1 MiB por documento
   var _hist = { viajes: [], alertaIds: {}, docDeViaje: {}, cargado: false };
   var _archivadoCorrido = false;
+  var _rutas = {};
+  /* Agrega una muestra (recorrido real de un tramo) a la memoria de rutas, dentro de una transaccion
+     para que dos pestanas abiertas no la cuenten dos veces. Se guardan las ultimas 5 muestras; el
+     promedio de km y minutos sale de esas 5. El camino que se dibuja es el del ultimo recorrido. */
+  var RUTAS_SHARDS = 8;
+  function shardDeRuta(key){ var h = 0; for(var i = 0; i < key.length; i++){ h = ((h << 5) - h + key.charCodeAt(i)) | 0; } return 'rutas_' + (Math.abs(h) % RUTAS_SHARDS); }
+  function guardarMuestraRuta(docId, a, b, muestra, geo){
+    if(!_fbDb) return Promise.resolve(false);
+    var ref = _fbDb.collection('gv_historico').doc(shardDeRuta(docId));
+    return _fbDb.runTransaction(function(tx){
+      return tx.get(ref).then(function(snap){
+        var all = snap.exists ? (snap.data().rutas || {}) : {};
+        var d = all[docId] || { a: a, b: b, muestras: [] };
+        var ms = (d.muestras || []).slice();
+        if(ms.some(function(x){ return x.vid === muestra.vid && x.leg === muestra.leg; })) return d;
+        ms.push(muestra);
+        ms.sort(function(x, y){ return (x.fecha < y.fecha) ? -1 : (x.fecha > y.fecha ? 1 : 0); });
+        if(ms.length > 5) ms = ms.slice(ms.length - 5);
+        var km = 0, mn = 0; ms.forEach(function(x){ km += x.km; mn += x.min; });
+        var nuevo = { a: d.a || a, b: d.b || b, muestras: ms, n: ms.length, kmProm: Math.round(km / ms.length * 10) / 10, minProm: Math.round(mn / ms.length), actualizado: new Date().toISOString() };
+        var esUltima = ms[ms.length - 1].vid === muestra.vid && ms[ms.length - 1].leg === muestra.leg;
+        if(esUltima && geo){ nuevo.geo = geo; nuevo.geoFecha = muestra.fecha; } else if(d.geo){ nuevo.geo = d.geo; nuevo.geoFecha = d.geoFecha || null; }
+        all[docId] = nuevo;
+        tx.set(ref, { _reg: 'rutas', rutas: all, actualizado: nuevo.actualizado });
+        return nuevo;
+      });
+    }).then(function(nuevo){ if(nuevo) _rutas[docId] = nuevo; return true; })['catch'](function(e){ try{ console.warn('[GV] memoria de rutas: no se pudo guardar', e && e.message); }catch(_e){} return false; });
+  }
 
   function fechaDe(x){
     var t = Date.parse((x && (x.fechaSalida || x.fecha || x.creadoEn)) || '');
@@ -1561,6 +1664,9 @@ GV.Storage = (function(){
       var viajes = [], ids = {}, docDe = {};
       qs.forEach(function(doc){
         var d = doc.data() || {};
+        /* Ajuste 15/10: memoria de rutas, agrupada en 8 documentos (rutas_0 ... rutas_7, _reg:'rutas')
+           para que abrir el panel lea 8 documentos y no uno por ruta. */
+        if(d._reg === 'rutas'){ var R = d.rutas || {}; Object.keys(R).forEach(function(k){ _rutas[k] = R[k]; }); return; }
         (d.viajes || []).forEach(function(v){ viajes.push(v); docDe[v.id] = doc.id; });
         (d.alertas || []).forEach(function(a){ if(a && a.id) ids[a.id] = true; });
       });
@@ -1879,6 +1985,9 @@ GV.Storage = (function(){
     refresh: refresh,
     onChange: function(fn){ _listeners.push(fn); },
     getViajes: function(){ return todosLosViajes(); },
+    getRutas: function(){ return _rutas; },
+    rutasCargadas: function(){ return !!_hist.cargado; },
+    guardarMuestraRuta: guardarMuestraRuta,
     archivarAntiguos: function(){ _archivadoCorrido = false; return archivarAntiguos(); },
     historicoCargado: function(){ return _hist.cargado; },
     getConductores: function(){ return _data.conductores; },
