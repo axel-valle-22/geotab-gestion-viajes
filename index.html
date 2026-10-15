@@ -54,19 +54,38 @@
 <div><label>Fecha</label><input type="date" id="gv-fecha"></div>
 <div><label>Hora de Salida</label><input type="time" id="gv-hora"></div>
 </div>
+<style>
+/* Ajuste 15/10: recorrido del viaje nuevo con botones compactos (mitad de ancho), paradas editables y ordenables arrastrando */
+.gv-route{display:flex;flex-direction:column;gap:6px}
+.gv-route-item{width:50%;min-width:280px;max-width:100%;box-sizing:border-box}
+.gv-route-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border:1.5px solid var(--gv-border);border-radius:var(--gv-radius);background:#fff;cursor:pointer;font:inherit;font-size:.85rem;color:#374151;box-sizing:border-box}
+.gv-route-btn:hover{border-color:var(--gv-accent);background:var(--gv-accent-light)}
+.gv-route-lbl{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:3px 8px;border-radius:8px;flex-shrink:0}
+.gv-route-origen .gv-route-lbl{background:#dcfce7;color:#166534}
+.gv-route-destino .gv-route-lbl{background:#fee2e2;color:#991b1b}
+.gv-route-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gv-route-val.gv-vacio{color:#9ca3af}
+.gv-route-wrap{display:flex;align-items:center;gap:6px}
+.gv-route-x{background:none;border:none;cursor:pointer;color:#ef4444;font-size:1.1rem;padding:0 6px;flex-shrink:0}
+.gv-route-wrap .gv-route-btn{flex:1;min-width:0}
+@media (max-width:640px){.gv-route-item{width:100%;min-width:0}}
+.gv-stop-card{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#F8F9FB;border:1px solid var(--gv-border);border-radius:var(--gv-radius);cursor:pointer;box-sizing:border-box}
+.gv-stop-card:hover{border-color:var(--gv-accent)}
+.gv-stop-card .gv-stop-name{flex:1;min-width:0;font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gv-drag-handle{cursor:grab;color:#9ca3af;font-size:.9rem;letter-spacing:-2px;user-select:none;padding:0 2px}
+.gv-stop-card.gv-dragging{opacity:.45}
+.gv-stop-card.gv-drop-before{box-shadow:0 -3px 0 0 var(--gv-accent)}
+.gv-stop-card.gv-drop-after{box-shadow:0 3px 0 0 var(--gv-accent)}
+</style>
 <div class="gv-form-row">
-<label>Origen<span class="gv-req">*</span></label>
-<div class="gv-loc-display"><span id="gv-origen-txt">Sin seleccionar</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-origen">Ubicar en Mapa</button></div>
+<label>Recorrido<span class="gv-req">*</span></label>
+<div class="gv-route">
+<div class="gv-route-item"><button type="button" class="gv-route-btn gv-route-origen" id="gv-btn-origen"><span class="gv-route-lbl">Origen</span><span id="gv-origen-txt" class="gv-route-val gv-vacio">Tocá para elegir el punto de origen</span></button></div>
+<div id="gv-stops-list" class="gv-route"></div>
+<div class="gv-route-item"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-add-stop" style="width:100%">+ Agregar punto de carga/descarga</button></div>
+<div class="gv-route-item gv-route-wrap"><button type="button" class="gv-route-btn gv-route-destino" id="gv-btn-destino"><span class="gv-route-lbl">Destino</span><span id="gv-destino-txt" class="gv-route-val gv-vacio">Opcional: tocá para elegir el punto de destino</span></button><button type="button" class="gv-route-x" id="gv-btn-quitar-destino" title="Quitar destino" style="display:none">&times;</button></div>
 </div>
-<div class="gv-form-row">
-<label>Puntos de Carga/Descarga</label>
-<div id="gv-stops-list"></div>
-<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-add-stop">+ Agregar punto en el mapa</button>
-</div>
-<div class="gv-form-row">
-<label>Destino <span style="font-weight:400;color:#9ca3af">(opcional)</span></label>
-<div class="gv-loc-display"><span id="gv-destino-txt">Sin seleccionar</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-destino">Ubicar en Mapa</button><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-quitar-destino">Quitar</button></div>
-<div style="font-size:.76rem;color:#9ca3af;margin-top:4px">Si el camion no retorna a un punto final (por ejemplo, termina en la ultima descarga), podes dejar el destino sin definir.</div>
+<div style="font-size:.76rem;color:#9ca3af;margin-top:6px">Tocá un punto de carga/descarga para editarlo y arrastralo desde <b>⋮⋮</b> para cambiar el orden. Si el camion no retorna a un punto final (por ejemplo, termina en la ultima descarga), podes dejar el destino sin definir.</div>
 </div>
 <div class="gv-form-row"><label>Observaciones</label><textarea id="gv-obs" rows="3" placeholder="Instrucciones para el chofer..."></textarea></div>
 <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
@@ -1643,17 +1662,59 @@ try{
   }, function(){ onDone(); });
 }
 
-var gOrigen = null, gDestino = null, gParadas = [];
+var gOrigen = null, gDestino = null, gParadas = [], gvDragIdx = null;
 
+function gvSetRouteTxt(id, loc, vacio){
+  var el = document.getElementById(id);
+  if(!el) return;
+  if(loc){ el.textContent = GV.siteNameFor(loc) + (loc.tipo ? ' - ' + GV.tipoParadaLabel(loc.tipo) + ' (' + loc.duracionMin + ' min)' : ''); el.classList.remove('gv-vacio'); }
+  else { el.textContent = vacio; el.classList.add('gv-vacio'); }
+  if(id === 'gv-destino-txt'){ var x = document.getElementById('gv-btn-quitar-destino'); if(x) x.style.display = loc ? '' : 'none'; }
+}
 function renderStopsList(){
   var sl = document.getElementById('gv-stops-list');
   if(!sl) return;
   sl.innerHTML = gParadas.map(function(p, idx){
-    return '<div class="gv-stop-item">' +
-      '<span class="gv-stop-badge gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + '</span>' +
-      '<span>' + GV.escapeHtml(GV.siteNameFor(p)) + ' (' + p.duracionMin + ' min)</span>' +
-      '<button type="button" class="gv-stop-remove" data-idx="' + idx + '">&times;</button></div>';
+    return '<div class="gv-route-item"><div class="gv-stop-card" draggable="true" data-idx="' + idx + '" title="Tocá para editar · arrastrá para ordenar">' +
+      '<span class="gv-drag-handle">⋮⋮</span>' +
+      '<span class="gv-stop-badge gv-' + p.tipo + '">' + (idx + 1) + '. ' + GV.tipoParadaLabel(p.tipo) + '</span>' +
+      '<span class="gv-stop-name">' + GV.escapeHtml(GV.siteNameFor(p)) + ' (' + p.duracionMin + ' min)</span>' +
+      '<button type="button" class="gv-stop-remove" data-idx="' + idx + '" title="Quitar">&times;</button></div></div>';
   }).join('');
+  /* Editar: tocar la tarjeta abre el mapa con ese punto cargado (tipo, minutos y ubicacion). */
+  sl.querySelectorAll('.gv-stop-card').forEach(function(card){
+    card.addEventListener('click', function(ev){
+      if(ev.target.closest('.gv-stop-remove')) return;
+      var i = parseInt(card.getAttribute('data-idx'), 10);
+      var actual = gParadas[i]; if(!actual) return;
+      GV.pickLocation({ title: 'Editar punto ' + (i + 1), initial: actual, withStopFields: true, otros: [].concat(gOrigen ? [gOrigen] : [], gParadas.filter(function(_, k){ return k !== i; }), gDestino ? [gDestino] : []) }).then(function(res){
+        if(res){ gParadas[i] = Object.assign({}, actual, res); renderStopsList(); }
+      });
+    });
+    /* Ordenar arrastrando */
+    card.addEventListener('dragstart', function(ev){ gvDragIdx = parseInt(card.getAttribute('data-idx'), 10); card.classList.add('gv-dragging'); try{ ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(gvDragIdx)); }catch(e){} });
+    card.addEventListener('dragend', function(){ gvDragIdx = null; sl.querySelectorAll('.gv-stop-card').forEach(function(c){ c.classList.remove('gv-dragging', 'gv-drop-before', 'gv-drop-after'); }); });
+    card.addEventListener('dragover', function(ev){
+      if(gvDragIdx === null) return;
+      ev.preventDefault();
+      var r = card.getBoundingClientRect(), antes = ev.clientY < r.top + r.height / 2;
+      card.classList.toggle('gv-drop-before', antes); card.classList.toggle('gv-drop-after', !antes);
+    });
+    card.addEventListener('dragleave', function(){ card.classList.remove('gv-drop-before', 'gv-drop-after'); });
+    card.addEventListener('drop', function(ev){
+      ev.preventDefault();
+      if(gvDragIdx === null) return;
+      var to = parseInt(card.getAttribute('data-idx'), 10);
+      var r = card.getBoundingClientRect(), antes = ev.clientY < r.top + r.height / 2;
+      var from = gvDragIdx; gvDragIdx = null;
+      var ins = antes ? to : to + 1;
+      if(ins > from) ins--;
+      if(ins === from) { renderStopsList(); return; }
+      var item = gParadas.splice(from, 1)[0];
+      gParadas.splice(ins, 0, item);
+      renderStopsList();
+    });
+  });
   /* Aviso de sitios muy cercanos entre si: con el circulo automatico de deteccion las areas se
      superponen y los horarios de ingreso/egreso se pueden cruzar entre un sitio y el otro. El sistema
      recorta el radio solo, pero lo mas preciso es dibujar el area de cada sitio a mano. */
@@ -1661,10 +1722,11 @@ function renderStopsList(){
   if(__cercanos.length){
     sl.innerHTML += '<div style="font-size:.78rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:6px"><b>Sitios muy cercanos entre si.</b> ' +
       __cercanos.map(function(x){ return GV.escapeHtml(GV.siteNameFor(x.a) || 'Sitio') + ' y ' + GV.escapeHtml(GV.siteNameFor(x.b) || 'Sitio') + ' estan a ' + x.metros + ' m'; }).join('; ') +
-      '. Las areas de deteccion se recortan automaticamente para que no se superpongan (asi no se cruzan los ingresos y egresos), pero conviene dibujar el area de cada sitio a mano desde <i>Ubicar en Mapa</i>.</div>';
+      '. Las areas de deteccion se recortan automaticamente para que no se superpongan (asi no se cruzan los ingresos y egresos), pero conviene dibujar el area de cada sitio a mano (tocando el punto para editarlo).</div>';
   }
   sl.querySelectorAll('.gv-stop-remove').forEach(function(btn){
-    btn.addEventListener('click', function(){
+    btn.addEventListener('click', function(ev){
+      ev.stopPropagation();
       gParadas.splice(parseInt(btn.getAttribute('data-idx'),10), 1);
       renderStopsList();
     });
@@ -1673,8 +1735,8 @@ function renderStopsList(){
 
 function resetForm(){
   gOrigen = null; gDestino = null; gParadas = [];
-  document.getElementById('gv-origen-txt').textContent = 'Sin seleccionar';
-  document.getElementById('gv-destino-txt').textContent = 'Sin seleccionar';
+  gvSetRouteTxt('gv-origen-txt', null, 'Tocá para elegir el punto de origen');
+  gvSetRouteTxt('gv-destino-txt', null, 'Opcional: tocá para elegir el punto de destino');
   renderStopsList();
   var cSel=document.getElementById('gv-conductor'), vSel=document.getElementById('gv-vehiculo');
   var oEl=document.getElementById('gv-obs');
@@ -1711,19 +1773,19 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
   document.getElementById('gv-btn-origen').addEventListener('click', function(){
     var vSelOrigen = document.getElementById('gv-vehiculo');
     GV.pickLocation({ title: 'Punto de origen', initial: gOrigen, withStopFields: false, vehiculoId: vSelOrigen ? vSelOrigen.value : '', api: gApi, otros: [].concat(gParadas || [], gDestino ? [gDestino] : []) }).then(function(res){
-      if(res){ gOrigen = res; document.getElementById('gv-origen-txt').textContent = GV.siteNameFor(res) + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
+      if(res){ gOrigen = res; gvSetRouteTxt('gv-origen-txt', res); }
     });
   });
 
   document.getElementById('gv-btn-destino').addEventListener('click', function(){
     GV.pickLocation({ title: 'Punto de destino', initial: gDestino, withStopFields: false, otros: [].concat(gOrigen ? [gOrigen] : [], gParadas || []) }).then(function(res){
-      if(res){ gDestino = res; document.getElementById('gv-destino-txt').textContent = GV.siteNameFor(res) + (res.tipo ? ' - ' + GV.tipoParadaLabel(res.tipo) + ' (' + res.duracionMin + ' min)' : ''); }
+      if(res){ gDestino = res; gvSetRouteTxt('gv-destino-txt', res); }
     });
   });
 
   document.getElementById('gv-btn-quitar-destino').addEventListener('click', function(){
     gDestino = null;
-    document.getElementById('gv-destino-txt').textContent = 'Sin seleccionar';
+    gvSetRouteTxt('gv-destino-txt', null, 'Opcional: tocá para elegir el punto de destino');
   });
 
   document.getElementById('gv-btn-add-stop').addEventListener('click', function(){
