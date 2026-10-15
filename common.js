@@ -836,7 +836,7 @@ GV.autoSyncSitiosDiario = function(){
    que se actualiza cada tanto. Se carga recien cuando se usa el buscador del selector de sitios.
    Locaciones: contorno real del predio (poligono). Pozos e instalaciones: punto, y si caen dentro
    de una locacion se usa el contorno de esa locacion como area del sitio. */
-GV.NQN_SIG_ENABLED = (typeof GV.NQN_SIG_ENABLED === 'boolean') ? GV.NQN_SIG_ENABLED : false;
+GV.NQN_SIG_ENABLED = (typeof GV.NQN_SIG_ENABLED === 'boolean') ? GV.NQN_SIG_ENABLED : true;
 GV.__baseUrl = (function(){ try{ var cs = document.currentScript; if(cs && cs.src) return cs.src.replace(/[^\/]*$/, ''); }catch(e){} return ''; })();
 GV.NQN = (function(){
   var _p = null, D = null;
@@ -1050,6 +1050,7 @@ GV.pickLocation = function(opts){
         current = { lat: lat, lng: lng, direccion: 'Buscando direccion...' };
         /* Contorno tomado del SIG de Neuquen: se conserva solo si el punto nuevo sigue adentro de esa locacion. */
         if(__prevPoligono && !(__prevSig && !GV.pointInPolygon({ lat: lat, lng: lng }, __prevPoligono))){ current.poligono = __prevPoligono; if(__prevSig) current.sigNqn = __prevSig; }
+        else if(__prevSig && shapeMode === 'circulo'){ var __bC2 = document.getElementById('gv-shape-circulo'); if(__bC2){ __bC2.style.background = 'var(--gv-accent)'; __bC2.style.color = '#fff'; } }
         scheduleAreaPreview();
         var addrEl = document.getElementById('gv-map-addr');
         if(addrEl) addrEl.textContent = current.direccion;
@@ -1139,6 +1140,7 @@ GV.pickLocation = function(opts){
           var nm = document.getElementById('gv-site-name'); if(nm) nm.value = r.nombre;
           if(r.poligono && r.poligono.length >= 3){
             current.poligono = r.poligono.slice(); current.sigNqn = (it.k === 'loc') ? r.nombre : (GV.NQN.datos().locs[it.li] || {}).nombre || r.nombre;
+            var __bC = document.getElementById('gv-shape-circulo'); if(__bC){ __bC.style.background = '#fff'; __bC.style.color = '#20232B'; }
             try{ var bb = new google.maps.LatLngBounds(); r.poligono.forEach(function(p){ bb.extend(p); }); map.fitBounds(bb); if(map.getZoom() > 18) map.setZoom(18); }catch(e){}
           } else { current.sigNqn = null; }
           scheduleAreaPreview();
