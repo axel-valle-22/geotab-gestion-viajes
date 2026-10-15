@@ -291,7 +291,9 @@ GV.CSS = ""
 + '.gv-tipo-toggle button.gv-sel-descarga{background:#fef3c7;border-color:#d97706;color:#92400e}' + '.gv-tipo-toggle button.gv-sel-ambos{background:#ede9fe;border-color:#7c3aed;color:#5b21b6}'
 + /* Version compacta usada solo por el selector de ubicacion (GV.pickLocation), para que entren
      todas las opciones (buscador, mapa, area del sitio, tipo de parada) sin tener que scrollear. */
-  '.gv-modal-loc{padding:12px}'
+  '.gv-modal-loc{padding:12px;height:calc(100vh - 32px);max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-sizing:border-box}'
++ '.gv-modal-loc > *{flex-shrink:0}'
++ '.gv-modal-loc #gv-map-picker{flex:1 1 auto;height:auto !important;min-height:260px}'
 + '.gv-modal-loc h3{margin:0 0 6px;font-size:.95rem}'
 + '.gv-modal-loc .gv-search-row{margin-bottom:4px}'
 + '.gv-modal-loc .gv-search-row input{padding:6px 10px;font-size:.8rem}'
