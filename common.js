@@ -829,6 +829,83 @@ GV.autoSyncSitiosDiario = function(){
 /* ---------------- Selector de ubicacion en mapa ---------------- */
 /* opts: { title, initial:{lat,lng,direccion}, withStopFields:boolean, withEsperaField:boolean } */
 /* Devuelve una Promise que resuelve con {lat,lng,direccion[,tipo,duracionMin | tipo:'espera',permaneceHasta]} o null si se cancela */
+/* ---------------- SIG Neuquen: pozos, locaciones e instalaciones (Ajuste 15/10) ----------------
+   Copia de los datos publicos del Portal SIG de la Subsecretaria de Hidrocarburos de Neuquen
+   (hidrocarburos.energianeuquen.gob.ar/portalgis), guardada junto a este modulo en datos-nqn/.
+   El servidor de la provincia no permite consultas desde otras paginas, por eso se usa una copia
+   que se actualiza cada tanto. Se carga recien cuando se usa el buscador del selector de sitios.
+   Locaciones: contorno real del predio (poligono). Pozos e instalaciones: punto, y si caen dentro
+   de una locacion se usa el contorno de esa locacion como area del sitio. */
+GV.NQN_SIG_ENABLED = (typeof GV.NQN_SIG_ENABLED === 'boolean') ? GV.NQN_SIG_ENABLED : false;
+GV.__baseUrl = (function(){ try{ var cs = document.currentScript; if(cs && cs.src) return cs.src.replace(/[^\/]*$/, ''); }catch(e){} return ''; })();
+GV.NQN = (function(){
+  var _p = null, D = null;
+  function norm(t){ return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  function compact(t){ return norm(t).replace(/[^a-z0-9]/g, ''); }
+  function dec(s){ var i = 0, la = 0, ln = 0, o = []; while(i < s.length){ var b, sh = 0, r = 0; do{ b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; }while(b >= 32); la += (r & 1) ? ~(r >> 1) : (r >> 1); sh = 0; r = 0; do{ b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; }while(b >= 32); ln += (r & 1) ? ~(r >> 1) : (r >> 1); o.push({ lat: la / 1e5, lng: ln / 1e5 }); } return o; }
+  function load(){
+    if(_p) return _p;
+    var base = (GV.NQN_BASE_URL || (GV.__baseUrl + 'datos-nqn/'));
+    function j(f){ return fetch(base + f).then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+    _p = Promise.all([j('nqn-locaciones.json'), j('nqn-pozos.json'), j('nqn-instalaciones.json')]).then(function(res){
+      var L = res[0], P = res[1], I = res[2], items = [];
+      var locs = L.L.map(function(r, idx){ return { idx: idx, nombre: r[0], tipo: L.tipos[r[1]] || '', enc: r[2], poly: null }; });
+      locs.forEach(function(l){
+        var t = 'Locacion ' + l.nombre + ' ' + l.tipo;
+        items.push({ k: 'loc', nombre: l.nombre, det: (l.tipo || '').trim() || 'Locacion', li: l.idx, n: norm(t), c: compact(l.nombre) });
+      });
+      P.P.forEach(function(r){
+        var yac = P.yac[r[1]] || '', area = P.areas[r[2]] || '', op = P.ops[r[3]] || '', est = P.est[r[4]] || '';
+        items.push({ k: 'pozo', nombre: r[0], det: [yac, area !== yac ? area : '', op, est].filter(function(x){ return x && x.trim(); }).join(' · '), lat: r[5] / 1e5, lng: r[6] / 1e5, li: r[7], n: norm(r[0] + ' ' + yac + ' ' + area + ' ' + op), c: compact(r[0]) });
+      });
+      I.I.forEach(function(r){
+        var tipo = I.tipos[r[1]] || '', area = I.areas[r[2]] || '', op = I.ops[r[3]] || '';
+        items.push({ k: 'inst', nombre: r[0], det: [tipo, area, op].filter(function(x){ return x && x.trim(); }).join(' · '), lat: r[4] / 1e5, lng: r[5] / 1e5, li: (r.length > 6 ? r[6] : -1), n: norm(r[0] + ' ' + tipo + ' ' + area + ' ' + op), c: compact(r[0]) });
+      });
+      D = { locs: locs, items: items, version: L.v, fuente: L.fuente };
+      return D;
+    });
+    _p['catch'](function(){ _p = null; });
+    return _p;
+  }
+  function polyDe(li){ if(!D || li == null || li < 0 || !D.locs[li]) return null; var l = D.locs[li]; if(!l.poly) l.poly = dec(l.enc); return l.poly; }
+  function centro(poly){ var a = 0, b = 0; poly.forEach(function(p){ a += p.lat; b += p.lng; }); return { lat: a / poly.length, lng: b / poly.length }; }
+  /* Busca por todas las palabras escritas (en cualquier orden). Ej.: "lca a-15", "borde mocho 14", "ypf bateria". */
+  function search(q, limit){
+    if(!D) return [];
+    var toks = norm(q).split(/\s+/).filter(Boolean); if(!toks.length) return [];
+    var qc = compact(q), out = [];
+    for(var i = 0; i < D.items.length && out.length < 400; i++){
+      var it = D.items[i], ok = true;
+      for(var t = 0; t < toks.length; t++){ if(it.n.indexOf(toks[t]) < 0 && it.c.indexOf(compact(toks[t])) < 0){ ok = false; break; } }
+      if(!ok && qc.length >= 3 && it.c.indexOf(qc) >= 0) ok = true;
+      if(ok) out.push(it);
+    }
+    function score(it){ var s = 0; if(it.c === qc) s -= 100; else if(it.c.indexOf(qc) === 0) s -= 50; else if(it.c.indexOf(qc) >= 0) s -= 20; if(it.k === 'loc') s -= 3; else if(it.k === 'inst') s -= 2; return s; }
+    out.sort(function(a, b){ return score(a) - score(b) || (a.nombre.length - b.nombre.length); });
+    return out.slice(0, limit || 40);
+  }
+  /* Devuelve { lat, lng, poligono|null, nombre, etiqueta } listo para usar como sitio. */
+  function resolver(it){
+    var poly = polyDe(it.li);
+    if(it.k === 'loc'){ var c = centro(poly); return { lat: c.lat, lng: c.lng, poligono: poly, nombre: it.nombre, etiqueta: 'Locacion ' + it.nombre }; }
+    var locN = (it.li >= 0 && D.locs[it.li]) ? D.locs[it.li].nombre : '';
+    return { lat: it.lat, lng: it.lng, poligono: poly, nombre: it.nombre, etiqueta: (it.k === 'pozo' ? 'Pozo ' : '') + it.nombre + (locN && locN !== it.nombre ? ' (locacion ' + locN + ')' : '') };
+  }
+  /* Locaciones cuyo centro cae dentro de un rectangulo (para dibujarlas en el mapa). */
+  function enVista(s, w, n, e, max){
+    if(!D) return [];
+    var out = [];
+    for(var i = 0; i < D.locs.length && out.length < (max || 400); i++){
+      var l = D.locs[i];
+      if(!l.c0){ var p = polyDe(i); l.c0 = centro(p); }
+      if(l.c0.lat >= s && l.c0.lat <= n && l.c0.lng >= w && l.c0.lng <= e) out.push(l);
+    }
+    return out;
+  }
+  return { load: load, search: search, resolver: resolver, polyDe: polyDe, enVista: enVista, datos: function(){ return D; } };
+})();
+
 GV.pickLocation = function(opts){
   opts = opts || {};
   return GV.loadGoogleMaps().then(function(google){
@@ -865,6 +942,7 @@ GV.pickLocation = function(opts){
             '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-map-search-btn">Buscar</button>' +
           '</div>' +
           '<div class="gv-search-row"><input type="text" id="gv-site-search" placeholder="Buscar sitio guardado..."></div>' + '<div id="gv-site-list" style="display:none;max-height:160px;overflow:auto;margin-bottom:6px;border:1px solid #e5e7eb;border-radius:8px;padding:4px;background:#f9fafb"></div>' +
+          (GV.NQN_SIG_ENABLED ? ('<div class="gv-search-row"><input type="text" id="gv-nqn-search" placeholder="Buscar pozo, locacion o instalacion de Neuquen (SIG provincial)..." style="border-color:#0d9488"></div>' + '<div id="gv-nqn-list" style="display:none;max-height:200px;overflow:auto;margin-bottom:6px;border:1px solid #99f6e4;border-radius:8px;padding:4px;background:#f0fdfa"></div>') : '') +
           (opts.vehiculoId ? '<div class="gv-search-row"><button type="button" id="gv-btn-ultima-pos" class="gv-btn gv-btn-sec gv-btn-sm" style="width:100%">Usar ultima posicion del camion</button></div>' : '') +
           '<div id="gv-map-picker" class="gv-map-box" style="height:200px;margin-bottom:4px"></div>' +
           '<div id="gv-map-addr" style="font-size:.78rem;color:#374151;margin-bottom:4px">Hace clic en el mapa para marcar el punto</div>' +
@@ -934,7 +1012,7 @@ GV.pickLocation = function(opts){
           if(shapeMode !== "manual"){
             areaLayer = new google.maps.Polygon({ paths: poly.map(function(pp){ return { lat: pp.lat != null ? pp.lat : pp[0], lng: pp.lng != null ? pp.lng : pp[1] }; }), strokeColor:"#7c3aed", strokeWeight:2, fillColor:"#7c3aed", fillOpacity:.15, map: map });
           }
-          if(info) info.innerHTML = "Area de deteccion: <b>poligono dibujado a mano</b> (" + poly.length + " vertices). El ingreso y el egreso del sitio se detectan cuando la unidad entra o sale de esa forma.";
+          if(info) info.innerHTML = (current.sigNqn && shapeMode !== "manual") ? ("Area de deteccion: <b>contorno de la locacion " + GV.escapeHtml(current.sigNqn) + "</b> segun el SIG de Neuquen (" + poly.length + " vertices). El ingreso y el egreso se detectan cuando la unidad entra o sale del predio.") : ("Area de deteccion: <b>poligono dibujado a mano</b> (" + poly.length + " vertices). El ingreso y el egreso del sitio se detectan cuando la unidad entra o sale de esa forma.");
           return;
         }
         var otros = (opts.otros || []).filter(function(o){ return o && typeof o.lat === "number"; });
@@ -968,9 +1046,10 @@ GV.pickLocation = function(opts){
 
       function onPoint(lat, lng){
         __ultimaPos = null;
-        var __prevPoligono = current && current.poligono;
+        var __prevPoligono = current && current.poligono, __prevSig = current && current.sigNqn;
         current = { lat: lat, lng: lng, direccion: 'Buscando direccion...' };
-        if(__prevPoligono) current.poligono = __prevPoligono;
+        /* Contorno tomado del SIG de Neuquen: se conserva solo si el punto nuevo sigue adentro de esa locacion. */
+        if(__prevPoligono && !(__prevSig && !GV.pointInPolygon({ lat: lat, lng: lng }, __prevPoligono))){ current.poligono = __prevPoligono; if(__prevSig) current.sigNqn = __prevSig; }
         scheduleAreaPreview();
         var addrEl = document.getElementById('gv-map-addr');
         if(addrEl) addrEl.textContent = current.direccion;
@@ -1047,6 +1126,56 @@ GV.pickLocation = function(opts){
       document.getElementById('gv-map-search').addEventListener('keydown', function(e){
         if(e.key === 'Enter'){ e.preventDefault(); doSearch(); }
       });
+
+      /* Buscador SIG Neuquen (pozos, locaciones, instalaciones) + capa de locaciones en el mapa. */
+      (function(){
+        var inp = document.getElementById('gv-nqn-search'), box = document.getElementById('gv-nqn-list');
+        if(!inp || !box) return;
+        var tmr = null, ult = [], capa = [];
+        var KL = { loc: ['Locacion', '#0d9488'], pozo: ['Pozo', '#2563eb'], inst: ['Instalacion', '#d97706'] };
+        function elegir(it){
+          var r = GV.NQN.resolver(it);
+          applyPoint(r.lat, r.lng, r.etiqueta, null);
+          var nm = document.getElementById('gv-site-name'); if(nm) nm.value = r.nombre;
+          if(r.poligono && r.poligono.length >= 3){
+            current.poligono = r.poligono.slice(); current.sigNqn = (it.k === 'loc') ? r.nombre : (GV.NQN.datos().locs[it.li] || {}).nombre || r.nombre;
+            try{ var bb = new google.maps.LatLngBounds(); r.poligono.forEach(function(p){ bb.extend(p); }); map.fitBounds(bb); if(map.getZoom() > 18) map.setZoom(18); }catch(e){}
+          } else { current.sigNqn = null; }
+          scheduleAreaPreview();
+          box.style.display = 'none';
+        }
+        function pintar(q){
+          ult = GV.NQN.search(q, 40);
+          if(!ult.length){ box.innerHTML = '<div style="font-size:.8rem;color:#6b7280;padding:6px">Sin resultados para "' + GV.escapeHtml(q) + '"</div>'; return; }
+          box.innerHTML = ult.map(function(it, i){ var kl = KL[it.k]; return '<div data-nqn-i="' + i + '" style="cursor:pointer;padding:5px 6px;border-bottom:1px solid #ccfbf1;font-size:.8rem"><span style="display:inline-block;font-size:.66rem;font-weight:700;color:#fff;background:' + kl[1] + ';border-radius:4px;padding:1px 5px;margin-right:6px">' + kl[0] + '</span><b>' + GV.escapeHtml(it.nombre) + '</b>' + (it.li >= 0 && it.k !== 'loc' ? ' <span style="color:#0d9488;font-size:.7rem">(con contorno de locacion)</span>' : '') + (it.det ? '<div style="color:#6b7280;font-size:.72rem;margin-left:2px">' + GV.escapeHtml(it.det) + '</div>' : '') + '</div>'; }).join('');
+        }
+        inp.addEventListener('input', function(){
+          var q = inp.value.trim(); box.style.display = 'block';
+          if(q.length < 2){ box.innerHTML = '<div style="font-size:.8rem;color:#6b7280;padding:6px">Escribi al menos 2 letras (nombre del pozo, locacion, yacimiento, area u operadora).</div>'; return; }
+          if(!GV.NQN.datos()) box.innerHTML = '<div style="font-size:.8rem;color:#6b7280;padding:6px">Cargando datos del SIG de Neuquen...</div>';
+          clearTimeout(tmr);
+          tmr = setTimeout(function(){ GV.NQN.load().then(function(){ if(inp.value.trim() === q) pintar(q); dibujarCapa(); })['catch'](function(e){ box.innerHTML = '<div style="font-size:.8rem;color:#dc2626;padding:6px">No se pudieron cargar los datos del SIG (' + GV.escapeHtml(e.message) + ').</div>'; }); }, 200);
+        });
+        box.addEventListener('mousedown', function(e){ var el = e.target.closest('[data-nqn-i]'); if(!el) return; e.preventDefault(); var it = ult[parseInt(el.getAttribute('data-nqn-i'), 10)]; if(it) elegir(it); });
+        inp.addEventListener('blur', function(){ setTimeout(function(){ box.style.display = 'none'; }, 200); });
+        inp.addEventListener('focus', function(){ if(inp.value.trim().length >= 2 && ult.length) box.style.display = 'block'; });
+        /* Capa: con zoom 14 o mas se dibujan los contornos de las locaciones a la vista; tocando una se elige. */
+        function dibujarCapa(){
+          capa.forEach(function(p){ p.setMap(null); }); capa = [];
+          if(!GV.NQN.datos() || map.getZoom() < 14) return;
+          var b = map.getBounds(); if(!b) return;
+          var sw = b.getSouthWest(), ne = b.getNorthEast();
+          GV.NQN.enVista(sw.lat(), sw.lng(), ne.lat(), ne.lng(), 300).forEach(function(l){
+            var pg = new google.maps.Polygon({ paths: GV.NQN.polyDe(l.idx), strokeColor: '#0d9488', strokeWeight: 1, fillColor: '#14b8a6', fillOpacity: .08, map: map, zIndex: 1 });
+            pg.addListener('click', function(){ if(shapeMode === 'manual') return; elegir({ k: 'loc', nombre: l.nombre, li: l.idx }); });
+            pg.addListener('mouseover', function(){ pg.setOptions({ fillOpacity: .25 }); var a = document.getElementById('gv-map-addr'); if(a && !current) a.textContent = 'Locacion ' + l.nombre + (l.tipo ? ' (' + l.tipo + ')' : ''); });
+            pg.addListener('mouseout', function(){ pg.setOptions({ fillOpacity: .08 }); });
+            capa.push(pg);
+          });
+        }
+        map.addListener('idle', function(){ if(GV.NQN.datos()) dibujarCapa(); });
+        GV.NQN.load().then(function(){ dibujarCapa(); })['catch'](function(){});
+      })();
 
       /* La importacion desde KML (por archivo o por el link de My Maps) ya no se muestra aca --
          se saco del selector de ubicacion para que al elegir el punto de un viaje solo se vea el
