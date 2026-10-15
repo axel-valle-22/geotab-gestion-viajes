@@ -6,6 +6,22 @@ window.GD_VIEWS.tiposDocumento = async function render(container) {
 
   container.innerHTML = `
     <h2>Tipos de Documento</h2>
+    <h3>Crear tipo de documento</h3>
+    <form id="gd-form-tipo" class="gd-form">
+      <input name="nombre" placeholder="Nombre" required />
+      <select name="tipoEntidad" required>
+        <option value="Vehiculo">Vehículo</option>
+        <option value="AnexoVehicular">AnexoVehicular</option>
+        <option value="Operador">Operador</option>
+        <option value="Seguros">Seguros (documentos generales de la empresa)</option>
+      </select>
+      <label>Días de preaviso <input type="number" name="diasPreaviso" value="30" /></label>
+      <label><input type="checkbox" name="sinVencimiento" /> Sin vencimiento</label>
+      <button type="submit" class="gd-btn">Crear</button>
+      <span id="gd-form-tipo-msg"></span>
+    </form>
+
+    <h3>Tipos existentes</h3>
     <table class="gd-tabla">
       <thead><tr><th>Nombre</th><th>Tipo Entidad</th><th>Preaviso (días)</th><th>Sin vencimiento</th><th></th></tr></thead>
       <tbody>
@@ -21,20 +37,6 @@ window.GD_VIEWS.tiposDocumento = async function render(container) {
       </tbody>
     </table>
 
-    <h3>Crear tipo de documento</h3>
-    <form id="gd-form-tipo" class="gd-form">
-      <input name="nombre" placeholder="Nombre" required />
-      <select name="tipoEntidad" required>
-        <option value="Vehiculo">Vehículo</option>
-        <option value="AnexoVehicular">AnexoVehicular</option>
-        <option value="Operador">Operador</option>
-        <option value="Seguros">Seguros (documentos generales de la empresa)</option>
-      </select>
-      <label>Días de preaviso <input type="number" name="diasPreaviso" value="30" /></label>
-      <label><input type="checkbox" name="sinVencimiento" /> Sin vencimiento</label>
-      <button type="submit" class="gd-btn">Crear</button>
-      <span id="gd-form-tipo-msg"></span>
-    </form>
   `;
 
   container.querySelectorAll(".gd-borrar-tipo").forEach((btn) =>
