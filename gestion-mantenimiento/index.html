@@ -530,7 +530,14 @@ function buildState(devs,trs,groups,users,persist){
 }
 
 /* ---------- fase 2: lecturas de Geotab (en segundo plano) ---------- */
-var _rt=null;function softRender(){clearTimeout(_rt);_rt=setTimeout(function(){render()},250)}
+/* Ajuste 15/10: las lecturas en segundo plano (odometro, combustible, viajes de cada unidad, cambios de otra sesion)
+   redibujan la pantalla varias veces por segundo mientras cargan. Si la persona esta usando un desplegable o
+   escribiendo en un campo de la pantalla, ese redibujo le cerraba la lista o le borraba lo que estaba eligiendo.
+   Ahora el redibujo automatico espera a que termine de usar ese campo (cuando sale de el). */
+var _rt=null,_rtPend=false;
+function gmUsandoCampo(){var a=document.activeElement,app=document.getElementById('gm-app');if(!a||!app||!app.contains(a))return false;var t=(a.tagName||'').toUpperCase();return t==='SELECT'||t==='TEXTAREA'||(t==='INPUT'&&!/^(checkbox|radio|button|submit)$/i.test(a.type||''))}
+document.addEventListener('focusout',function(){if(_rtPend)setTimeout(function(){if(_rtPend&&!gmUsandoCampo()){_rtPend=false;render()}},150)},true);
+function softRender(){clearTimeout(_rt);_rt=setTimeout(function(){if(gmUsandoCampo()){_rtPend=true;return}_rtPend=false;render()},250)}
 function chunk(a,n){var o=[];for(var i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o}
 function readStatus(){return aCall('Get',{typeName:'DeviceStatusInfo',search:{}}).then(function(rows){
   ADDIN.raw.status=(rows||[])[0];var t=today();
