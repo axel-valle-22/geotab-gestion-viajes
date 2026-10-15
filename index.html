@@ -2861,7 +2861,7 @@ overlay.innerHTML =
 '<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + gvSolicitudChip(v) + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
 ((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
-((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar" title="' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? 'El viaje todavia no salio: se cambia el chofer y/o el camion asignados' : 'El viaje ya salio: se cierra el tramo actual y se abre uno nuevo con el motivo del cambio') + '">Cambiar chofer/camion</button>' + ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-horasalida" title="Cambia solo la fecha y hora de salida programada del origen (no toca chofer, camion ni gerenciamiento)">Horario de salida</button>' : '') + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reprogramar" title="Cambia la fecha y hora de salida de este viaje y vuelve a elegir camion y chofer">Reprogramar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
+((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar" title="' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? 'El viaje todavia no salio: se cambia el chofer y/o el camion asignados' : 'El viaje ya salio: se cierra el tramo actual y se abre uno nuevo con el motivo del cambio') + '">Cambiar chofer/camion</button>' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reprogramar" title="Cambia la fecha y hora de salida de este viaje y vuelve a elegir camion y chofer">Reprogramar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
 (v.estado!=='cancelado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir" title="Genera un link publico, de solo lectura, para que un cliente vea el progreso y la posicion en vivo de esta unidad sin entrar a MyGeotab">' + (v.compartirToken ? 'Ver link para el cliente' : 'Compartir con cliente') + '</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
@@ -3626,7 +3626,6 @@ renderTrips(); renderTracking(); renderStats();
 });
 }
 var __detReasBtn = document.getElementById('gv-det-reasignar'); if(__detReasBtn){ __detReasBtn.addEventListener('click', abrirReasignarViaje); }
-var __detHoraBtn = document.getElementById('gv-det-horasalida'); if(__detHoraBtn){ __detHoraBtn.addEventListener('click', abrirHorarioSalida); }
 var __detReprogBtn = document.getElementById('gv-det-reprogramar'); if(__detReprogBtn){ __detReprogBtn.addEventListener('click', abrirReprogramarViaje); }
 var __detCompartirBtn = document.getElementById('gv-det-compartir'); if(__detCompartirBtn){ __detCompartirBtn.addEventListener('click', function(){
   if(v.compartirToken){ closeDetalle(); abrirDetalleViaje(v.id); return; }
@@ -4093,6 +4092,10 @@ ov3.className = 'gv-modal-overlay';
    (gv-modal-overlay, z-index 100000), no en 10000. */
 ov3.style.zIndex = '100001';
 var btns = '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-editar" style="width:100%;text-align:left;margin-bottom:8px">&#9998; Editar ubicacion</button>';
+/* Ajuste 15/10: el horario de salida del origen se edita desde el popup del origen. */
+if(siteId === 'origen' && v.estado !== 'completado' && v.estado !== 'cancelado'){
+btns += '<button type="button" class="gv-btn gv-btn-sec" id="gv-acc-horasalida" style="width:100%;text-align:left;margin-bottom:8px">&#128337; Editar horario de salida</button>';
+}
 if(isParada){
 btns += '<button type="button" class="gv-btn gv-btn-danger" id="gv-acc-quitar" style="width:100%;text-align:left;margin-bottom:8px">&times; Quitar parada</button>';
 } else if(isDestino){
@@ -4110,6 +4113,7 @@ function closeAcc(){ ov3.remove(); }
 document.getElementById('gv-acc-cancel').addEventListener('click', closeAcc);
 ov3.addEventListener('click', function(e){ if(e.target === ov3) closeAcc(); });
 document.getElementById('gv-acc-editar').addEventListener('click', function(){ closeAcc(); editarUbicacionSitio(siteId); });
+var __hsBtn = document.getElementById('gv-acc-horasalida'); if(__hsBtn) __hsBtn.addEventListener('click', function(){ closeAcc(); abrirHorarioSalida(); });
 var quitarBtn = document.getElementById('gv-acc-quitar');
 if(quitarBtn) quitarBtn.addEventListener('click', function(){ closeAcc(); if(isParada){ quitarParada(idx); } else if(isDestino){ quitarDestino(); } });
 }
