@@ -206,7 +206,7 @@ var g = v.gerenciamiento;
 var origenTxt = v.origen ? v.origen.direccion : '';
 var destinoTxt = v.destino ? v.destino.direccion : '';
 var stops = (v.paradas || []).map(function(p){
-return '<span class="gv-stop-chip gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(p.direccion) + ' (' + p.duracionMin + ' min)</span>';
+return '<span class="gv-stop-chip gv-' + p.tipo + '">' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.escapeHtml(p.direccion) + ' (' + GV.fmtMin(p.duracionMin) + ')</span>';
 }).join('');
 
 var banner = '';
@@ -274,7 +274,7 @@ if(v.origen){
 puntosHtml += puntoRow('#059669', 'O', 'Origen' + (v.origen.tipo ? ' - ' + GV.tipoParadaLabel(v.origen.tipo) : ''), v.origen.direccion);
 }
 (v.paradas || []).forEach(function(p, i){
-puntosHtml += puntoRow('#d97706', String(i+1), (i+1) + '. ' + GV.tipoParadaLabel(p.tipo), p.direccion, p.duracionMin != null ? (p.duracionMin + ' min') : null);
+puntosHtml += puntoRow('#d97706', String(i+1), (i+1) + '. ' + GV.tipoParadaLabel(p.tipo), p.direccion, p.duracionMin != null ? GV.fmtMin(p.duracionMin) : null);
 });
 if(v.destino){
 puntosHtml += puntoRow('#dc2626', 'D', 'Destino' + (v.destino.tipo ? ' - ' + GV.tipoParadaLabel(v.destino.tipo) : ''), v.destino.direccion);
