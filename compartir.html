@@ -152,7 +152,7 @@
     ov.onRemove = function(){ if(this.__div && this.__div.parentNode){ this.__div.parentNode.removeChild(this.__div); } this.__div = null; };
     return ov;
   }
-  var TIPO_LABEL = { descarga:'Descarga', ambos:'Carga y Descarga', espera:'Espera', carga:'Carga' };
+  var TIPO_LABEL = { descarga:'Descarga', ambos:'Carga y Descarga', opera:'Opera', espera:'Espera', carga:'Carga' };
   function getRoute(points){
     return new Promise(function(resolve){
       try{
