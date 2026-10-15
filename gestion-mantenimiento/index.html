@@ -1940,6 +1940,8 @@ function onClick(e){
   if(!inRoot(e)){if(UI.bell){UI.bell=false;render()}return}
   var el=e.target.closest('[data-act]');
   if(!el){if(UI.bell&&!e.target.closest('.bellwrap')){UI.bell=false;render()}return}
+  /* Ajuste 15/10: los links internos (href="#") no tienen que navegar: dentro de MyGeotab cambiar el # de la direccion saca al usuario del modulo (pasaba al tocar el numero de una orden). */
+  if(el.tagName==='A'&&(el.getAttribute('href')||'').charAt(0)==='#')e.preventDefault();
   var parts=el.dataset.act.split(':'),name=parts[0],arg=parts.slice(1).join(':'),fn=ACT[name];
   if(el.tagName==='INPUT'&&el.type==='checkbox')return;
   if(fn)fn(el.dataset,el,arg,e)}
