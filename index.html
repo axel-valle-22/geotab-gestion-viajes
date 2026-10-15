@@ -4426,7 +4426,7 @@ if(!__partes.length) return;
 __partes.push('Los horarios de la tabla llevan la fecha del dia al que corresponden: en gris el dia de salida y en azul los dias posteriores.');
 continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81">' + __partes.join(' ') + '</div>';
 })();
-itinEl.innerHTML = continuidadHtml + /* Ajuste 15/10: sin recuadros de demora de salida ni de progreso (ya se ve en la tabla) */ '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = continuidadHtml + ((route && route.tramosAprendidos) ? '<div style="font-size:.75rem;color:#0f766e;margin-bottom:6px">&#10003; Ruta aprendida: ' + route.tramosAprendidos + ' de ' + ((route.legs || []).length) + ' tramo' + (((route.legs || []).length) === 1 ? '' : 's') + ' con tiempos y km promedio de recorridos reales anteriores.</div>' : '') + /* Ajuste 15/10: sin recuadros de demora de salida ni de progreso (ya se ve en la tabla) */ '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 /* El aviso rojo "en sitio... y sigue" solo tiene sentido una vez que ya paso la hora en la que
    la unidad deberia haber salido de ahi (r.egreso: para el origen es la hora de salida programada
@@ -4918,6 +4918,95 @@ loadHist();
 }).catch(function(err){ var itinEl2 = document.getElementById('gv-det-itin'); if(itinEl2) itinEl2.textContent = 'Error al cargar el mapa: ' + err.message; });
 }
 
+/* ---------------- Memoria de rutas: aprendizaje (Ajuste 15/10) ----------------
+   En segundo plano, cada 3 minutos, revisa los viajes de los ultimos 30 dias y, por cada tramo
+   cumplido (salio del sitio A y entro al sitio B, en orden), trae el GPS de la unidad entre esos
+   dos horarios y lo guarda como muestra en la memoria de rutas (ver GV.getRoute en common.js).
+   Se procesan pocos tramos por vez para no cargar la API de Geotab. Un tramo no se aprende si:
+   - el viaje tuvo cambio de unidad, o A y B estan a menos de 1 km;
+   - el GPS no arranca cerca de A o no termina cerca de B, o tiene huecos grandes;
+   - la velocidad promedio no es razonable (menos de 5 o mas de 100 km/h);
+   - los km son mas del doble (o menos de la mitad) del promedio ya aprendido para ese tramo. */
+var gRutasIntentadas = {};
+var gRutasCorriendo = false;
+function gvRutaPuntosViaje(v){
+  var arr = [];
+  if(v.origen && typeof v.origen.lat === 'number') arr.push({ id: 'origen', p: v.origen });
+  (v.paradas || []).forEach(function(pp, i){ if(pp && typeof pp.lat === 'number') arr.push({ id: 'parada' + i, p: pp }); });
+  if(v.destino && typeof v.destino.lat === 'number') arr.push({ id: 'destino', p: v.destino });
+  return arr;
+}
+function gvAprenderRutas(){
+  if(gRutasCorriendo || !gApi || !GV.Storage.rutasCargadas || !GV.Storage.rutasCargadas()) return;
+  var limite = Date.now() - 30 * 24 * 3600 * 1000;
+  var pendientes = [];
+  GV.Storage.getViajes().forEach(function(v){
+    if(!v || !v.vehiculoId || v.estado === 'cancelado' || !v.sitiosReal) return;
+    if(v.tramos && v.tramos.length > 1) return;
+    var fs = Date.parse(v.fechaSalida || ''); if(isNaN(fs) || fs < limite) return;
+    var P = gvRutaPuntosViaje(v);
+    for(var i = 0; i < P.length - 1; i++){
+      var A = P[i], B = P[i + 1];
+      var sa = v.sitiosReal[A.id] || {}, sb = v.sitiosReal[B.id] || {};
+      var sale = sa.egreso || (A.id === 'origen' ? v.iniciadoEn : null), llega = sb.ingreso;
+      if(!sale || !llega) continue;
+      var key = v.id + '|' + A.id + '>' + B.id;
+      if(gRutasIntentadas[key]) continue;
+      var m = GV.buscarRutaAprendida(A.p, B.p);
+      if(m && (m.r.muestras || []).some(function(x){ return x.vid === v.id && x.leg === A.id + '>' + B.id; })){ gRutasIntentadas[key] = 1; continue; }
+      pendientes.push({ v: v, A: A, B: B, sale: sale, llega: llega, key: key });
+    }
+  });
+  if(!pendientes.length) return;
+  pendientes.sort(function(x, y){ return Date.parse(y.llega) - Date.parse(x.llega); });
+  gRutasCorriendo = true;
+  var lote = pendientes.slice(0, 6), k = 0;
+  function sig(){
+    if(k >= lote.length){ gRutasCorriendo = false; return; }
+    var t = lote[k++]; gRutasIntentadas[t.key] = 1;
+    gvAprenderTramo(t).then(function(){ setTimeout(sig, 1500); }, function(){ setTimeout(sig, 1500); });
+  }
+  sig();
+}
+function gvAprenderTramo(t){
+  var A = t.A.p, B = t.B.p;
+  var recta = GV.distKm(A, B);
+  if(recta === null || recta < 1) return Promise.resolve(false);
+  var t0 = new Date(t.sale), t1 = new Date(t.llega);
+  if(isNaN(t0) || isNaN(t1) || t1 <= t0) return Promise.resolve(false);
+  return GV.getHistory(gApi, t.v.vehiculoId, t0.toISOString(), t1.toISOString()).then(function(h){
+    if(!h || h.length < 5) return false;
+    var p0 = { lat: h[0].latitude, lng: h[0].longitude }, pN = { lat: h[h.length - 1].latitude, lng: h[h.length - 1].longitude };
+    if(GV.distKm(p0, A) > 2 || GV.distKm(pN, B) > 2) return false;
+    var km = 0, paradoMs = 0, i = 0;
+    for(var q = 1; q < h.length; q++){
+      var d = GV.distKm({ lat: h[q - 1].latitude, lng: h[q - 1].longitude }, { lat: h[q].latitude, lng: h[q].longitude }) || 0;
+      var gap = new Date(h[q].dateTime) - new Date(h[q - 1].dateTime);
+      if(gap > 20 * 60000 && d > 5) return false; /* hueco de GPS en movimiento */
+      km += d;
+    }
+    /* paradas de 30 min o mas en el tramo: no cuentan como tiempo de manejo */
+    while(i < h.length){
+      if((h[i].speed || 0) >= 5){ i++; continue; }
+      var pa = { lat: h[i].latitude, lng: h[i].longitude }, j = i;
+      while(j + 1 < h.length && (h[j + 1].speed || 0) < 5){ var dk = GV.distKm(pa, { lat: h[j + 1].latitude, lng: h[j + 1].longitude }); if(dk !== null && dk > 0.2) break; j++; }
+      var ta = new Date(h[i].dateTime).getTime(), tb = (j + 1 < h.length) ? new Date(h[j + 1].dateTime).getTime() : t1.getTime();
+      if(tb - ta >= 30 * 60000) paradoMs += tb - ta;
+      i = j + 1;
+    }
+    var min = Math.round((t1 - t0 - paradoMs) / 60000);
+    if(min < 3) return false;
+    var vel = km / (min / 60);
+    if(vel < 5 || vel > 100 || km < recta * 0.9) return false;
+    var prev = GV.buscarRutaAprendida(A, B);
+    if(prev && prev.r.n >= 2 && prev.r.kmProm && (km > prev.r.kmProm * 2 || km < prev.r.kmProm * 0.5)) return false;
+    var docId = prev ? prev.id : GV.rutaClave(A, B);
+    var geo = GV.rutaGeoEncode(h.map(function(r){ return [r.latitude, r.longitude]; }));
+    var muestra = { vid: t.v.id, leg: t.A.id + '>' + t.B.id, km: Math.round(km * 10) / 10, min: min, fecha: new Date(t.llega).toISOString(), veh: t.v.vehiculo || '' };
+    return GV.Storage.guardarMuestraRuta(docId, { lat: A.lat, lng: A.lng, nombre: GV.siteNameFor(A) || '' }, { lat: B.lat, lng: B.lng, nombre: GV.siteNameFor(B) || '' }, muestra, geo);
+  });
+}
+
 function doInit(api){
   window._gvInitDone = true;
   gApi = api;
@@ -4943,6 +5032,8 @@ function doInit(api){
       checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
       GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
+    setTimeout(gvAprenderRutas, 45000);
+    setInterval(gvAprenderRutas, 180000);
   } else {
     var loading = document.getElementById('gv-loading');
     if(loading){ loading.style.display = 'block'; loading.textContent = 'Cargando listas... (si persiste, recarga la pagina)'; }
