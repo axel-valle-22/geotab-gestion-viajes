@@ -1,0 +1,48 @@
+# Actualiza una vez por mes la copia de pozos, locaciones e instalaciones del Portal SIG de
+# Neuquen que usa el buscador de sitios de Gestion de Viajes (carpeta datos-nqn/).
+# Tambien se puede correr a mano desde la pestana "Actions" > "Actualizar sitios SIG Neuquen" > "Run workflow".
+name: Actualizar sitios SIG Neuquen
+
+on:
+  schedule:
+    - cron: '17 9 1 * *'   # dia 1 de cada mes, 06:17 hora de Argentina
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Descargar datos del SIG y armar la copia
+        run: node scripts/actualizar-sig-nqn.mjs
+
+      - name: Guardar cambios (si hay datos nuevos)
+        id: commit
+        run: |
+          if git diff --quiet -- datos-nqn; then
+            echo "Sin cambios en los datos del SIG."
+            echo "cambios=no" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "Actualizacion SIG Neuquen"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add datos-nqn
+            git commit -m "Actualizar sitios SIG Neuquen ($(date +%Y-%m-%d))"
+            git push
+            echo "cambios=si" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publicar en GitHub Pages
+        if: steps.commit.outputs.cambios == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "No se pudo pedir la publicacion; se publica con el proximo cambio."
