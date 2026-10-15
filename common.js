@@ -1925,4 +1925,65 @@ getGerenciamientos: function(){ return _data.gerenciamientos; },
   };
 })();
 
+
+/* ---------------- Ajuste 15/10: boton de cierre unico en todas las ventanas ----------------
+   Pedido: que cerrar cualquier ventana (detalle del viaje, gerenciamiento, mapa, reprogramar, etc.)
+   sea siempre un boton chico rojo con una cruz blanca en la esquina superior derecha, como cerrar
+   una pestaña de Windows. Se agrega solo a cada ventana (.gv-modal dentro de .gv-modal-overlay) apenas
+   se abre, sin tocar cada pantalla: el boton dispara la accion de cierre que ya tenia esa ventana
+   ("Cerrar", o si no tiene, "Cancelar"), asi se respeta lo que hacia antes al cerrarse. Los botones
+   de texto "Cerrar" se ocultan porque los reemplaza la cruz. */
+(function(){
+  if(typeof document === 'undefined' || GV.__modalXInit) return;
+  GV.__modalXInit = true;
+  function css(){
+    if(document.getElementById('gv-modal-x-css')) return;
+    var st = document.createElement('style');
+    st.id = 'gv-modal-x-css';
+    st.textContent = '.gv-modal-x{position:sticky;top:0;float:right;z-index:20;width:30px;height:24px;margin:-6px -6px 4px 8px;padding:0;border:none;border-radius:4px;background:#e81123;color:#fff;font:400 18px/24px Arial,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.2)}'
+      + '.gv-modal-x{align-self:flex-end}.gv-modal-loc > .gv-modal-x{margin-bottom:-22px}'
+      + '.gv-modal-x:hover{background:#c50f1f}.gv-modal-x:active{background:#a00d1a}'
+      + '.gv-modal-x-oculto{display:none !important}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  function txt(b){ return String(b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function preparar(ov){
+    var m = ov.querySelector('.gv-modal');
+    if(!m || m.querySelector(':scope > .gv-modal-x')) return;
+    css();
+    var cerrar = null, cancelar = null;
+    m.querySelectorAll('button').forEach(function(b){
+      var t = txt(b), id = b.id || '';
+      if(!cerrar && (t === 'cerrar' || t === '×' || /-close$/.test(id))) cerrar = b;
+      if(!cancelar && t === 'cancelar' && id !== 'gv-site-edit-cancel') cancelar = b;
+    });
+    var x = document.createElement('button');
+    x.type = 'button'; x.className = 'gv-modal-x'; x.title = 'Cerrar'; x.setAttribute('aria-label', 'Cerrar'); x.innerHTML = '&#x2715;';
+    x.addEventListener('click', function(e){
+      e.stopPropagation();
+      var b = cerrar || cancelar;
+      if(b && document.body.contains(b)){ b.click(); } else { ov.remove(); }
+    });
+    m.insertBefore(x, m.firstChild);
+    if(cerrar && txt(cerrar) === 'cerrar') cerrar.classList.add('gv-modal-x-oculto');
+  }
+  function revisar(nodo){
+    if(!nodo || nodo.nodeType !== 1) return;
+    if(nodo.classList && nodo.classList.contains('gv-modal-overlay')) preparar(nodo);
+    if(nodo.querySelectorAll) nodo.querySelectorAll('.gv-modal-overlay').forEach(preparar);
+  }
+  function iniciar(){
+    if(!document.body) return;
+    revisar(document.body);
+    new MutationObserver(function(muts){
+      muts.forEach(function(mu){
+        mu.addedNodes.forEach(revisar);
+        /* ventanas que se arman con innerHTML despues de agregarse al documento */
+        if(mu.type === 'childList' && mu.target && mu.target.closest){ var ov = mu.target.closest('.gv-modal-overlay'); if(ov) preparar(ov); }
+      });
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();
+
 })(window.GV);
