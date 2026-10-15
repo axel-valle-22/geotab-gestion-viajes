@@ -57,7 +57,9 @@
 <style>
 /* Ajuste 15/10: recorrido del viaje nuevo con botones compactos (mitad de ancho), paradas editables y ordenables arrastrando */
 .gv-route{display:flex;flex-direction:column;gap:6px}
-.gv-route-item{width:50%;min-width:280px;max-width:100%;box-sizing:border-box}
+#gv-tab-nuevo .gv-form-card{max-width:50%;min-width:560px;margin:0 auto;box-sizing:border-box}
+@media (max-width:1200px){#gv-tab-nuevo .gv-form-card{max-width:100%;min-width:0}}
+.gv-route-item{width:100%;box-sizing:border-box}
 .gv-route-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border:1.5px solid var(--gv-border);border-radius:var(--gv-radius);background:#fff;cursor:pointer;font:inherit;font-size:.85rem;color:#374151;box-sizing:border-box}
 .gv-route-btn:hover{border-color:var(--gv-accent);background:var(--gv-accent-light)}
 .gv-route-lbl{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:3px 8px;border-radius:8px;flex-shrink:0}
@@ -68,7 +70,6 @@
 .gv-route-wrap{display:flex;align-items:center;gap:6px}
 .gv-route-x{background:none;border:none;cursor:pointer;color:#ef4444;font-size:1.1rem;padding:0 6px;flex-shrink:0}
 .gv-route-wrap .gv-route-btn{flex:1;min-width:0}
-@media (max-width:640px){.gv-route-item{width:100%;min-width:0}}
 .gv-stop-card{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#F8F9FB;border:1px solid var(--gv-border);border-radius:var(--gv-radius);cursor:pointer;box-sizing:border-box}
 .gv-stop-card:hover{border-color:var(--gv-accent)}
 .gv-stop-card .gv-stop-name{flex:1;min-width:0;font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
