@@ -57,6 +57,11 @@
 <style>
 /* Ajuste 15/10: recorrido del viaje nuevo con botones compactos (mitad de ancho), paradas editables y ordenables arrastrando */
 .gv-route{display:flex;flex-direction:column;gap:6px}
+.gv-trip-card.gv-trip-compacta{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 18px;margin-bottom:10px;cursor:pointer}
+.gv-trip-compacta:hover{border-color:var(--gv-accent)}
+.gv-trip-compacta .gv-trip-izq{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.gv-trip-compacta .gv-trip-izq .gv-sol-chip, .gv-trip-compacta .gv-trip-izq span{margin-left:0 !important}
+.gv-trip-compacta .gv-trip-actions{display:flex;gap:8px;margin:0;flex-shrink:0}
 #gv-tab-nuevo .gv-form-card{max-width:50%;min-width:560px;margin:0 auto;box-sizing:border-box}
 @media (max-width:1200px){#gv-tab-nuevo .gv-form-card{max-width:100%;min-width:0}}
 .gv-route-item{width:100%;box-sizing:border-box}
@@ -86,7 +91,6 @@
 <div class="gv-route-item"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-add-stop" style="width:100%">+ Agregar punto de carga/descarga</button></div>
 <div class="gv-route-item gv-route-wrap"><button type="button" class="gv-route-btn gv-route-destino" id="gv-btn-destino"><span class="gv-route-lbl">Destino</span><span id="gv-destino-txt" class="gv-route-val gv-vacio">Opcional: tocá para elegir el punto de destino</span></button><button type="button" class="gv-route-x" id="gv-btn-quitar-destino" title="Quitar destino" style="display:none">&times;</button></div>
 </div>
-<div style="font-size:.76rem;color:#9ca3af;margin-top:6px">Tocá un punto de carga/descarga para editarlo y arrastralo desde <b>⋮⋮</b> para cambiar el orden. Si el camion no retorna a un punto final (por ejemplo, termina en la ultima descarga), podes dejar el destino sin definir.</div>
 </div>
 <div class="gv-form-row"><label>Observaciones</label><textarea id="gv-obs" rows="3" placeholder="Instrucciones para el chofer..."></textarea></div>
 <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px">
@@ -320,12 +324,12 @@ if(csf) csf.addEventListener('click', function(){ gStatFilter = null; updateStat
       actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="completar" data-id="' + v.id + '">Completar</button><button class="gv-btn gv-btn-danger gv-btn-sm" data-action="cancelar" data-id="' + v.id + '">Cancelar</button>';
     }
     actions += '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="detalle" data-id="' + v.id + '">Ver Detalle</button>';
-    return '<div class="gv-trip-card">' +
-      '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '' + gvSolicitudChip(v) + '</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap"><span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div></div>' +
-      '<div class="gv-trip-info">' + GV.fmtDate(v.fechaSalida) + ' &nbsp;|&nbsp; ' + GV.fmtRuta(origenTxt, destinoTxt) + gvContinuidadChip(v) + '</div>' + ((v.estado==='en_curso'||v.estado==='demorado') ? ('<div class="gv-live-banner gv-live-' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].cls)||'unknown') + '">' + ((gLiveStatusCache[v.id]&&gLiveStatusCache[v.id].label)||'Obteniendo estado en vivo...') + '</div>') : '') +
-      (stops ? '<div class="gv-stops">' + stops + '</div>' : '') +
-      (v.observaciones ? '<div style="font-size:.82rem;color:#6b7280;margin-top:6px;font-style:italic">' + GV.escapeHtml(v.observaciones) + '</div>' : '') +
+    /* Ajuste 15/10: tarjeta compacta de una sola linea (conductor - unidad, solicitud, estado y
+       gerenciamiento a la izquierda; acciones a la derecha). El resto (fecha, recorrido, paradas,
+       estado en vivo) se ve en el detalle, que se abre con "Ver Detalle" o tocando la tarjeta. */
+    return '<div class="gv-trip-card gv-trip-compacta" data-action="detalle" data-id="' + v.id + '" title="' + GV.escapeHtml(GV.fmtDate(v.fechaSalida) + ' | ' + GV.fmtRuta(origenTxt, destinoTxt)) + '">' +
+      '<div class="gv-trip-izq"><span class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</span>' + gvSolicitudChip(v) +
+      '<span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div>' +
       '<div class="gv-trip-actions">' + actions + '</div></div>';
   }).join('');
 }
