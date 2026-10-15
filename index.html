@@ -1319,6 +1319,52 @@ function gvReevaluarViajeAhora(viajeId){
   }catch(__eRV0){ console.error('gvReevaluarViajeAhora', __eRV0); }
 }
 
+/* Ajuste 15/10 (caso H304 - Base TDP Plottier): si el viaje se programa DESPUES de que el camion ya salio del
+   origen, el auto-inicio por GPS sellaba como salida real la hora en que se cargo el viaje (10:07) y no la hora
+   real en que la unidad dejo la base (~08:00). Eso dejaba una demora de salida inventada (2h 7min) y el egreso
+   real del origen "recalculado / no coherente". Aca se busca en el historial de GPS el momento real en que la
+   unidad salio de la geocerca del origen (el ultimo punto adentro antes de llegar a la primera parada) y se
+   corrigen el egreso del origen, el inicio del viaje y la demora de salida. Corre una sola vez por viaje. */
+var __gvSalidaRefinando = {};
+function gvRefinarSalidaOrigenGps(v){
+  try{
+    if(!v || !gApi || !v.vehiculoId || __gvSalidaRefinando[v.id]) return;
+    if(!(v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'completado') || v.salidaOrigenRefinada || v.origenUltimaPos) return;
+    if(!v.origen || typeof v.origen.lat !== 'number' || !v.iniciadoEn) return;
+    var sr = v.sitiosReal || {};
+    var egr = sr.origen && sr.origen.egreso ? new Date(sr.origen.egreso).getTime() : null;
+    var primerIng = null;
+    Object.keys(sr).forEach(function(k){ if(k === 'origen' || k === 'destino') return; var t = sr[k] && sr[k].ingreso ? new Date(sr[k].ingreso).getTime() : null; if(t && (primerIng === null || t < primerIng)) primerIng = t; });
+    var creado = v.creadoEn ? new Date(v.creadoEn).getTime() : null;
+    var inicio = new Date(v.iniciadoEn).getTime();
+    /* Sospechoso: no hay egreso, el egreso es posterior a la llegada a la primera parada, o el viaje arranco
+       apenas se cargo (se programo con el camion ya en camino). */
+    var sospechoso = !egr || (primerIng !== null && egr > primerIng) || (creado && Math.abs(inicio - creado) < 10 * 60000);
+    if(!sospechoso) return;
+    __gvSalidaRefinando[v.id] = true;
+    var fs = new Date(v.fechaSalida).getTime();
+    var desde = new Date(Math.min(isNaN(fs) ? Date.now() : fs, creado || Date.now()) - 12 * 3600000);
+    var hasta = new Date(primerIng || Date.now());
+    fetchHistoryForViaje(v, desde, hasta).then(function(hist){
+      if(!hist || !hist.length) return;
+      var ultimoAdentro = -1;
+      for(var i = 0; i < hist.length; i++){ if(GV.isWithinSite({ lat: hist[i].latitude, lng: hist[i].longitude }, v.origen)) ultimoAdentro = i; }
+      var act = GV.Storage.getViaje(v.id) || v;
+      if(ultimoAdentro < 0 || ultimoAdentro >= hist.length - 1){ GV.Storage.updateViaje(v.id, { salidaOrigenRefinada: true }); return; }
+      var salida = new Date(hist[ultimoAdentro + 1].dateTime);
+      if(isNaN(salida.getTime())) return;
+      var srN = Object.assign({}, act.sitiosReal || {});
+      srN.origen = Object.assign({}, srN.origen || {}, { egreso: salida.toISOString(), egresoGps: true });
+      var demoraMin = Math.max(0, Math.round((salida.getTime() - new Date(act.fechaSalida).getTime()) / 60000));
+      var patch = { sitiosReal: srN, iniciadoEn: salida.toISOString(), demoraSalidaMin: demoraMin, salioConDemora: demoraMin > 20, salidaOrigenRefinada: true };
+      GV.Storage.updateViaje(v.id, patch).then(function(){
+        try{ GV.Storage.addAlerta({ id: 'al_' + v.id + '_salida_gps', tipo: 'info', mensaje: act.conductor + ' - ' + act.vehiculo + ': salida real de ' + GV.siteNameFor(act.origen) + ' recalculada por GPS a las ' + salida.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + (demoraMin > 20 ? (' (' + GV.fmtDurMin(demoraMin * 60000) + ' de demora sobre lo programado).') : ' (sin demora sobre lo programado).'), fecha: new Date().toISOString(), viajeId: v.id }); }catch(__eA){}
+        try{ renderTrips(); renderTracking(); renderStats(); }catch(__eR){}
+      });
+    }).catch(function(){ delete __gvSalidaRefinando[v.id]; });
+  }catch(e){ console.error('gvRefinarSalidaOrigenGps', e); }
+}
+
 function checkDwellAlerts(){
   if(!gApi) return;
 /* Ajuste 7/10: viaje abierto, sin aviso de llegada pendiente, pero con ingreso al destino sin egreso guardado (queda de un aviso
@@ -1349,6 +1395,7 @@ try{
       var __vFresh = GV.Storage.getViaje(v.id);
       if(!__vFresh) return;
       v = __vFresh;
+      gvRefinarSalidaOrigenGps(v);
       if(v.llegadaDestinoPendienteEn) return;
       if(v.estado === 'planificado'){
         /* Antes se exigia puedeIniciar(v) aca: si el gerenciamiento de riesgos no estaba aprobado el
