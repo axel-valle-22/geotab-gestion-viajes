@@ -33,7 +33,36 @@ window.gdApp = (function () {
     if (toggle) toggle.setAttribute("aria-expanded", abierto ? "true" : "false");
   }
 
+  let _renderPendiente = false;
+  function editandoEn(container) {
+    const el = document.activeElement;
+    if (!el || !container.contains(el)) return false;
+    const tag = (el.tagName || "").toUpperCase();
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+  function renderDesdeCambio() {
+    const container = document.getElementById("gd-content");
+    if (!container) return;
+    if (editandoEn(container)) {
+      if (!_renderPendiente) {
+        _renderPendiente = true;
+        const alSalir = () => {
+          // espera un instante: si el foco pasa a otro campo del mismo formulario, se sigue esperando
+          setTimeout(() => {
+            if (editandoEn(container)) return;
+            container.removeEventListener("focusout", alSalir);
+            if (_renderPendiente) { _renderPendiente = false; render(); }
+          }, 300);
+        };
+        container.addEventListener("focusout", alSalir);
+      }
+      return;
+    }
+    render();
+  }
+
   function render() {
+    _renderPendiente = false;
     const container = document.getElementById("gd-content");
     // Si la pantalla del módulo ya no está en pantalla (por ejemplo, el usuario
     // abrió otro Add-In), no hay nada que dibujar.
@@ -110,7 +139,12 @@ window.gdApp = (function () {
     // Re-renderiza la vista actual cada vez que llega un cambio en tiempo
     // real desde Firestore (u otra sesión escribió algo), igual que hace
     // GV.Storage.onChange en Gestión de Viajes.
-    GD.onChange(render);
+    // Ajuste 15/10: si la persona esta escribiendo en un campo de la pantalla
+    // (por ejemplo el nombre de un tipo de documento nuevo), un cambio que llega
+    // de otra sesion NO redibuja la pantalla en ese momento (se borraba lo que
+    // estaba escribiendo): se deja pendiente y se redibuja recien cuando sale
+    // del formulario.
+    GD.onChange(renderDesdeCambio);
 
     render();
     corregirTiposForzados();
