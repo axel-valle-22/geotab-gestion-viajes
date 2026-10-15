@@ -4426,7 +4426,7 @@ if(!__partes.length) return;
 __partes.push('Los horarios de la tabla llevan la fecha del dia al que corresponden: en gris el dia de salida y en azul los dias posteriores.');
 continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81">' + __partes.join(' ') + '</div>';
 })();
-itinEl.innerHTML = continuidadHtml + salidaDemoraHtml + progresoHtml + '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = continuidadHtml + /* Ajuste 15/10: sin recuadros de demora de salida ni de progreso (ya se ve en la tabla) */ '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 /* El aviso rojo "en sitio... y sigue" solo tiene sentido una vez que ya paso la hora en la que
    la unidad deberia haber salido de ahi (r.egreso: para el origen es la hora de salida programada
@@ -4707,14 +4707,54 @@ if(found >= 0){ result.push({idx: found, label: p.label}); cursor = found; } els
 });
 return result;
 }
-function renderSliderMarks(marks, maxIdx){
+/* Ajuste 15/10: paradas de la unidad de 30 min o mas FUERA de los sitios del recorrido (origen,
+   cargas/descargas, destino). Se buscan tramos seguidos del historial con velocidad < 5 km/h y
+   sin alejarse mas de 200 m del punto donde se detuvo. Si la unidad sigue detenida al final del
+   historial y el viaje esta en curso, la parada cuenta hasta ahora (se ve en vivo). */
+function detectarParadasLargas(hist){
+var out = [];
+if(!hist || hist.length < 2) return out;
+var MIN_MS = 30 * 60000, activo = (v.estado === 'en_curso' || v.estado === 'demorado');
+var __iniV = (v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso) || v.iniciadoEn || v.fechaSalida; var __iniMs = __iniV ? new Date(__iniV).getTime() : 0; if(isNaN(__iniMs)) __iniMs = 0;
+var i = 0;
+while(i < hist.length){
+if((hist[i].speed || 0) >= 5){ i++; continue; }
+var a = hist[i], pa = { lat: a.latitude, lng: a.longitude }, j = i;
+while(j + 1 < hist.length && (hist[j+1].speed || 0) < 5){
+var dk = GV.distKm(pa, { lat: hist[j+1].latitude, lng: hist[j+1].longitude });
+if(dk !== null && dk > 0.2) break;
+j++;
+}
+var t0 = new Date(a.dateTime).getTime();
+var t1 = (j + 1 < hist.length) ? new Date(hist[j+1].dateTime).getTime() : (activo ? Date.now() : new Date(hist[j].dateTime).getTime());
+if(t1 - t0 >= MIN_MS && t1 > __iniMs){
+var enSitio = false;
+try{ enSitio = pts.some(function(p){ return GV.isWithinSiteEx(pa, p, pts, 0); }); }catch(__eS){}
+if(!enSitio) out.push({ idx: i, endIdx: j, lat: pa.lat, lng: pa.lng, desde: new Date(t0), hasta: new Date(t1), ms: t1 - t0, sigue: (j + 1 >= hist.length && activo) });
+}
+i = j + 1;
+}
+return out;
+}
+function paradaLargaTxt(st){
+return 'Detenido ' + GV.fmtDurMin(st.ms) + ' (' + fmtHHMM(st.desde) + ' a ' + (st.sigue ? 'ahora, sigue detenido' : fmtHHMM(st.hasta)) + ')';
+}
+function renderSliderMarks(marks, maxIdx, paradas){
 var wrap = document.getElementById('gv-det-slider-marks');
 if(!wrap) return;
-if(!maxIdx || !marks.length){ wrap.innerHTML = ''; return; }
-wrap.innerHTML = marks.map(function(m){
+paradas = paradas || [];
+if(!maxIdx || (!marks.length && !paradas.length)){ wrap.innerHTML = ''; return; }
+var __rojos = paradas.map(function(st){
+var pct = (st.idx / maxIdx) * 100;
+return '<span data-gv-parada-idx="' + st.idx + '" title="' + GV.escapeHtml(paradaLargaTxt(st)) + '" style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:#dc2626;border:2px solid #fff;border-radius:50%;width:13px;height:13px;top:1px;cursor:pointer;box-sizing:border-box"></span>';
+}).join('');
+wrap.innerHTML = __rojos + marks.map(function(m){
 var pct = (m.idx / maxIdx) * 100;
 return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:var(--gv-accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
 }).join('');
+wrap.querySelectorAll('[data-gv-parada-idx]').forEach(function(el){
+el.addEventListener('click', function(){ var ix = parseInt(el.getAttribute('data-gv-parada-idx'), 10); stopPlayback(); slider.value = ix; updateHistMarker(ix); updateTimeLabels(ix); });
+});
 }
 var playBtn = document.getElementById('gv-det-play');
 var speedSel = document.getElementById('gv-det-speed');
@@ -4837,7 +4877,12 @@ updateHistMarker(recs.length - 1);
 updateTimeLabels(recs.length - 1);
 if(startEl) startEl.textContent = fmtHHMM(new Date(recs[0].dateTime));
 if(endEl) endEl.textContent = fmtHHMM(new Date(recs[recs.length - 1].dateTime));
-renderSliderMarks(findSiteIndices(pts, recs), recs.length - 1);
+var __paradasLargas = [];
+try{ __paradasLargas = detectarParadasLargas(recs); }catch(__ePL){ __paradasLargas = []; }
+__paradasLargas.forEach(function(st){
+detHistLayer.add(new google.maps.Marker({ position: { lat: st.lat, lng: st.lng }, icon: GV.stopIcon('!', '#dc2626'), zIndex: 940, title: paradaLargaTxt(st) }));
+});
+renderSliderMarks(findSiteIndices(pts, recs), recs.length - 1, __paradasLargas);
 } else {
 slider.disabled = true;
 if(playBtn) playBtn.disabled = true;
