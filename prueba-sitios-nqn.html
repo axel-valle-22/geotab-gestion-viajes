@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prueba - Sitios SIG Neuquen</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f3f4f6}
+#gv-site-save-btn{display:none!important}
+.pr-card{background:#fff;border-radius:12px;padding:18px 22px;margin:0 0 14px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.pr-card h2{margin:0 0 6px;font-size:1.1rem;color:#0f766e}
+.pr-card p{margin:4px 0;font-size:.88rem;color:#374151}
+#pr-res pre{white-space:pre-wrap;word-break:break-word;font-size:.75rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px;max-height:300px;overflow:auto}
+#pr-map{height:380px;border-radius:10px;border:1px solid #d1d5db;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<div id="gv-app">
+<div id="gv-style-container"></div>
+<div class="pr-card">
+  <h2>Prueba: buscador de pozos, locaciones e instalaciones de Neuquen</h2>
+  <p>Esta pagina es solo para probar. No guarda nada ni toca los viajes reales.</p>
+  <p>1. Toca <b>Abrir selector</b> (es el mismo que aparece al elegir origen, destino o un punto de carga/descarga).</p>
+  <p>2. En el campo verde <b>"Buscar pozo, locacion o instalacion de Neuquen"</b> escribi por ejemplo: <i>LCa.a-15</i>, <i>borde mocho</i>, <i>bateria ypf</i>, <i>loma campana</i>.</p>
+  <p>3. Elegi un resultado: el punto se ubica solo y, si es una locacion (o un pozo/instalacion dentro de una), el area del sitio pasa a ser el contorno real del predio (violeta).</p>
+  <p>4. Con zoom cercano tambien se ven en el mapa los contornos de las locaciones (verde agua); tocando una se elige.</p>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" class="gv-btn gv-btn-primary" id="pr-abrir">Abrir selector</button>
+    <span id="pr-estado" style="font-size:.8rem;color:#6b7280;align-self:center"></span>
+  </div>
+</div>
+<div class="pr-card" id="pr-res" style="display:none">
+  <h2>Resultado elegido</h2>
+  <div id="pr-res-txt"></div>
+  <div id="pr-map"></div>
+  <pre id="pr-res-json"></pre>
+</div>
+<div class="pr-card"><p style="font-size:.75rem;color:#6b7280">Fuente de los datos: Subsecretaria de Hidrocarburos de Neuquen - Portal SIG (datos publicos). Copia del <span id="pr-version">-</span>.</p></div>
+</div>
+<script>window.GV = window.GV || {}; GV.NQN_SIG_ENABLED = true;</script>
+<script src="common.js"></script>
+<script>
+GV.injectCSS('gv-style-container');
+GV.NQN.load().then(function(d){ document.getElementById('pr-version').textContent = d.version + ' (' + d.locs.length + ' locaciones, ' + d.items.length + ' registros en total)'; }).catch(function(e){ document.getElementById('pr-version').textContent = 'error: ' + e.message; });
+document.getElementById('pr-abrir').addEventListener('click', function(){
+  GV.pickLocation({ title: 'Punto de carga/descarga (prueba)', withStopFields: true }).then(function(r){
+    if(!r){ document.getElementById('pr-estado').textContent = 'Cancelado.'; return; }
+    document.getElementById('pr-estado').textContent = '';
+    document.getElementById('pr-res').style.display = 'block';
+    document.getElementById('pr-res-txt').innerHTML = '<p><b>Nombre del sitio:</b> ' + GV.escapeHtml(r.direccion || '') + '</p><p><b>Area de deteccion:</b> ' + (r.poligono && r.poligono.length >= 3 ? ('contorno de ' + r.poligono.length + ' vertices') : 'circulo automatico') + '</p><p><b>Tipo:</b> ' + GV.escapeHtml(GV.tipoParadaLabel(r.tipo)) + ' &middot; <b>Tiempo:</b> ' + GV.fmtMin(r.duracionMin) + '</p>';
+    var j = Object.assign({}, r); if(j.poligono) j.poligono = j.poligono.length + ' vertices';
+    document.getElementById('pr-res-json').textContent = JSON.stringify(j, null, 2);
+    var el = document.getElementById('pr-map'); el.style.display = 'block';
+    GV.loadGoogleMaps().then(function(google){
+      var m = new google.maps.Map(el, { center: { lat: r.lat, lng: r.lng }, zoom: 16, mapTypeId: 'hybrid' });
+      new google.maps.Marker({ position: { lat: r.lat, lng: r.lng }, map: m });
+      if(r.poligono && r.poligono.length >= 3){ new google.maps.Polygon({ paths: r.poligono, map: m, strokeColor: '#7c3aed', fillColor: '#7c3aed', fillOpacity: .2 }); var bb = new google.maps.LatLngBounds(); r.poligono.forEach(function(p){ bb.extend(p); }); m.fitBounds(bb); }
+      else new google.maps.Circle({ center: { lat: r.lat, lng: r.lng }, radius: GV.SITE_GEOFENCE_M || 300, map: m, strokeColor: '#2563eb', fillOpacity: .1 });
+    });
+  });
+});
+</script>
+</body>
+</html>
