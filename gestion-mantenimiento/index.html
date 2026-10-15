@@ -919,7 +919,7 @@ function flotaOperHtml(L){
     var ots=i.ots.length?i.ots.map(function(o){var t=tallerById(o.tallerId),av=otAvance(o),lp=(o.estado==='Pausada'&&o.pausas&&o.pausas.length)?o.pausas[o.pausas.length-1]:null;
       return '<div style="padding:4px 0;border-bottom:1px dashed var(--line,#e5e7eb)"><a href="#" data-act="otOpen" data-id="'+o.id+'" style="font-weight:700;color:var(--accent-dark,#0078A1)">#'+o.nro+'</a> '+esc(o.titulo||'Sin descripción')+' <span class="muted small">· '+esc(o.tipo)+(t?' · '+esc(t.nombre):'')+'</span> '+pill(o.estado)+(lp?'<div class="muted small">Pausada: '+esc(lp.motivo||'')+(lp.reanuda?' · reanuda '+fd(lp.reanuda):'')+'</div>':'')+
         '<div style="display:flex;align-items:center;gap:8px;margin-top:3px"><div style="flex:1;max-width:180px">'+(av==null?'':meter(av,'ok'))+'</div><span class="small num">'+(av==null?'<span class="muted">sin tareas cargadas</span>':Math.round(av*100)+'% ('+(o.tareas||[]).filter(function(y){return y.d}).length+'/'+(o.tareas||[]).length+' tareas)')+'</span><span class="muted small">desde '+fd(o.fInicio)+'</span></div></div>'}).join(''):'<span class="muted small">Sin órdenes abiertas</span>';
-    return '<tr><td>'+ent(u)+'</td><td>'+esc((u.clientes||[]).join(', ')||'—')+'</td><td><span class="pill '+col[i.sit]+'">'+esc(i.sit)+'</span><div style="margin-top:6px"><select data-act-change="setSit" data-id="'+u.id+'" aria-label="Marcar situación de '+esc(u.nombre)+'" title="Marcar la unidad como habilitada, en taller o fuera de servicio" style="font-size:.75rem;padding:3px 6px">'+selectOpts([['Habilitado','Habilitada'],['En taller','En taller'],['Fuera de servicio','Fuera de servicio']],u.estado)+'</select></div></td><td style="min-width:320px">'+ots+'</td><td class="num">'+(i.dias==null?'—':'<b>'+i.dias+'</b> día'+(i.dias===1?'':'s'))+'</td><td class="r"><button class="btn sm" data-act="otNew" data-u="'+u.id+'">+ Orden</button></td></tr>'});
+    return '<tr><td>'+ent(u)+'</td><td>'+esc((u.clientes||[]).join(', ')||'—')+'</td><td style="position:relative"><button type="button" class="pill '+col[i.sit]+'" data-act="sitMenu" data-id="'+u.id+'" title="Tocá para cambiar la situación de la unidad" style="border:none;cursor:pointer;font-family:inherit">'+esc(i.sit)+' &#9662;</button>'+(UI.sitMenu===u.id?'<div style="margin-top:6px;background:#fff;border:1px solid var(--line,#e5e7eb);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.12);padding:4px;min-width:170px">'+[['Habilitado','Habilitada (operativa)','ok'],['En taller','En taller','warn'],['Fuera de servicio','Fuera de servicio','bad']].map(function(op){var act=u.estado===op[0];return '<button type="button" data-act="sitSet" data-id="'+u.id+'" data-v="'+op[0]+'" style="display:flex;align-items:center;gap:8px;width:100%;border:none;background:'+(act?'var(--accent-soft,#e3f5fb)':'transparent')+';padding:7px 10px;border-radius:7px;cursor:pointer;font:inherit;font-size:.82rem;text-align:left'+(act?';font-weight:700':'')+'"><span class="pill '+op[2]+'" style="padding:0 6px">&nbsp;</span>'+op[1]+(act?' ✓':'')+'</button>'}).join('')+'</div>':'')+'</td><td style="min-width:320px">'+ots+'</td><td class="num">'+(i.dias==null?'—':'<b>'+i.dias+'</b> día'+(i.dias===1?'':'s'))+'</td><td class="r"><button class="btn sm" data-act="otNew" data-u="'+u.id+'">+ Orden</button></td></tr>'});
   return head+tbl(['Unidad','Cliente','Situación','Órdenes de trabajo abiertas · estado · avance','En reparación hace',''],rows,'No hay unidades para este filtro.')}
 function vFlota(){
   var U=S.units,mot=U.filter(function(u){return u.motor});
@@ -1574,6 +1574,8 @@ var ACT={
  go:function(d,el,arg){if(arg==='cub')UI.cubSec='list';go(arg)},
  tab:function(d){UI[d.k]=d.v;render()},
  flotaCliSet:function(d){UI.flotaCli=(UI.flotaCli===d.c)?'':d.c;render()},
+ sitMenu:function(d){UI.sitMenu=(UI.sitMenu===d.id)?null:d.id;render()},
+ sitSet:function(d){var u=unitById(d.id);if(u){u.estado=d.v;save();toast(u.nombre+': '+(d.v==='Habilitado'?'habilitada':d.v.toLowerCase())+'.')}UI.sitMenu=null;render()},
  fallaF:function(d,el,arg){UI.fallaEst=UI.fallaEst===arg?'':arg;render()},
  fallaGo:function(){UI.fallaGo=!UI.fallaGo;render()},
  bell:function(){UI.bell=!UI.bell;render()},
@@ -1939,6 +1941,7 @@ function inRoot(e){return !!(e.target&&e.target.closest&&e.target.closest('#gm-r
 function onClick(e){
   if(!inRoot(e)){if(UI.bell){UI.bell=false;render()}return}
   var el=e.target.closest('[data-act]');
+  if(!el&&UI.sitMenu){UI.sitMenu=null;render();return}
   if(!el){if(UI.bell&&!e.target.closest('.bellwrap')){UI.bell=false;render()}return}
   /* Ajuste 15/10: los links internos (href="#") no tienen que navegar: dentro de MyGeotab cambiar el # de la direccion saca al usuario del modulo (pasaba al tocar el numero de una orden). */
   if(el.tagName==='A'&&(el.getAttribute('href')||'').charAt(0)==='#')e.preventDefault();
