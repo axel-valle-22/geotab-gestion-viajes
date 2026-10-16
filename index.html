@@ -1301,6 +1301,16 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
       var sr = Object.assign({}, act.sitiosReal || {});
       sr[siteRef.id] = Object.assign({}, sr[siteRef.id] || {});
       var upd = {};
+      /* Ajuste 16/10 (caso T335 - Rao, Solalique): la unidad salio unos minutos del sitio (maniobra, se corrio a la
+         ruta) y volvio a entrar. Si vuelve dentro de GV.REINGRESO_MISMA_VISITA_MIN minutos del egreso registrado, es la
+         MISMA visita: se conserva el ingreso original y se borra ese egreso (antes quedaba ingreso 13:35 con egreso
+         13:29, y se perdia la llegada real de las 12:00). */
+      var __prevE = sr[siteRef.id];
+      if(realArrival && __prevE.ingreso && __prevE.egreso && new Date(realArrival) >= new Date(__prevE.egreso) && (new Date(realArrival) - new Date(__prevE.egreso)) <= (GV.REINGRESO_MISMA_VISITA_MIN || 20) * 60000){
+        var __cont = Object.assign({}, __prevE); delete __cont.egreso; delete __cont.egresoGps; sr[siteRef.id] = __cont;
+        if(act.dwellState && act.dwellState.siteId === siteRef.id){ upd.dwellState = Object.assign({}, act.dwellState, { arrivedAt: __cont.ingreso }); }
+        realArrival = null;
+      }
       if(realArrival && new Date(realArrival) < new Date(refIso)){
         sr[siteRef.id].ingreso = realArrival;
         if(act.dwellState && act.dwellState.siteId === siteRef.id && act.dwellState.arrivedAt === refIso){
@@ -1484,6 +1494,46 @@ function gvVerificarParadasAbiertas(v, pos){
     if(!v || !gApi || !v.vehiculoId || !pos) return;
     if(__gvVerifAbiertos[v.id] && Date.now() - __gvVerifAbiertos[v.id] < 300000) return;
     var sr = v.sitiosReal || {}, sites = siteListFor(v), dwId = v.dwellState && v.dwellState.siteId;
+    /* Ajuste 16/10: parada con egreso ANTERIOR al ingreso (quedo de una salida corta y un reingreso): se reconstruye
+       la visita con el GPS (ingreso real de la primera entrada, tolerando salidas cortas). */
+    var incoherentes = sites.filter(function(x){ var e = sr[x.id]; return x.id.indexOf('parada') === 0 && e && e.ingreso && e.egreso && !e.ingresoManual && new Date(e.egreso) < new Date(e.ingreso); });
+    if(incoherentes.length && !(__gvVerifAbiertos[v.id + '|inc'] && Date.now() - __gvVerifAbiertos[v.id + '|inc'] < 300000)){
+      __gvVerifAbiertos[v.id + '|inc'] = Date.now();
+      var __d0 = Math.min.apply(null, incoherentes.map(function(x){ return Math.min(new Date(sr[x.id].ingreso).getTime(), new Date(sr[x.id].egreso).getTime()); })) - 12 * 3600000;
+      GV.getHistory(gApi, v.vehiculoId, new Date(__d0).toISOString(), new Date().toISOString()).then(function(h){
+        if(!h || !h.length) return;
+        var act = GV.Storage.getViaje(v.id) || v, srN = Object.assign({}, act.sitiosReal || {}), tol = (GV.REINGRESO_MISMA_VISITA_MIN || 20) * 60000, hubo = false;
+        incoherentes.forEach(function(x){
+          var id = gvResolverSiteId(act, x); if(!id) return; x = Object.assign({}, x, { id: id });
+          var e = srN[id]; if(!e || !e.egreso || new Date(e.egreso) >= new Date(e.ingreso)) return;
+          var refMs = new Date(e.ingreso).getTime(), L = -1;
+          for(var i = 0; i < h.length; i++){ if(new Date(h[i].dateTime).getTime() <= refMs + 60000 && h[i].latitude != null && GV.isWithinSiteEx({ lat: h[i].latitude, lng: h[i].longitude }, x, sites, 0)) L = i; }
+          if(L < 0) return;
+          var S = L, ultimoT = new Date(h[L].dateTime).getTime();
+          for(var j = L - 1; j >= 0; j--){
+            if(h[j].latitude == null) continue;
+            var dentro = GV.isWithinSiteEx({ lat: h[j].latitude, lng: h[j].longitude }, x, sites, 0);
+            if(dentro){ S = j; ultimoT = new Date(h[j].dateTime).getTime(); continue; }
+            if(ultimoT - new Date(h[j].dateTime).getTime() > tol) break;
+          }
+          var nuevo = Object.assign({}, e, { ingreso: new Date(h[S].dateTime).toISOString(), ingresoGps: true });
+          delete nuevo.egreso; delete nuevo.egresoGps;
+          /* si despues de esa visita la unidad ya se fue (afuera mas de la tolerancia), se registra ese egreso */
+          var __fuera = null;
+          for(var q = L + 1; q < h.length; q++){
+            if(h[q].latitude == null) continue;
+            if(GV.isWithinSiteEx({ lat: h[q].latitude, lng: h[q].longitude }, x, sites, 0)){ __fuera = null; continue; }
+            if(!__fuera) __fuera = h[q].dateTime;
+            if(new Date(h[q].dateTime) - new Date(__fuera) > tol){ nuevo.egreso = new Date(__fuera).toISOString(); nuevo.egresoGps = true; break; }
+          }
+          srN[id] = nuevo; hubo = true;
+        });
+        if(!hubo) return;
+        var updI = { sitiosReal: srN };
+        if(act.dwellState && srN[act.dwellState.siteId] && srN[act.dwellState.siteId].ingreso){ updI.dwellState = Object.assign({}, act.dwellState, { arrivedAt: srN[act.dwellState.siteId].ingreso }); }
+        GV.Storage.updateViaje(v.id, updI).then(function(){ try{ renderTrips(); renderTracking(); }catch(e){} });
+      })['catch'](function(){});
+    }
     var abiertas = sites.filter(function(x){
       if(x.id.indexOf('parada') !== 0 || x.id === dwId) return false;
       var e = sr[x.id]; if(!e || !e.ingreso || e.egreso || e.ingresoManual) return false;
