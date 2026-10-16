@@ -3056,10 +3056,9 @@ overlay.innerHTML =
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir-copiar">Copiar</button>' +
 '<button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-compartir-stop">Dejar de compartir</button>' +
 '</div>') : '') +
-((v.vehiculoId && v.origen && (v.estado==='en_curso'||v.estado==='demorado'||v.estado==='planificado')) ? gvJornadaBlockHtml(v) : '') +
-(v.llegadaDestinoPendienteEn ?('<div style="font-size:.82rem;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad ingreso al destino el ' + GV.fmtDate(v.llegadaDestinoPendienteEn) + ' pero quedan sitios sin completar (' + paradasSinCompletar(v).map(function(p){ return GV.escapeHtml(p.label); }).join(', ') + '). Confirma el cierre con <b>Marcar finalizado</b> si esos sitios no se van a completar, o usa <b>Agregar espera</b> para dejar la unidad esperando aca y retomar el resto del recorrido mas tarde.</div>') : '') +
-tramosHtml +
-retrasosHtml +
+'<style>.gv-det-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}.gv-det-col-izq{position:sticky;top:0;min-width:0}.gv-det-col-der{min-width:0;max-height:calc(100vh - 190px);overflow:auto;padding-right:4px}.gv-det-col-izq #gv-det-map{height:460px!important}.gv-det-col-der .gv-det-table{font-size:.78rem}.gv-det-col-der .gv-det-table th{white-space:normal;vertical-align:bottom}@media (max-width:1100px){.gv-det-cols{grid-template-columns:1fr}.gv-det-col-izq{position:static}.gv-det-col-der{max-height:none;overflow:visible}.gv-det-col-izq #gv-det-map{height:360px!important}}</style>' +
+/* Ajuste 16/10: detalle en dos columnas: izquierda mapa + reproductor, derecha jornada, avisos y la tabla del itinerario (mismas columnas). */
+'<div class="gv-det-cols"><div class="gv-det-col-izq">' +
 ((v.vehiculoId && (v.estado==='en_curso'||v.estado==='demorado')) ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
 '<div id="gv-det-map-wrap" style="position:relative;margin-bottom:6px">' +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db"></div>' +
@@ -3083,7 +3082,13 @@ retrasosHtml +
 '</select>' +
 '</div>' +
 '</div>') : '') +
+'</div><div class="gv-det-col-der">' +
+((v.vehiculoId && v.origen && (v.estado==='en_curso'||v.estado==='demorado'||v.estado==='planificado')) ? gvJornadaBlockHtml(v) : '') +
+(v.llegadaDestinoPendienteEn ?('<div style="font-size:.82rem;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#fef3c7;border:1px solid #fde68a;color:#78350f">La unidad ingreso al destino el ' + GV.fmtDate(v.llegadaDestinoPendienteEn) + ' pero quedan sitios sin completar (' + paradasSinCompletar(v).map(function(p){ return GV.escapeHtml(p.label); }).join(', ') + '). Confirma el cierre con <b>Marcar finalizado</b> si esos sitios no se van a completar, o usa <b>Agregar espera</b> para dejar la unidad esperando aca y retomar el resto del recorrido mas tarde.</div>') : '') +
+tramosHtml +
+retrasosHtml +
 '<div id="gv-det-itin"></div>' +
+'</div></div>' +
 '</div>';
 document.body.appendChild(overlay);
 
