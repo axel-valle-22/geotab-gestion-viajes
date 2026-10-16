@@ -104,10 +104,24 @@
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real</h2>
-<div style="display:flex;gap:6px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-mas-hoy" aria-expanded="false" aria-controls="gv-mas-hoy">Mostrar mas viajes de hoy</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
 </div>
 <!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
 <div id="gv-track-map" style="display:none;height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
+<!-- Ajuste 16/10: bloque desplegable "mas viajes de hoy": finalizados del dia y unidades circulando sin viaje planificado. -->
+<div id="gv-mas-hoy" style="display:none;margin-bottom:14px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:12px">
+<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;min-width:0">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:.95rem;color:#059669;flex:1">Viajes finalizados hoy <span id="gv-mh-fin-n" style="color:#6b7280;font-weight:500"></span></h3></div>
+<div id="gv-mh-fin" style="max-height:340px;overflow:auto"></div>
+</div>
+<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;min-width:0">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:.95rem;color:#d97706;flex:1">Viajes en curso sin planificacion <span id="gv-mh-sp-n" style="color:#6b7280;font-weight:500"></span></h3><span id="gv-mh-sp-act" style="font-size:.7rem;color:#9ca3af"></span></div>
+<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px">Unidades circulando ahora que no tienen un viaje cargado. Toca una para cargarle el viaje: se abre Nuevo Viaje con la unidad, el chofer detectado y el origen en la ultima posicion.</div>
+<div id="gv-mh-sp" style="max-height:310px;overflow:auto"></div>
+</div>
+</div>
+</div>
 <div id="gv-track-list"></div>
 </div>
 
@@ -1744,7 +1758,14 @@ try{
   api.call('Get', {typeName:'Device', search:{}}, function(res){
     gState.vehiculos = (res||[]).map(function(d){ return {id:d.id, nombre:d.name||d.id}; });
     /* Camiones de 24 hs: los que estan en el grupo de MyGeotab "Camiones 24 hs" (ver gvEsVehiculo24hs). */
-    (function(devs){
+    /* Ajuste 16/10: los grupos (clientes y "Camiones 24 hs") se vuelven a leer de MyGeotab cada 10 minutos, asi un
+       vehiculo que se agrega a un grupo de cliente aparece sin tener que recargar la pagina. */
+    if(!GV.__gruposTimer){
+      GV.__gruposTimer = setInterval(function(){
+        api.call('Get', {typeName:'Device', search:{}}, function(dv){ try{ GV.__aplicarGrupos(dv || []); }catch(e){} }, function(){});
+      }, 600000);
+    }
+    (GV.__aplicarGrupos = function(devs){
       api.call('Get', {typeName:'Group'}, function(grupos){
         var nombre = String(GV.GRUPO_24HS_NOMBRE || '').trim().toLowerCase();
         var g = (grupos || []).filter(function(x){ return String(x.name || '').trim().toLowerCase() === nombre; })[0];
@@ -2071,7 +2092,18 @@ abrirDetalleViaje(id);
     }
   });
 
-  document.getElementById('gv-btn-refresh-track').addEventListener('click', renderTracking);
+  document.getElementById('gv-btn-refresh-track').addEventListener('click', function(){ renderTracking(); gvRenderMasHoy(true); });
+  /* Desplegar / minimizar el bloque "mas viajes de hoy" (finalizados + sin planificacion). */
+  document.getElementById('gv-btn-toggle-mas-hoy').addEventListener('click', function(){
+    var b = document.getElementById('gv-mas-hoy');
+    var abrir = b.style.display === 'none';
+    b.style.display = abrir ? 'block' : 'none';
+    this.textContent = abrir ? 'Ocultar mas viajes de hoy' : 'Mostrar mas viajes de hoy';
+    this.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+    if(abrir) gvRenderMasHoy(true);
+  });
+  document.getElementById('gv-mh-fin').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-viaje]'); if(el) abrirDetalleViaje(el.getAttribute('data-mh-viaje')); });
+  document.getElementById('gv-mh-sp').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); });
   /* Desplegar / minimizar el mapa de Seguimiento. Al desplegarlo se vuelve a renderizar para
      que Google Maps tome el tamano real del contenedor (estaba oculto) y encuadre los viajes. */
   document.getElementById('gv-btn-toggle-track-map').addEventListener('click', function(){
@@ -2565,7 +2597,96 @@ function gvClientesDeViaje(v){
   var m = GV.__clientesPorVeh || {};
   return (v && v.vehiculoId && m[v.vehiculoId]) ? m[v.vehiculoId].slice() : [];
 }
+/* ---------------- Seguimiento: "mas viajes de hoy" (Ajuste 16/10) ----------------
+   Izquierda: viajes finalizados hoy (completados con cierre hoy). Derecha: unidades que estan circulando
+   ahora y no tienen ningun viaje activo cargado, agrupadas por cliente (grupos "Clientes" de MyGeotab).
+   La posicion de toda la flota se pide como maximo una vez por minuto y solo con el bloque abierto. */
+var gMhUltimaConsulta = 0, gMhSinPlan = [];
+function gvHoraCorta(iso){ if(!iso) return '-'; var d = new Date(iso); return isNaN(d) ? '-' : d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }); }
+function gvRenderMasHoy(forzar){
+  var cont = document.getElementById('gv-mas-hoy');
+  if(!cont || cont.style.display === 'none') return;
+  var hoyStr = GV.dateStr(new Date());
+  /* --- finalizados hoy --- */
+  var fin = GV.Storage.getViajes().filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === hoyStr; })
+    .sort(function(a, b){ return new Date(b.completadoEn) - new Date(a.completadoEn); });
+  var finEl = document.getElementById('gv-mh-fin'), finN = document.getElementById('gv-mh-fin-n');
+  if(finN) finN.textContent = '(' + fin.length + ')';
+  if(finEl){
+    finEl.innerHTML = fin.length ? fin.map(function(v){
+      var cli = gvClientesDeViaje(v).join(', ');
+      var ini = v.iniciadoEn || (v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso) || v.fechaSalida;
+      var dur = (ini && v.completadoEn) ? GV.fmtDurMin(new Date(v.completadoEn) - new Date(ini)) : '';
+      var ruta = [v.origen ? GV.siteNameFor(v.origen) : ''].concat((v.paradas || []).map(function(p){ return GV.siteNameFor(p); })).concat(v.destino ? [GV.siteNameFor(v.destino)] : []).filter(Boolean).join(' → ');
+      return '<div data-mh-viaje="' + v.id + '" title="Ver el detalle del viaje" style="cursor:pointer;padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px" onmouseover="this.style.background=\'#f0fdf4\'" onmouseout="this.style.background=\'\'">' +
+        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' + (cli ? '<span style="font-size:.68rem;background:#e0f2fe;color:#075985;border-radius:4px;padding:0 5px">' + GV.escapeHtml(cli) + '</span>' : '') + '<span style="margin-left:auto;color:#059669;font-weight:600;white-space:nowrap">' + gvHoraCorta(ini) + ' → ' + gvHoraCorta(v.completadoEn) + (dur ? ' (' + dur + ')' : '') + '</span></div>' +
+        '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + GV.escapeHtml(ruta) + '</div></div>';
+    }).join('') : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">Todavia no se cerro ningun viaje hoy.</div>';
+  }
+  /* --- sin planificacion --- */
+  if(!gApi) return;
+  if(!forzar && Date.now() - gMhUltimaConsulta < 60000){ gvPintarSinPlan(); return; }
+  gMhUltimaConsulta = Date.now();
+  gApi.call('Get', { typeName: 'DeviceStatusInfo' }, function(res){
+    var conViaje = {};
+    GV.Storage.getViajes().forEach(function(v){
+      if(!v.vehiculoId) return;
+      if(v.estado === 'en_curso' || v.estado === 'demorado') conViaje[v.vehiculoId] = true;
+      else if(v.estado === 'planificado' && GV.dateStr(v.fechaSalida) <= hoyStr) conViaje[v.vehiculoId] = true;
+    });
+    var nomVeh = {}; (gState.vehiculos || []).forEach(function(x){ nomVeh[x.id] = x.nombre; });
+    var nomCond = {}; (gState.conductores || []).forEach(function(c){ nomCond[c.id] = c.nombre; });
+    var ahora = Date.now();
+    gMhSinPlan = (res || []).filter(function(r){
+      var id = r.device && r.device.id; if(!id || conViaje[id] || !nomVeh[id]) return false;
+      var reciente = r.dateTime && (ahora - new Date(r.dateTime).getTime()) < 20 * 60000;
+      return reciente && (r.isDriving === true || (r.speed || 0) >= 5) && r.latitude != null;
+    }).map(function(r){
+      var id = r.device.id, dId = r.driver && r.driver.id;
+      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: Math.round(r.speed || 0), t: r.dateTime,
+        condId: (dId && nomCond[dId]) ? dId : null, cond: (dId && nomCond[dId]) ? nomCond[dId] : null,
+        clientes: (GV.__clientesPorVeh || {})[id] || [] };
+    });
+    var act = document.getElementById('gv-mh-sp-act'); if(act) act.textContent = 'act. ' + gvHoraCorta(new Date().toISOString());
+    gvPintarSinPlan();
+  }, function(){ var el = document.getElementById('gv-mh-sp'); if(el) el.innerHTML = '<div style="font-size:.8rem;color:#dc2626;padding:8px">No se pudo consultar la posicion de la flota.</div>'; });
+}
+function gvPintarSinPlan(){
+  var el = document.getElementById('gv-mh-sp'), n = document.getElementById('gv-mh-sp-n');
+  if(!el) return;
+  if(n) n.textContent = '(' + gMhSinPlan.length + ')';
+  if(!gMhSinPlan.length){ el.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'; return; }
+  var grupos = {};
+  gMhSinPlan.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
+  var claves = Object.keys(grupos).sort(function(a, b){ return a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b); });
+  el.innerHTML = claves.map(function(c){
+    return '<div style="font-size:.72rem;font-weight:700;color:#075985;background:#f0f9ff;border-radius:4px;padding:2px 6px;margin:6px 0 2px">' + GV.escapeHtml(c) + ' (' + grupos[c].length + ')</div>' +
+      grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
+        return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
+          '<b>' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">chofer no identificado</i>') + '</span>' +
+          '<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span><span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
+      }).join('');
+  }).join('');
+}
+/* Abre Nuevo Viaje con la unidad, el chofer detectado (si Geotab lo identifico) y el origen en la ultima posicion
+   del camion (como el boton "Usar ultima posicion del camion": si esta circulando, el viaje nace en curso). */
+function gvNuevoViajeDesdeUnidad(vehId){
+  var u = gMhSinPlan.filter(function(x){ return x.vehId === vehId; })[0];
+  if(!u) return;
+  showTab('nuevo');
+  resetForm();
+  var vSel = document.getElementById('gv-vehiculo'), cSel = document.getElementById('gv-conductor');
+  if(vSel){ vSel.value = vehId; try{ vSel.dispatchEvent(new Event('change', { bubbles: true })); }catch(e){} }
+  if(cSel && u.condId && [].some.call(cSel.options, function(o){ return o.value === u.condId; })){ cSel.value = u.condId; try{ cSel.dispatchEvent(new Event('change', { bubbles: true })); }catch(e){} }
+  gOrigen = { lat: u.lat, lng: u.lng, direccion: 'Ultima posicion del camion', ultimaPos: true, ultimaPosVeh: vehId, ultimaPosVel: u.vel };
+  gvSetRouteTxt('gv-origen-txt', gOrigen);
+  GV.reverseGeocode(u.lat, u.lng).then(function(label){ if(gOrigen && gOrigen.ultimaPosVeh === vehId && label){ gOrigen.direccion = label; gvSetRouteTxt('gv-origen-txt', gOrigen); } })['catch'](function(){});
+  var msg = document.getElementById('gv-form-msg');
+  if(msg){ msg.style.display = 'block'; msg.style.background = '#fffbeb'; msg.style.color = '#92400e'; msg.textContent = 'Unidad ' + u.veh + ' circulando sin viaje cargado: se completaron la unidad' + (u.cond ? ', el chofer' : '') + ' y el origen (ultima posicion). Agrega los puntos de carga/descarga y el destino, y guarda.'; }
+}
+
 function renderTracking(){
+  try{ gvRenderMasHoy(false); }catch(__eMh){}
   var box = document.getElementById('gv-track-map');
   var listEl = document.getElementById('gv-track-list');
   if(!box) return;
