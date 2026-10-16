@@ -2311,6 +2311,9 @@ var GV_TRK_EST_COLORS = { planificado:['#e5e7eb','#374151'], en_curso:['#dbeafe'
 function vehiculoParts(vehiculoStr){
   var s = (vehiculoStr || '').split(' - ');
   if(s.length >= 2) return { interno: s[0].trim(), patente: s.slice(1).join(' - ').trim() };
+  /* Ajuste 16/10: unidades cargadas en Geotab sin espacios alrededor del guion (ej. "M317-AF770YX"). */
+  var m = /^\s*([^\s-]+)\s*-\s*(\S.*)$/.exec(vehiculoStr || '');
+  if(m) return { interno: m[1], patente: m[2].trim() };
   return { interno: vehiculoStr || '', patente: '' };
 }
 
