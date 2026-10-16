@@ -821,6 +821,14 @@ continue;
 }
 __fueraDesde = null; /* volvio a entrar sin llegar al minimo: fue ruido, no una salida real */
 }
+/* Ajuste 16/10 (caso H305 - Vallejos, volvio a la base y apago el motor): al apagar, el equipo deja de mandar
+   posiciones, asi que nunca aparecia un punto 3 minutos despues del ingreso y el viaje no se cerraba. Si el
+   ultimo punto del historial esta adentro del destino y desde ese ingreso ya pasaron los minutos minimos, cuenta
+   como llegada. */
+if(!hit && __salio && __adentroDesde && (ahora - new Date(__adentroDesde.dateTime).getTime()) >= __minSalidaMs){
+  var __ult = null; for(var __u = hist.length - 1; __u >= 0; __u--){ if(hist[__u].latitude != null){ __ult = hist[__u]; break; } }
+  if(__ult && GV.isWithinSiteEx({ lat: __ult.latitude, lng: __ult.longitude }, __sDest, sitesN, 0)) hit = __adentroDesde;
+}
 if(!hit) return;
 var hitISO = new Date(hit.dateTime).toISOString();
 cerrarOAvisarLlegadaDestino(vv, hitISO, GV.siteNameFor(vv.destino) || 'Destino');
@@ -997,6 +1005,35 @@ function gvInicioPorSalida(v, diaInicio, fechaBaseStr){
   if(salida < ocho || salida.getHours() >= (GV.HORA_TURNO_NOCHE || 20)) return { inicio: salida.toISOString(), fuente: 'salida', confirmado: true };
   return { inicio: ocho.toISOString(), fuente: 'turno', confirmado: true };
 }
+/* Ajuste 16/10 (caso H305: Vallejos Jose Luis desmoviliza a la base y la unidad sigue el mismo dia con Reyes Mauro):
+   la jornada se calcula con el motor/GPS del CAMION, asi que al chofer que toma la unidad despues se le asignaba el
+   arranque de motor del chofer anterior. Si ese dia la misma unidad tuvo otro viaje con OTRO chofer que salio antes,
+   la jornada del chofer nuevo solo puede arrancar despues del "cambio de chofer": el cierre de ese viaje (o su
+   llegada al destino) o, si todavia no se cerro, desde que se cargo o desde la salida programada de este viaje (lo
+   que sea antes). Devuelve ese limite en ms, o null si no hubo cambio de chofer en la unidad ese dia. */
+function gvLimiteCambioChofer(viaje, fechaBaseStr){
+  if(!viaje || !viaje.vehiculoId) return null;
+  var ini = GV.dateFromDateStr(fechaBaseStr).getTime(), fin = ini + 24 * 3600000;
+  var salEste = new Date(viaje.fechaSalida).getTime();
+  var limite = null;
+  GV.Storage.getViajes().forEach(function(o){
+    if(!o || o.id === viaje.id || o.vehiculoId !== viaje.vehiculoId) return;
+    if((o.conductorId && viaje.conductorId) ? o.conductorId === viaje.conductorId : o.conductor === viaje.conductor) return;
+    if(o.estado === 'cancelado' && !o.iniciadoEn) return;
+    var salO = new Date(o.iniciadoEn || o.fechaSalida).getTime();
+    if(isNaN(salO) || isNaN(salEste) || salO >= salEste || salO >= fin) return;
+    var finO = o.completadoEn || o.canceladoEn || (o.sitiosReal && o.sitiosReal.destino && o.sitiosReal.destino.ingreso) || null;
+    var t = finO ? new Date(finO).getTime() : NaN;
+    if(isNaN(t)){
+      if(o.estado !== 'en_curso' && o.estado !== 'demorado') return;
+      var cr = new Date(viaje.creadoEn || viaje.fechaSalida).getTime();
+      t = isNaN(cr) ? salEste : Math.min(cr, salEste);
+    }
+    if(t <= ini || t >= fin) return;
+    if(limite === null || t > limite) limite = t;
+  });
+  return limite;
+}
 function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
   var estimado = { inicio: GV.dateFromDateStr(fechaBaseStr, GV.HORA_JORNADA_DEFECTO || 8).toISOString(), fuente: 'estimado', confirmado: false };
   if(!gApi || !vehiculoId) return Promise.resolve(estimado);
@@ -1011,6 +1048,18 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
     GV.getIgnitionHistory(gApi, vehiculoId, desdeISO, hastaISO)
   ]).then(function(res){
     var hist = res[0] || [], ign = res[1] || [];
+    var __limCambio = viaje ? gvLimiteCambioChofer(viaje, fechaBaseStr) : null;
+    if(__limCambio !== null){
+      /* Hubo cambio de chofer en la unidad: solo cuentan el motor y el movimiento posteriores al cambio. */
+      hist = hist.filter(function(r){ return new Date(r.dateTime).getTime() >= __limCambio; });
+      ign = ign.filter(function(r){ return new Date(r.dateTime).getTime() >= __limCambio; });
+      var __tsC = null;
+      for(var __c = 0; __c < ign.length; __c++){ if(ign[__c].data === 1 || ign[__c].data === true){ __tsC = ign[__c].dateTime; break; } }
+      for(var __h = 0; __h < hist.length && !__tsC; __h++){ if((hist[__h].speed || 0) > 5){ __tsC = hist[__h].dateTime; } }
+      if(__tsC && new Date(__tsC) <= tope) return { inicio: new Date(__tsC).toISOString(), fuente: 'cambio_chofer', confirmado: true };
+      /* todavia no arranco: se muestra desde el cambio como estimado y se revisa cada 10 minutos */
+      return { inicio: new Date(Math.min(__limCambio, tope.getTime())).toISOString(), fuente: 'estimado', confirmado: false };
+    }
     var __diaIni = GV.dateFromDateStr(fechaBaseStr).getTime();
     var __motorAMedianoche = ign.some(function(st){ return (new Date(st.dateTime).getTime() - __diaIni) < 60000 && (st.data === 1 || st.data === true); });
     if(viaje && (gvEsVehiculo24hs(viaje) || __motorAMedianoche)){
@@ -1119,6 +1168,16 @@ function checkJornadas(){
       return;
     }
     var hoy = jornadas[hoyStr];
+    /* Ajuste 16/10: si la jornada guardada arranca ANTES del cambio de chofer en la unidad (quedo con el motor
+       del chofer anterior), se borra para recalcularla. Las ediciones manuales no se tocan. */
+    if(hoy.fuente !== 'manual'){
+      var __lim = gvLimiteCambioChofer(v, hoyStr);
+      if(__lim !== null && new Date(hoy.inicio).getTime() < __lim - 60000){
+        var jj7 = Object.assign({}, jornadas); delete jj7[hoyStr];
+        GV.Storage.updateViaje(v.id, { jornadas: jj7 });
+        return;
+      }
+    }
     /* Misma regla de las 08:00 aplicada a jornadas ya guardadas (arreglo 1/10): si quedo un arranque
        detectado DESPUES de las 08:00, se corrige a las 08:00. Las ediciones manuales no se tocan. */
     var __horaIngreso = GV.dateFromDateStr(hoyStr, GV.HORA_JORNADA_DEFECTO || 8);
@@ -2355,6 +2414,9 @@ function gvJornadaTextoInfo(v){
   if(jn.fuente === 'salida'){
     return { texto: horaTxt + ' — desde la salida del viaje (camion de 24 hs con chofer de turno). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
   }
+  if(jn.fuente === 'cambio_chofer'){
+    return { texto: horaTxt + ' — primer arranque de la unidad despues del cambio de chofer (la unidad venia de otro viaje con otro chofer). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
+  }
   var fuenteTxt = jn.fuente === 'motor' ? 'motor encendido de forma sostenida' : (jn.fuente === 'manual' ? 'editado a mano' : 'salida sostenida del origen');
   return { texto: horaTxt + ' — detectado por ' + fuenteTxt + '. Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
 }
@@ -2396,7 +2458,7 @@ function gvHsChoferHtml(v, hoyStr){
     };
   }
   var esAlerta = (ms / 60000) >= (GV.HS_CHOFER_ALERTA_MIN || 720);
-  var fuenteTxt = jn.fuente === 'motor' ? 'detectado por motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : (jn.fuente === 'horario' ? 'horario de ingreso, sin arranque de motor antes' : (jn.fuente === 'salida' ? 'desde la salida del viaje, camion de 24 hs' : (jn.fuente === 'turno' ? 'inicio del turno diurno, camion de 24 hs' : 'detectado por movimiento del vehiculo'))));
+  var fuenteTxt = jn.fuente === 'motor' ? 'detectado por motor encendido' : (jn.fuente === 'manual' ? 'editado a mano' : (jn.fuente === 'horario' ? 'horario de ingreso, sin arranque de motor antes' : (jn.fuente === 'salida' ? 'desde la salida del viaje, camion de 24 hs' : (jn.fuente === 'turno' ? 'inicio del turno diurno, camion de 24 hs' : (jn.fuente === 'cambio_chofer' ? 'primer arranque despues del cambio de chofer' : 'detectado por movimiento del vehiculo')))));
   return {
     html: '<span class="gv-trk-hs' + (esAlerta ? ' gv-trk-hs-alerta' : '') + '">' + durTxt + (esAlerta ? ' &#9888;' : '') + '</span>',
     title: 'Inicio de jornada: ' + horaTxt + ' (' + fuenteTxt + ')' + (esAlerta ? ' — lleva mas de 12hs en servicio' : '')
