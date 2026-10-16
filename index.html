@@ -1050,15 +1050,10 @@ function detectarInicioJornada(vehiculoId, origenSite, fechaBaseStr, viaje){
     var hist = res[0] || [], ign = res[1] || [];
     var __limCambio = viaje ? gvLimiteCambioChofer(viaje, fechaBaseStr) : null;
     if(__limCambio !== null){
-      /* Hubo cambio de chofer en la unidad: solo cuentan el motor y el movimiento posteriores al cambio. */
-      hist = hist.filter(function(r){ return new Date(r.dateTime).getTime() >= __limCambio; });
-      ign = ign.filter(function(r){ return new Date(r.dateTime).getTime() >= __limCambio; });
-      var __tsC = null;
-      for(var __c = 0; __c < ign.length; __c++){ if(ign[__c].data === 1 || ign[__c].data === true){ __tsC = ign[__c].dateTime; break; } }
-      for(var __h = 0; __h < hist.length && !__tsC; __h++){ if((hist[__h].speed || 0) > 5){ __tsC = hist[__h].dateTime; } }
-      if(__tsC && new Date(__tsC) <= tope) return { inicio: new Date(__tsC).toISOString(), fuente: 'cambio_chofer', confirmado: true };
-      /* todavia no arranco: se muestra desde el cambio como estimado y se revisa cada 10 minutos */
-      return { inicio: new Date(Math.min(__limCambio, tope.getTime())).toISOString(), fuente: 'estimado', confirmado: false };
+      /* Hubo cambio de chofer en la unidad: el motor y el movimiento ANTERIORES al cambio son del chofer anterior y
+         no cuentan. Con lo que queda se aplica la regla de siempre (08:00, salvo que haya arrancado antes). */
+      hist = hist.filter(function(r){ return new Date(r.dateTime).getTime() > __limCambio; });
+      ign = ign.filter(function(r){ return new Date(r.dateTime).getTime() > __limCambio; });
     }
     var __diaIni = GV.dateFromDateStr(fechaBaseStr).getTime();
     var __motorAMedianoche = ign.some(function(st){ return (new Date(st.dateTime).getTime() - __diaIni) < 60000 && (st.data === 1 || st.data === true); });
@@ -1172,7 +1167,7 @@ function checkJornadas(){
        del chofer anterior), se borra para recalcularla. Las ediciones manuales no se tocan. */
     if(hoy.fuente !== 'manual'){
       var __lim = gvLimiteCambioChofer(v, hoyStr);
-      if(__lim !== null && new Date(hoy.inicio).getTime() < __lim - 60000){
+      if(__lim !== null && (hoy.fuente === 'cambio_chofer' || ((hoy.fuente === 'motor' || hoy.fuente === 'movimiento') && new Date(hoy.inicio).getTime() < __lim - 60000))){
         var jj7 = Object.assign({}, jornadas); delete jj7[hoyStr];
         GV.Storage.updateViaje(v.id, { jornadas: jj7 });
         return;
