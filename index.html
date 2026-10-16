@@ -1390,6 +1390,118 @@ function gvReevaluarViajeAhora(viajeId){
   }catch(__eRV0){ console.error('gvReevaluarViajeAhora', __eRV0); }
 }
 
+/* ---------------- Ajuste 16/10: paradas hechas ANTES de cargar el viaje (caso M317 - Moscoso) ----------------
+   Un viaje cargado tarde con origen en la "ultima posicion del camion" arranca desde ese punto, asi que las
+   paradas que la unidad ya habia hecho antes (ej. cargo en CAN PAD18 y salio 10:28; el viaje se cargo 11:40)
+   quedaban pendientes para siempre. Una sola vez por viaje se revisa el GPS de las horas previas a la carga del
+   viaje y, recorriendo las paradas en orden, se registran las que la unidad ya habia cumplido (ingreso y egreso
+   con permanencia minima de GV.MIN_DWELL_MIN). Si encuentra alguna, el inicio del viaje pasa a ser la primera. */
+var __gvBackfillCorriendo = {};
+function gvBackfillParadasPrevias(v){
+  try{
+    if(!v || !gApi || !v.vehiculoId || !v.origenUltimaPos || v.backfillPrevioHecho || __gvBackfillCorriendo[v.id]) return;
+    if(!(v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'completado')) return;
+    if(!(v.paradas || []).length || !v.creadoEn) return;
+    var hasta = new Date(v.creadoEn);
+    var dia = new Date(hasta); dia.setHours(0, 0, 0, 0);
+    var __ref = Math.min(hasta.getTime(), isNaN(new Date(v.fechaSalida).getTime()) ? hasta.getTime() : new Date(v.fechaSalida).getTime());
+    var desde = new Date(Math.max(dia.getTime(), __ref - 4 * 3600000)); /* hasta 4 hs antes de la salida programada */
+    __gvBackfillCorriendo[v.id] = true;
+    GV.getHistory(gApi, v.vehiculoId, desde.toISOString(), hasta.toISOString()).then(function(h){
+      var act = GV.Storage.getViaje(v.id) || v;
+      var minMs = (GV.MIN_DWELL_MIN || 3) * 60000;
+      var sr = Object.assign({}, act.sitiosReal || {}), hallados = [], cursor = 0;
+      var sites = siteListFor(act).filter(function(x){ return x.id.indexOf('parada') === 0; });
+      for(var k = 0; k < sites.length && h && h.length; k++){
+        var site = sites[k];
+        if(sr[site.id] && (sr[site.id].ingreso || sr[site.id].egreso)) break; /* desde aca ya lo registra el seguimiento normal */
+        var ing = null, adentroDesde = null, afueraDesde = null, egr = null, i;
+        for(i = cursor; i < h.length; i++){
+          var r = h[i]; if(r.latitude == null) continue;
+          var dentro = GV.isWithinSiteEx({ lat: r.latitude, lng: r.longitude }, site, sites, 0);
+          if(!ing){
+            if(dentro){ if(!adentroDesde) adentroDesde = r.dateTime; if(new Date(r.dateTime) - new Date(adentroDesde) >= minMs || i === cursor){ ing = adentroDesde; } }
+            else adentroDesde = null;
+            if(ing && !dentro) ing = null;
+            continue;
+          }
+          if(!dentro){ if(!afueraDesde) afueraDesde = r.dateTime; if(new Date(r.dateTime) - new Date(afueraDesde) >= minMs){ egr = afueraDesde; break; } }
+          else afueraDesde = null;
+        }
+        if(!ing) break;
+        if(!egr && afueraDesde && (hasta - new Date(afueraDesde)) >= minMs) egr = afueraDesde;
+        sr[site.id] = Object.assign({}, sr[site.id] || {}, { ingreso: new Date(ing).toISOString(), ingresoGps: true, previoAlViaje: true });
+        if(egr) sr[site.id].egreso = new Date(egr).toISOString();
+        hallados.push(site.label);
+        if(!egr) break; /* seguia en ese sitio cuando se cargo el viaje: el resto lo sigue el seguimiento normal */
+        cursor = i;
+      }
+      var patch = { backfillPrevioHecho: true };
+      if(hallados.length){
+        var primero = sr[sites[0].id] && sr[sites[0].id].ingreso;
+        patch.sitiosReal = sr;
+        if(primero){
+          sr.origen = Object.assign({}, sr.origen || {}, { egreso: primero });
+          if(!act.iniciadoEn || new Date(primero) < new Date(act.iniciadoEn)) patch.iniciadoEn = primero;
+        }
+      }
+      GV.Storage.updateViaje(v.id, patch).then(function(){
+        if(hallados.length){
+          try{ GV.Storage.addAlerta({ id: 'al_' + v.id + '_backfill', tipo: 'info', mensaje: (act.conductor || '') + ' - ' + (act.vehiculo || '') + ': el viaje se cargo despues de que la unidad ya habia pasado por ' + hallados.join(', ') + '; se registraron esos horarios desde el GPS.', fecha: new Date().toISOString(), viajeId: v.id }); }catch(e){}
+          try{ renderTrips(); renderTracking(); }catch(e){}
+        }
+      });
+    }).catch(function(){ delete __gvBackfillCorriendo[v.id]; });
+  }catch(e){ console.error('gvBackfillParadasPrevias', e); }
+}
+
+/* ---------------- Ajuste 16/10: parada "en sitio" que la unidad nunca visito (caso C258 - Veschi) ----------------
+   Una parada con ingreso y sin egreso hace que Seguimiento diga "En sitio" aunque la unidad ya este en otro lado.
+   Cada 5 minutos, si la unidad esta a mas de 500 m de esa parada, se revisa el GPS desde ese ingreso: si nunca
+   estuvo adentro, el ingreso era falso y se borra; si estuvo, se registra el egreso con la hora real en que salio. */
+var __gvVerifAbiertos = {};
+function gvVerificarParadasAbiertas(v, pos){
+  try{
+    if(!v || !gApi || !v.vehiculoId || !pos) return;
+    if(__gvVerifAbiertos[v.id] && Date.now() - __gvVerifAbiertos[v.id] < 300000) return;
+    var sr = v.sitiosReal || {}, sites = siteListFor(v), dwId = v.dwellState && v.dwellState.siteId;
+    var abiertas = sites.filter(function(x){
+      if(x.id.indexOf('parada') !== 0 || x.id === dwId) return false;
+      var e = sr[x.id]; if(!e || !e.ingreso || e.egreso || e.ingresoManual) return false;
+      var d = GV.distKm(pos, x); return d !== null && d > 0.5;
+    });
+    if(!abiertas.length) return;
+    __gvVerifAbiertos[v.id] = Date.now();
+    var desdeMs = Math.min.apply(null, abiertas.map(function(x){ return new Date(sr[x.id].ingreso).getTime(); })) - 5 * 60000;
+    GV.getHistory(gApi, v.vehiculoId, new Date(desdeMs).toISOString(), new Date().toISOString()).then(function(h){
+      if(!h || !h.length) return;
+      var act = GV.Storage.getViaje(v.id) || v;
+      var srN = Object.assign({}, act.sitiosReal || {}), cambios = [];
+      abiertas.forEach(function(x){
+        var e = srN[x.id]; if(!e || !e.ingreso || e.egreso) return;
+        var ingMs = new Date(e.ingreso).getTime() - 5 * 60000, ultimoAdentro = -1;
+        for(var i = 0; i < h.length; i++){
+          if(new Date(h[i].dateTime).getTime() < ingMs || h[i].latitude == null) continue;
+          if(GV.isWithinSiteEx({ lat: h[i].latitude, lng: h[i].longitude }, x, sites, 0)) ultimoAdentro = i;
+        }
+        if(ultimoAdentro < 0){
+          var c = Object.assign({}, e); delete c.ingreso; delete c.ingresoGps;
+          if(Object.keys(c).length) srN[x.id] = c; else delete srN[x.id];
+          cambios.push(x.label + ': ingreso borrado (la unidad nunca estuvo en ese sitio)');
+        } else if(ultimoAdentro < h.length - 1){
+          srN[x.id] = Object.assign({}, e, { egreso: new Date(h[ultimoAdentro + 1].dateTime).toISOString(), egresoGps: true });
+          cambios.push(x.label + ': egreso registrado por GPS');
+        }
+      });
+      if(!cambios.length) return;
+      GV.Storage.updateViaje(v.id, { sitiosReal: srN }).then(function(){
+        try{ console.info('[GV] paradas abiertas corregidas', act.vehiculo, cambios); }catch(e){}
+        try{ renderTrips(); renderTracking(); }catch(e){}
+      });
+    })['catch'](function(){});
+  }catch(e){ console.error('gvVerificarParadasAbiertas', e); }
+}
+
 /* Ajuste 15/10 (caso H304 - Base TDP Plottier): si el viaje se programa DESPUES de que el camion ya salio del
    origen, el auto-inicio por GPS sellaba como salida real la hora en que se cargo el viaje (10:07) y no la hora
    real en que la unidad dejo la base (~08:00). Eso dejaba una demora de salida inventada (2h 7min) y el egreso
@@ -1467,6 +1579,8 @@ try{
       if(!__vFresh) return;
       v = __vFresh;
       gvRefinarSalidaOrigenGps(v);
+      gvBackfillParadasPrevias(v);
+      gvVerificarParadasAbiertas(v, { lat: r.latitude, lng: r.longitude });
       if(v.llegadaDestinoPendienteEn) return;
       if(v.estado === 'planificado'){
         /* Antes se exigia puedeIniciar(v) aca: si el gerenciamiento de riesgos no estaba aprobado el
