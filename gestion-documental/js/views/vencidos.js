@@ -11,7 +11,7 @@ window.GD_VIEWS = window.GD_VIEWS || {};
 window.GD_VIEWS.vencidos = async function render(container) {
   // Los filtros se recuerdan entre redibujos (la pantalla se vuelve a dibujar
   // sola cuando llega un cambio en tiempo real).
-  const F = (window.__gdFiltrosVencidos = window.__gdFiltrosVencidos || { texto: "", tipo: "", doc: "" });
+  const F = (window.__gdFiltrosVencidos = window.__gdFiltrosVencidos || { texto: "", tipo: "", doc: "", orden: "antiguos" });
   const focoPrevio = document.activeElement && document.activeElement.id;
 
   const [entidades, entSeguros, tiposDocumento] = await Promise.all([
@@ -39,8 +39,14 @@ window.GD_VIEWS.vencidos = async function render(container) {
         todas.push({ e, d, tipoNombre: nombreTipo(d), dias, ts: dia ? dia.getTime() : 0 });
       });
   }
-  // Primero los que hace más tiempo que vencieron.
-  todas.sort((a, b) => a.ts - b.ts || (a.e.descripcion || "").localeCompare(b.e.descripcion || "", "es", { numeric: true }));
+  // Orden por fecha de vencimiento: "antiguos" = primero los que hace más
+  // tiempo que vencieron (más días vencidos); "recientes" = al revés.
+  // Se cambia tocando el encabezado "Días vencido" (o "Venció el").
+  const ordenar = () => {
+    const sig = F.orden === "recientes" ? -1 : 1;
+    todas.sort((a, b) => sig * (a.ts - b.ts) || (a.e.descripcion || "").localeCompare(b.e.descripcion || "", "es", { numeric: true }));
+  };
+  ordenar();
 
   const nombresDocs = [...new Set(todas.map((f) => f.tipoNombre))].sort((a, b) => a.localeCompare(b, "es"));
   if (F.doc && !nombresDocs.includes(F.doc)) F.doc = "";
@@ -65,7 +71,7 @@ window.GD_VIEWS.vencidos = async function render(container) {
     </div>
     <p class="gd-hint" id="gd-v-resumen"></p>
     <table class="gd-tabla">
-      <thead><tr><th>Entidad</th><th>Tipo</th><th>Documento</th><th>Venció el</th><th>Días vencido</th><th></th></tr></thead>
+      <thead><tr><th>Entidad</th><th>Tipo</th><th>Documento</th><th class="gd-v-orden" style="cursor:pointer;user-select:none" title="Tocá para cambiar el orden">Venció el</th><th class="gd-v-orden" style="cursor:pointer;user-select:none" title="Tocá para cambiar el orden">Días vencido <span id="gd-v-flecha"></span></th><th></th></tr></thead>
       <tbody id="gd-v-body"></tbody>
     </table>
   `;
@@ -73,6 +79,7 @@ window.GD_VIEWS.vencidos = async function render(container) {
   let filasActuales = [];
 
   function refrescar() {
+    document.getElementById("gd-v-flecha").textContent = F.orden === "recientes" ? "▲" : "▼";
     const t = F.texto.trim().toLowerCase();
     filasActuales = todas.filter(
       (f) =>
@@ -83,7 +90,8 @@ window.GD_VIEWS.vencidos = async function render(container) {
     const entidadesDistintas = new Set(filasActuales.map((f) => f.e.id)).size;
     document.getElementById("gd-v-resumen").textContent = todas.length
       ? `${filasActuales.length} documento(s) vencido(s) en ${entidadesDistintas} entidad(es)` +
-        (filasActuales.length !== todas.length ? ` · ${todas.length} en total` : "")
+        (filasActuales.length !== todas.length ? ` · ${todas.length} en total` : "") +
+        (F.orden === "recientes" ? " · de más recientes a más antiguos" : " · de más antiguos a más recientes")
       : "";
 
     const body = document.getElementById("gd-v-body");
@@ -143,6 +151,14 @@ window.GD_VIEWS.vencidos = async function render(container) {
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   });
+
+  container.querySelectorAll(".gd-v-orden").forEach((th) =>
+    th.addEventListener("click", () => {
+      F.orden = F.orden === "recientes" ? "antiguos" : "recientes";
+      ordenar();
+      refrescar();
+    })
+  );
 
   const campos = { "gd-v-texto": "texto", "gd-v-tipo": "tipo", "gd-v-doc": "doc" };
   Object.entries(campos).forEach(([id, clave]) => {
