@@ -3044,7 +3044,7 @@ overlay.innerHTML =
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-solicitud" title="N° de solicitud de Gooper de este viaje">' + (v.solicitud ? ('Solicitud ' + GV.escapeHtml(gvSolicitudLabel(v))) : 'N° solicitud') + '</button>' +
-((v.estado==='planificado'||v.estado==='demorado'||v.estado==='en_curso') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar">Clonar viaje</button>' : '') +
+'<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar" title="Crea un viaje nuevo con el mismo recorrido (origen, puntos de carga/descarga y destino); solo se elige chofer, camion, dia y horario">Clonar viaje</button>' +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
@@ -3505,7 +3505,7 @@ if(__detJornadaGuardarBtn){
 }
 
 /* Al clonar, una espera acordada (y los minutos inflados que genero) no se copia al viaje nuevo. */
-function __sinEspera(o){ if(!o || !o.esperaAcordada) return o; var c = Object.assign({}, o); delete c.esperaAcordada; c.duracionMin = 60; return c; }
+function __sinEspera(o){ if(!o) return o; var c = Object.assign({}, o); if(c.esperaAcordada){ delete c.esperaAcordada; c.duracionMin = 60; } /* Ajuste 16/10: un origen tomado de la "ultima posicion del camion" no se arrastra como tal al viaje clonado (si no, el clon nacia en curso). */ delete c.ultimaPos; delete c.ultimaPosVeh; delete c.ultimaPosVel; return c; }
 
 function abrirClonarViaje(){
 var ov5 = document.createElement('div');
@@ -3516,12 +3516,15 @@ ov5.style.zIndex = '100001';
 var conductorOpts5 = '<option value="">Seleccionar conductor...</option>' + gState.conductores.map(function(c){ return '<option value="' + c.id + '">' + GV.escapeHtml(c.nombre) + '</option>'; }).join('');
 var vehiculoOpts5 = '<option value="">Seleccionar vehiculo...</option>' + gState.vehiculos.map(function(d){ return '<option value="' + d.id + '">' + GV.escapeHtml(d.nombre) + '</option>'; }).join('');
 var fs5 = new Date(v.fechaSalida);
-var fechaVal5 = isNaN(fs5.getTime()) ? '' : fs5.toISOString().substring(0,10);
+/* Ajuste 16/10: se puede clonar un viaje de dias anteriores; la fecha propuesta es hoy (o la del viaje si es futura) y el horario el del viaje original. */
+var __hoy5 = GV.dateStr(new Date());
+var fechaVal5 = isNaN(fs5.getTime()) ? __hoy5 : (GV.dateStr(fs5) < __hoy5 ? __hoy5 : GV.dateStr(fs5));
 var horaVal5 = isNaN(fs5.getTime()) ? '' : (fs5.getHours().toString().padStart(2,'0') + ':' + fs5.getMinutes().toString().padStart(2,'0'));
 ov5.innerHTML =
 '<div class="gv-modal" style="max-width:420px">' +
 '<h3 style="margin:0 0 12px">Clonar viaje</h3>' +
-'<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px">Crea un viaje nuevo con el mismo origen, destino y paradas de este viaje. Elegi el camion, el chofer y el horario del viaje clonado.</div>' +
+'<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">Crea un viaje nuevo con el mismo origen, destino y paradas de este viaje. Elegi el camion, el chofer y el horario del viaje clonado.</div>' +
+'<div style="font-size:.76rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;margin-bottom:12px;color:#374151"><b>Recorrido:</b> ' + GV.escapeHtml([v.origen ? GV.siteNameFor(v.origen) : '?'].concat((v.paradas || []).map(function(p){ return GV.siteNameFor(p) + (p.tipo ? ' (' + GV.tipoParadaLabel(p.tipo) + ')' : ''); })).concat(v.destino ? [GV.siteNameFor(v.destino)] : []).join(' → ')) + '</div>' +
 '<div class="gv-form-row"><label>Conductor</label><select id="gv-clon-conductor" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + conductorOpts5 + '</select></div>' +
 '<div class="gv-form-row" style="margin-top:8px"><label>Unidad / Vehiculo</label><select id="gv-clon-vehiculo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + vehiculoOpts5 + '</select></div>' +
 '<div class="gv-form-row" style="margin-top:8px"><label>N° de solicitud <span style="font-weight:400;color:#9ca3af">(vacio = sin solicitud)</span></label><div style="display:flex;gap:8px"><input type="text" id="gv-clon-solicitud" maxlength="20" placeholder="Ej: 382507" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + (v.solicitud ? ('<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-clon-misma">Usar ' + GV.escapeHtml(String(v.solicitud)) + '</button>') : '') + '</div></div>' +
