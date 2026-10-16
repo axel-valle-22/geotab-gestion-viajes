@@ -2147,7 +2147,13 @@ GV.Storage = (function(){
                   }
                 }
                 finalViaje = Object.assign({}, serverViaje, _entryAplicado);
-                if(entry.sitiosReal){ finalViaje.sitiosReal = Object.assign({}, serverViaje.sitiosReal || {}, entry.sitiosReal); }
+                if(entry.sitiosReal){
+                  finalViaje.sitiosReal = Object.assign({}, serverViaje.sitiosReal || {}, entry.sitiosReal);
+                  /* Ajuste 16/10 (casos T280 Cruces y C258 Veschi): un sitio con valor null en el patch se BORRA. Antes el
+                     merge sitio por sitio no podia borrar nada: al reordenar las paradas, el horario de una parada quedaba
+                     tambien en su posicion vieja (que ahora era otra parada) y figuraban dos "en sitio". */
+                  Object.keys(finalViaje.sitiosReal).forEach(function(k){ if(finalViaje.sitiosReal[k] === null) delete finalViaje.sitiosReal[k]; });
+                }
               }
               if(finalViaje){
                 if(idx >= 0){ serverViajes[idx] = finalViaje; } else { serverViajes.push(finalViaje); }
@@ -2192,7 +2198,10 @@ GV.Storage = (function(){
     addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = 'full'; return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
-      if(v){ Object.keys(patch).forEach(function(k){ v[k] = patch[k]; }); }
+      if(v){ Object.keys(patch).forEach(function(k){
+        if(k === 'sitiosReal' && patch.sitiosReal){ var __srL = {}; Object.keys(patch.sitiosReal).forEach(function(s){ if(patch.sitiosReal[s] !== null) __srL[s] = patch.sitiosReal[s]; }); v.sitiosReal = __srL; }
+        else v[k] = patch[k];
+      }); }
       if(id){
         var _prevEntry = _dirtyViajeIds[id];
         _dirtyViajeIds[id] = (_prevEntry === 'full') ? 'full' : Object.assign({}, (_prevEntry && typeof _prevEntry === 'object') ? _prevEntry : {}, patch);
