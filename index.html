@@ -108,8 +108,9 @@
 </div>
 <!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
 <div id="gv-track-map" style="display:none;height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
+<div id="gv-track-list"></div>
 <!-- Ajuste 16/10: bloque desplegable "mas viajes de hoy": finalizados del dia y unidades circulando sin viaje planificado. -->
-<div id="gv-mas-hoy" style="display:none;margin-bottom:14px">
+<div id="gv-mas-hoy" style="display:none;margin-top:14px">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:12px">
 <div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;min-width:0">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:.95rem;color:#059669;flex:1">Viajes finalizados hoy <span id="gv-mh-fin-n" style="color:#6b7280;font-weight:500"></span></h3></div>
@@ -122,7 +123,6 @@
 </div>
 </div>
 </div>
-<div id="gv-track-list"></div>
 </div>
 
 <div id="gv-tab-alertas" class="gv-tab-content">
@@ -1823,7 +1823,7 @@ function renderStopsList(){
   var sl = document.getElementById('gv-stops-list');
   if(!sl) return;
   sl.innerHTML = gParadas.map(function(p, idx){
-    return '<div class="gv-route-item"><div class="gv-stop-card" draggable="true" data-idx="' + idx + '" title="Tocá para editar · arrastrá para ordenar">' +
+    return '<div class="gv-route-item"><div class="gv-stop-card" draggable="true" data-idx="' + idx + '"' + ((typeof p.lat === 'number') ? (' data-gv-coords="' + p.lat + ',' + p.lng + '" data-gv-coords-tit="' + GV.escapeHtml(GV.siteNameFor(p) || '') + '"') : '') + ' title="Tocá para editar · arrastrá para ordenar · clic derecho para ver las coordenadas">' +
       '<span class="gv-drag-handle">⋮⋮</span>' +
       '<span class="gv-stop-badge gv-' + p.tipo + '">' + (idx + 1) + '. ' + GV.tipoParadaLabel(p.tipo) + '</span>' +
       '<span class="gv-stop-name">' + GV.escapeHtml(GV.siteNameFor(p)) + ' (' + GV.fmtMin(p.duracionMin) + ')</span>' +
@@ -2100,7 +2100,7 @@ abrirDetalleViaje(id);
     b.style.display = abrir ? 'block' : 'none';
     this.textContent = abrir ? 'Ocultar mas viajes de hoy' : 'Mostrar mas viajes de hoy';
     this.setAttribute('aria-expanded', abrir ? 'true' : 'false');
-    if(abrir) gvRenderMasHoy(true);
+    if(abrir){ gvRenderMasHoy(true); try{ b.scrollIntoView({ behavior: 'smooth', block: 'start' }); }catch(e){} }
   });
   document.getElementById('gv-mh-fin').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-viaje]'); if(el) abrirDetalleViaje(el.getAttribute('data-mh-viaje')); });
   document.getElementById('gv-mh-sp').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); });
@@ -2619,7 +2619,7 @@ function gvRenderMasHoy(forzar){
       var dur = (ini && v.completadoEn) ? GV.fmtDurMin(new Date(v.completadoEn) - new Date(ini)) : '';
       var ruta = [v.origen ? GV.siteNameFor(v.origen) : ''].concat((v.paradas || []).map(function(p){ return GV.siteNameFor(p); })).concat(v.destino ? [GV.siteNameFor(v.destino)] : []).filter(Boolean).join(' → ');
       return '<div data-mh-viaje="' + v.id + '" title="Ver el detalle del viaje" style="cursor:pointer;padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px" onmouseover="this.style.background=\'#f0fdf4\'" onmouseout="this.style.background=\'\'">' +
-        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' + (cli ? '<span style="font-size:.68rem;background:#e0f2fe;color:#075985;border-radius:4px;padding:0 5px">' + GV.escapeHtml(cli) + '</span>' : '') + '<span style="margin-left:auto;color:#059669;font-weight:600;white-space:nowrap">' + gvHoraCorta(ini) + ' → ' + gvHoraCorta(v.completadoEn) + (dur ? ' (' + dur + ')' : '') + '</span></div>' +
+        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' + (cli ? gvClientesDeViaje(v).map(GV.clienteBadgeHtml).join(' ') : '') + '<span style="margin-left:auto;color:#059669;font-weight:600;white-space:nowrap">' + (GV.dateStr(ini) !== hoyStr ? new Date(ini).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' : '') + gvHoraCorta(ini) + ' → ' + gvHoraCorta(v.completadoEn) + (dur ? ' (' + dur + ')' : '') + '</span></div>' +
         '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + GV.escapeHtml(ruta) + '</div></div>';
     }).join('') : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">Todavia no se cerro ningun viaje hoy.</div>';
   }
@@ -2660,7 +2660,7 @@ function gvPintarSinPlan(){
   gMhSinPlan.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
   var claves = Object.keys(grupos).sort(function(a, b){ return a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b); });
   el.innerHTML = claves.map(function(c){
-    return '<div style="font-size:.72rem;font-weight:700;color:#075985;background:#f0f9ff;border-radius:4px;padding:2px 6px;margin:6px 0 2px">' + GV.escapeHtml(c) + ' (' + grupos[c].length + ')</div>' +
+    return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
         return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
           '<b>' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">chofer no identificado</i>') + '</span>' +
@@ -2826,7 +2826,7 @@ var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino 
 var __hsChoferHtml = gvHsChoferHtml(v, hoyStr);
 var __cliTxt = gvClientesDeViaje(v).join(', ');
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
-'<div class="gv-trk-cell" style="font-weight:600;color:' + (__cliTxt ? '#0c4a6e' : '#9ca3af') + '">' + (__cliTxt ? GV.escapeHtml(__cliTxt) : '-') + '</div>' +
+'<div class="gv-trk-cell">' + (__cliTxt ? gvClientesDeViaje(v).map(GV.clienteBadgeHtml).join(' ') : '<span style="color:#9ca3af">-</span>') + '</div>' +
 '<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + (gvEsVehiculo24hs(v) ? ' <span class="gv-trk-24hs" title="Camion de 24 hs (grupo Camiones 24 hs en MyGeotab): la jornada del chofer se cuenta por turno">24hs</span>' : '') + '</div>' +
 '<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + gvSolicitudSub(v) + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
@@ -4400,7 +4400,7 @@ if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigen
    pisar ni confundirse con el ingreso/egreso real de arriba. */
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
-rows.push({ id: p.id, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
+rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
 
 /* Control de coherencia cronologica de los horarios reales. Los valores guardados en sitiosReal se
@@ -4639,7 +4639,7 @@ var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagI
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
 var __egresoRealCell = __isDestino ? '-' : ((enSitioNote || fmtTimeCell(r.realOut)) + __choferTagOut + __salidaNote + (r.realOutDudoso ? __dudosoTag : ''));
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
-'<div class="gv-site-block" data-site-id="' + r.id + '"' + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
+'<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
 (__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') +
 '<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
 '</div>' +
