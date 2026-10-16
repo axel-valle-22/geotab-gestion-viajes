@@ -417,6 +417,70 @@ GV.layerGroup = function(map){
 
 /* ---------------- Mapa base (selector Mapa/Satelite + capa de Trafico, como en el Mapa nativo
    de Geotab -- ahora con el Google Maps real, no una imitacion). ---------------- */
+/* ---------------- Clientes: recuadro de color (Ajuste 16/10) ----------------
+   Colores de cada cliente (grupos "Clientes" de MyGeotab). Se reconoce el cliente aunque el grupo tenga otro texto
+   alrededor (ej. "SLB Neuquen"). Los que no estan en la lista se muestran en gris neutro. */
+GV.CLIENTE_COLORES = GV.CLIENTE_COLORES || [
+  { clave: 'SLB', fondo: '#2563eb', texto: '#ffffff', borde: '#1e3a8a' },
+  { clave: 'HALLIBURTON', fondo: '#dc2626', texto: '#ffffff', borde: '#7f1d1d' },
+  { clave: 'SHELL', fondo: '#facc15', texto: '#dc2626', borde: '#a16207' },
+  { clave: 'SIDERCA', fondo: '#d1d5db', texto: '#15803d', borde: '#6b7280' },
+  { clave: 'ON CALL', fondo: '#000000', texto: '#ffffff', borde: '#000000' }
+];
+GV.clienteBadgeHtml = function(nombre){
+  var n = String(nombre || '').trim(), u = n.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]+/g, ' ');
+  var c = null;
+  for(var i = 0; i < GV.CLIENTE_COLORES.length; i++){ if(u.indexOf(GV.CLIENTE_COLORES[i].clave) >= 0){ c = GV.CLIENTE_COLORES[i]; break; } }
+  if(!c) c = { fondo: '#f3f4f6', texto: '#374151', borde: '#9ca3af' };
+  return '<span style="display:inline-block;background:' + c.fondo + ';color:' + c.texto + ';border:1.5px solid ' + c.borde + ';border-radius:6px;padding:1px 8px;font-size:.72rem;font-weight:700;line-height:1.5;white-space:nowrap">' + GV.escapeHtml(n) + '</span>';
+};
+
+/* ---------------- Coordenadas con clic derecho (Ajuste 16/10) ----------------
+   Clic derecho sobre cualquier mapa del modulo, o sobre un punto de carga/descarga (elementos con data-gv-coords),
+   muestra las coordenadas como texto para copiarlas y compartirlas, con un link a Google Maps. */
+GV.mostrarCoordenadas = function(lat, lng, x, y, titulo){
+  var ant = document.getElementById('gv-coords-pop'); if(ant) ant.remove();
+  var txt = Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6);
+  var url = 'https://www.google.com/maps?q=' + Number(lat).toFixed(6) + ',' + Number(lng).toFixed(6);
+  var d = document.createElement('div');
+  d.id = 'gv-coords-pop';
+  d.style.cssText = 'position:fixed;z-index:200000;background:#fff;border:1px solid #d1d5db;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:10px 12px;font:13px Poppins,Arial,sans-serif;color:#20232B;width:290px';
+  d.innerHTML = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b style="flex:1;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + GV.escapeHtml(titulo || 'Coordenadas') + '</b><button type="button" data-gv-cp="x" style="background:#dc2626;color:#fff;border:0;border-radius:4px;width:20px;height:20px;cursor:pointer;line-height:1">&times;</button></div>' +
+    '<input type="text" readonly value="' + txt + '" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-family:monospace;font-size:.85rem">' +
+    '<div style="display:flex;gap:6px;margin-top:8px"><button type="button" data-gv-cp="copiar" class="gv-btn gv-btn-primary gv-btn-sm" style="flex:1">Copiar</button><button type="button" data-gv-cp="link" class="gv-btn gv-btn-sec gv-btn-sm" style="flex:1">Copiar link Maps</button><a href="' + url + '" target="_blank" rel="noopener" class="gv-btn gv-btn-sec gv-btn-sm" style="text-decoration:none">Abrir</a></div>';
+  document.body.appendChild(d);
+  var W = window.innerWidth, H = window.innerHeight;
+  var px = (typeof x === 'number') ? x : W / 2 - 145, py = (typeof y === 'number') ? y : H / 2 - 60;
+  d.style.left = Math.max(8, Math.min(px, W - 300)) + 'px'; d.style.top = Math.max(8, Math.min(py, H - d.offsetHeight - 8)) + 'px';
+  var inp = d.querySelector('input'); try{ inp.select(); }catch(e){}
+  function copiar(t, btn){
+    var ok = function(){ var o = btn.textContent; btn.textContent = 'Copiado'; setTimeout(function(){ btn.textContent = o; }, 1200); };
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(ok, function(){ inp.value = t; inp.select(); try{ document.execCommand('copy'); ok(); }catch(e){} }); }
+    else { inp.value = t; inp.select(); try{ document.execCommand('copy'); ok(); }catch(e){} }
+  }
+  d.addEventListener('click', function(e){
+    var b = e.target.closest('[data-gv-cp]'); if(!b) return;
+    var a = b.getAttribute('data-gv-cp');
+    if(a === 'x'){ cerrar(); } else if(a === 'copiar'){ copiar(txt, b); } else if(a === 'link'){ copiar(url, b); }
+  });
+  function cerrar(){ d.remove(); document.removeEventListener('mousedown', fuera, true); document.removeEventListener('keydown', esc, true); }
+  function fuera(e){ if(!d.contains(e.target)) cerrar(); }
+  function esc(e){ if(e.key === 'Escape') cerrar(); }
+  setTimeout(function(){ document.addEventListener('mousedown', fuera, true); document.addEventListener('keydown', esc, true); }, 0);
+};
+if(!GV.__coordsCtxBound){
+  GV.__coordsCtxBound = true;
+  document.addEventListener('contextmenu', function(e){
+    var el = e.target && e.target.closest ? e.target.closest('[data-gv-coords]') : null;
+    if(!el) return;
+    var p = String(el.getAttribute('data-gv-coords')).split(',');
+    var la = parseFloat(p[0]), ln = parseFloat(p[1]);
+    if(isNaN(la) || isNaN(ln)) return;
+    e.preventDefault();
+    GV.mostrarCoordenadas(la, ln, e.clientX, e.clientY, el.getAttribute('data-gv-coords-tit') || '');
+  });
+}
+
 GV.createMap = function(containerId, opts){
   opts = opts || {};
   var google = window.google;
@@ -434,6 +498,7 @@ GV.createMap = function(containerId, opts){
     streetViewControl: false,
     zoomControl: true
   });
+  map.addListener('rightclick', function(e){ try{ var ev = e.domEvent || {}; GV.mostrarCoordenadas(e.latLng.lat(), e.latLng.lng(), ev.clientX, ev.clientY, 'Punto del mapa'); }catch(__eRc){} });
   /* Capa de Trafico real de Google (equivalente a la capa "Trafico" del panel de capas de
      Geotab). Arranca apagada y se prende con el boton que se agrega arriba a la derecha. */
   var trafficLayer = new google.maps.TrafficLayer();
