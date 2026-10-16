@@ -26,7 +26,12 @@ window.GD_VIEWS.indicadores = async function render(container) {
     <span id="gd-recalcular-msg"></span>
   `;
 
-  const irAEntidadesConEstado = (estado) => window.gdApp.navegar("entidades", { estadoFiltro: estado });
+  // "Vencidos" lleva a su propia pantalla (Documentos > Vencidos), con un
+  // renglón por documento vencido; el resto sigue yendo a Entidades filtrado.
+  const irAEntidadesConEstado = (estado) =>
+    estado === "vencido"
+      ? window.gdApp.navegar("vencidos")
+      : window.gdApp.navegar("entidades", { estadoFiltro: estado });
 
   container.querySelectorAll(".gd-card[data-estado]").forEach((card) => {
     card.addEventListener("click", () => irAEntidadesConEstado(card.dataset.estado));
