@@ -1253,6 +1253,20 @@ function checkJornadas(){
    nunca aparece un punto afuera, se vuelve a consultar con una ventana mas larga (4, 16, 48 y 120 hs). Tambien
    tolera saltos cortos de GPS (hasta MIN_DWELL_MIN minutos afuera) sin cortar la permanencia. */
 var __gvRefinando = {};
+/* Ajuste 16/10 (casos T280 Cruces y C258 Veschi): los horarios reales se guardan por POSICION de la parada
+   (parada0, parada1...). Si mientras una consulta de GPS estaba en curso alguien reordenaba, agregaba o quitaba
+   paradas, al volver la consulta escribia el horario en la posicion vieja, que ahora era OTRA parada (quedaban dos
+   "en sitio"). Antes de escribir, se busca en el viaje actualizado en que posicion esta ahora ese mismo sitio
+   (por sus coordenadas); si ya no esta, no se escribe nada. */
+function gvResolverSiteId(vAct, siteRef){
+  if(!siteRef || !siteRef.id) return null;
+  if(siteRef.id === 'origen' || siteRef.id === 'destino') return siteRef.id;
+  var ps = (vAct && vAct.paradas) || [];
+  for(var i = 0; i < ps.length; i++){
+    if(ps[i] && Math.abs(ps[i].lat - siteRef.lat) < 1e-7 && Math.abs(ps[i].lng - siteRef.lng) < 1e-7) return 'parada' + i;
+  }
+  return null;
+}
 function gvRefinarIngresoGps(vv, siteRef, refIso){
   var key = vv.id + '|' + siteRef.id;
   if(__gvRefinando[key]) return;
@@ -1264,7 +1278,9 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
     var from = new Date(Date.now() - spans[k] * 3600000);
     var vAct = GV.Storage.getViaje(vv.id) || vv;
     var sitesL = siteListFor(vAct);
-    var ref = sitesL.filter(function(s){ return s.id === siteRef.id; })[0] || siteRef;
+    var __id0 = gvResolverSiteId(vAct, siteRef);
+    if(!__id0){ delete __gvRefinando[key]; return; }
+    var ref = sitesL.filter(function(s){ return s.id === __id0; })[0] || siteRef;
     fetchHistoryForViaje(vAct, from, new Date()).then(function(hist){
       if(!hist || !hist.length){ delete __gvRefinando[key]; return; }
       var realArrival = null, cortado = false;
@@ -1279,6 +1295,9 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
       }
       if(!cortado && k < spans.length - 1){ probar(k + 1); return; }
       var act = GV.Storage.getViaje(vv.id) || vv;
+      var __idAct = gvResolverSiteId(act, ref);
+      if(!__idAct){ terminar(); return; } /* la parada se quito o se movio mientras tanto */
+      siteRef = Object.assign({}, siteRef, { id: __idAct });
       var sr = Object.assign({}, act.sitiosReal || {});
       sr[siteRef.id] = Object.assign({}, sr[siteRef.id] || {});
       var upd = {};
@@ -1478,6 +1497,7 @@ function gvVerificarParadasAbiertas(v, pos){
       var act = GV.Storage.getViaje(v.id) || v;
       var srN = Object.assign({}, act.sitiosReal || {}), cambios = [];
       abiertas.forEach(function(x){
+        var __id = gvResolverSiteId(act, x); if(!__id) return; x = Object.assign({}, x, { id: __id });
         var e = srN[x.id]; if(!e || !e.ingreso || e.egreso) return;
         var ingMs = new Date(e.ingreso).getTime() - 5 * 60000, ultimoAdentro = -1;
         for(var i = 0; i < h.length; i++){
@@ -1486,7 +1506,7 @@ function gvVerificarParadasAbiertas(v, pos){
         }
         if(ultimoAdentro < 0){
           var c = Object.assign({}, e); delete c.ingreso; delete c.ingresoGps;
-          if(Object.keys(c).length) srN[x.id] = c; else delete srN[x.id];
+          srN[x.id] = Object.keys(c).length ? c : null;
           cambios.push(x.label + ': ingreso borrado (la unidad nunca estuvo en ese sitio)');
         } else if(ultimoAdentro < h.length - 1){
           srN[x.id] = Object.assign({}, e, { egreso: new Date(h[ultimoAdentro + 1].dateTime).toISOString(), egresoGps: true });
@@ -4222,6 +4242,9 @@ var newIdx = mapOldToNew[parseInt(m[1], 10)];
 if(newIdx == null) return;
 srNew['parada' + newIdx] = srOld[k];
 });
+/* Ajuste 16/10: las posiciones viejas que no recibieron datos se mandan en null para que se borren (si no,
+   el horario de una parada quedaba repetido en la parada que ahora ocupa su lugar). */
+Object.keys(srOld).forEach(function(k){ if(/^parada\d+$/.test(k) && !(k in srNew)) srNew[k] = null; });
 var dwellNew = vActual.dwellState || null;
 if(dwellNew && dwellNew.siteId){
 var md = /^parada(\d+)$/.exec(dwellNew.siteId);
