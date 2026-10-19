@@ -4841,7 +4841,9 @@ __salidaNote = '<br><span style="font-size:.7rem;color:#059669;font-weight:600">
 var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco inicio de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoIngreso) + '</span>') : '';
 var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoEgreso) + '</span>') : '';
 var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
-var __dudosoTag = '<br><span style="font-size:.66rem;color:#d97706">(recalculado por GPS: el horario registrado no era coherente)</span>';
+/* 19/10: se oculta la leyenda "(recalculado por GPS: el horario registrado no era coherente)" a pedido de logistica.
+   El horario mostrado sigue siendo el recalculado por GPS; solo se quita el texto. */
+var __dudosoTag = '';
 var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagIn + (r.realInDudoso ? __dudosoTag : ''));
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
 var __egresoRealCell = __isDestino ? '-' : ((enSitioNote || fmtTimeCell(r.realOut)) + __choferTagOut + __salidaNote + (r.realOutDudoso ? __dudosoTag : ''));
