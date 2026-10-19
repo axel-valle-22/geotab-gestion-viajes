@@ -5375,7 +5375,7 @@ function gvCortesDeDiaHtml(maxIdx){
     if(d && d !== prev){
       var pct = (i / maxIdx) * 100;
       var f = d.split('-'); var lbl = f[2] + '/' + f[1];
-      html += '<span title="Comienza el ' + lbl + '" style="position:absolute;left:' + pct.toFixed(2) + '%;top:-14px;width:3px;height:8px;margin-left:-1.5px;background:#0f172a;border-left:1px solid #f8fafc;border-right:1px solid #f8fafc;box-sizing:content-box;pointer-events:none;z-index:2"></span>' +
+      html += '<span title="Comienza el ' + lbl + '" style="position:absolute;left:' + pct.toFixed(2) + '%;top:-15px;width:5px;height:10px;margin-left:-2.5px;background:#0f172a;pointer-events:none;z-index:2"></span>' +
         '<span style="position:absolute;left:' + pct.toFixed(2) + '%;top:13px;transform:translateX(-50%);color:#cbd5e1;font-size:.58rem;font-weight:600;white-space:nowrap;pointer-events:none;z-index:2">' + lbl + '</span>';
       prev = d;
     }
