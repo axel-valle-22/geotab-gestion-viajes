@@ -5364,16 +5364,35 @@ return out;
 function paradaLargaTxt(st){
 return 'Detenido ' + GV.fmtDurMin(st.ms) + ' (' + fmtHHMM(st.desde) + ' a ' + (st.sigue ? 'ahora, sigue detenido' : fmtHHMM(st.hasta)) + ')';
 }
+/* 19/10: "microcortes" en la barra de reproduccion en cada cambio de dia (medianoche), con la fecha del dia que
+   empieza, para distinguir a simple vista un viaje que duro mas de un dia. La barra avanza por punto de GPS (no por
+   tiempo), asi que el corte va en el primer punto de cada dia nuevo. */
+function gvCortesDeDiaHtml(maxIdx){
+  if(!maxIdx || !detHistPts || detHistPts.length < 2) return '';
+  var html = '', prev = GV.dateStr(detHistPts[0].dateTime);
+  for(var i = 1; i < detHistPts.length; i++){
+    var d = GV.dateStr(detHistPts[i].dateTime);
+    if(d && d !== prev){
+      var pct = (i / maxIdx) * 100;
+      var f = d.split('-'); var lbl = f[2] + '/' + f[1];
+      html += '<span title="Comienza el ' + lbl + '" style="position:absolute;left:' + pct.toFixed(2) + '%;top:-14px;width:3px;height:8px;margin-left:-1.5px;background:#0f172a;border-left:1px solid #f8fafc;border-right:1px solid #f8fafc;box-sizing:content-box;pointer-events:none;z-index:2"></span>' +
+        '<span style="position:absolute;left:' + pct.toFixed(2) + '%;top:13px;transform:translateX(-50%);color:#cbd5e1;font-size:.58rem;font-weight:600;white-space:nowrap;pointer-events:none;z-index:2">' + lbl + '</span>';
+      prev = d;
+    }
+  }
+  return html;
+}
 function renderSliderMarks(marks, maxIdx, paradas){
 var wrap = document.getElementById('gv-det-slider-marks');
 if(!wrap) return;
 paradas = paradas || [];
-if(!maxIdx || (!marks.length && !paradas.length)){ wrap.innerHTML = ''; return; }
+var __cortesDia = gvCortesDeDiaHtml(maxIdx);
+if(!maxIdx || (!marks.length && !paradas.length && !__cortesDia)){ wrap.innerHTML = ''; return; }
 var __rojos = paradas.map(function(st){
 var pct = (st.idx / maxIdx) * 100;
 return '<span data-gv-parada-idx="' + st.idx + '" title="' + GV.escapeHtml(paradaLargaTxt(st)) + '" style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:#dc2626;border:2px solid #fff;border-radius:50%;width:13px;height:13px;top:1px;cursor:pointer;box-sizing:border-box"></span>';
 }).join('');
-wrap.innerHTML = __rojos + marks.map(function(m){
+wrap.innerHTML = __cortesDia + __rojos + marks.map(function(m){
 var pct = (m.idx / maxIdx) * 100;
 return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:var(--gv-accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
 }).join('');
