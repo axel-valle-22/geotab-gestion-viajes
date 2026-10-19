@@ -3281,11 +3281,20 @@ function gvAbrirPopupViajes(titulo, viajes, refDia, vacio){
 function gvAbrirListaViajesPopup(titulo, viajes, refDia){
   gvAbrirPopupViajes(titulo, viajes, refDia, 'No se encontraron viajes.');
 }
-/* Viajes de un dia: los que salieron ese dia mas los que se cerraron ese dia (un viaje de varios dias aparece
-   en el dia que salio y en el dia que termino). Es el mismo total que muestra el recuadro del calendario. */
+/* 19/10: viajes de un dia = los que estuvieron ACTIVOS ese dia: desde el dia de salida hasta el dia en que se
+   cerraron (o hasta hoy si siguen en curso). Un viaje del 15 al 17 aparece el 15, el 16 y el 17. Los cancelados
+   y los planificados solo cuentan el dia de salida. Es el mismo total que muestra el recuadro del calendario. */
 function gvViajesDelDia(todos, dia){
+  var hoy = GV.dateStr(new Date());
   return todos.filter(function(v){
-    return GV.dateStr(v.fechaSalida) === dia || (v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dia);
+    var ini = GV.dateStr(v.iniciadoEn || v.fechaSalida), sal = GV.dateStr(v.fechaSalida);
+    if(sal && sal < ini) ini = sal;
+    if(!ini) return false;
+    var fin = ini;
+    if(v.estado === 'completado' && v.completadoEn) fin = GV.dateStr(v.completadoEn);
+    else if(v.estado === 'en_curso' || v.estado === 'demorado') fin = hoy;
+    if(fin < ini) fin = ini;
+    return dia >= ini && dia <= fin;
   });
 }
 function gvAbrirDiaPopup(dia){
@@ -3315,7 +3324,7 @@ for(i=0;i<firstDow;i++){ html += '<div class="gv-cal-day gv-cal-empty"></div>'; 
 for(var day=1; day<=daysInMonth; day++){
 var dateObj = new Date(year, month, day);
 var dateStr = GV.dateStr(dateObj);
-var dayTrips = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
+var dayTrips = gSolQuery ? gvViajesDelDia(viajes, dateStr) : viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
 /* 19/10: en los dias anteriores a hoy se cuentan los viajes de ese dia (salieron o terminaron ese dia), lo mismo que muestra la ventana del dia. */
 var __esPasado = dateStr < todayStr;
 var __finDia = __esPasado ? gvViajesDelDia(viajes, dateStr) : [];
