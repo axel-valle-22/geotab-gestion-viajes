@@ -2530,22 +2530,64 @@ cuentan los hitos de carga/descarga para el % de avance), aca van TODOS los punt
 tengan coordenadas, incluido un origen que sea solo punto de paso, porque en el mapa del
 cliente conviene mostrar el recorrido completo (de donde sale, por donde para, a donde
 llega) y no solo los que suman al avance. */
+/* 19/10: legs de ruta (duracion de cada tramo) calculados por el panel (Seguimiento o detalle), por viaje, para que
+   el link del cliente use los mismos tiempos de tramo que se ven en el detalle. */
+var gvRutaLegsCache = {};
+/* 19/10: horario ESTIMADO de ingreso/egreso de cada sitio para el link del cliente, con la misma logica del detalle:
+   la salida del sitio anterior es la mas tardia entre la real y la estimada (pernocte, demora o espera acordada),
+   y se le suma el tiempo del tramo (ruta aprendida, la calculada por el panel, o un aproximado por distancia). */
+function gvEstimadosCompartir(v){
+  var pts = gvRutaPuntosViaje(v);
+  var sr = v.sitiosReal || {};
+  var res = {};
+  if(!pts.length) return res;
+  var cache = gvRutaLegsCache[v.id];
+  var legsOk = cache && cache.n === pts.length ? cache.legs : null;
+  var enCurso = (v.estado === 'en_curso' || v.estado === 'demorado');
+  function ms(iso){ var t = iso ? new Date(iso).getTime() : NaN; return isNaN(t) ? null : t; }
+  var sal = ms(v.fechaSalida);
+  var o = sr[pts[0].id] || {};
+  var prevEgEst = sal, prevEgReal = ms(o.egreso), prevInReal = ms(o.ingreso), prevDur = 0;
+  if(pts[0].id !== 'origen'){ prevEgEst = sal; }
+  res[pts[0].id] = { ingresoEst: null, egresoEst: sal ? new Date(sal).toISOString() : null };
+  for(var i = 1; i < pts.length; i++){
+    var P = pts[i].p, id = pts[i].id, s = sr[id] || {};
+    var salidaPrev = (prevEgReal != null && prevEgEst != null) ? Math.max(prevEgReal, prevEgEst) : (prevEgReal != null ? prevEgReal : prevEgEst);
+    if(prevEgReal == null && prevInReal != null && enCurso && prevEgEst != null && prevEgEst < Date.now()) salidaPrev = Date.now();
+    if(salidaPrev == null){ res[id] = { ingresoEst: null, egresoEst: null }; prevEgEst = null; prevEgReal = ms(s.egreso); prevInReal = ms(s.ingreso); continue; }
+    var legSeg = null;
+    if(legsOk && legsOk[i - 1] && typeof legsOk[i - 1].duration === 'number') legSeg = legsOk[i - 1].duration;
+    if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, P); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
+    if(legSeg == null){ var dk = GV.distKm(pts[i - 1].p, P) || 0; legSeg = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
+    var ing = salidaPrev + legSeg * 1000;
+    var base = ms(s.ingreso) != null ? ms(s.ingreso) : ing;
+    var eg = base;
+    if(P.tipo === 'espera' && P.permaneceHasta) eg = ms(P.permaneceHasta);
+    else if(P.tipo && P.esperaAcordada && P.esperaAcordada.hasta) eg = Math.max(base, ms(P.esperaAcordada.hasta));
+    else if(P.tipo && P.duracionMin) eg = base + P.duracionMin * 60000;
+    res[id] = { ingresoEst: new Date(ing).toISOString(), egresoEst: eg != null ? new Date(eg).toISOString() : null };
+    prevEgEst = eg; prevEgReal = ms(s.egreso); prevInReal = ms(s.ingreso);
+  }
+  return res;
+}
 function gvSitiosCompartir(v){
 var out = [];
 var sr = v.sitiosReal || {};
+var __est = {}; try{ __est = gvEstimadosCompartir(v); }catch(__eEst){}
+function __hor(id){ var e = __est[id] || {}, s = sr[id] || {}; return { ingresoEst: e.ingresoEst || null, egresoEst: e.egresoEst || null, ingresoReal: s.ingreso || null, egresoReal: s.egreso || null }; }
 if(v.origen && typeof v.origen.lat === 'number'){
 var sOr = sr.origen || {};
-out.push({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', tipo: v.origen.tipo || null, estado: sOr.egreso ? 'done' : 'active' });
+out.push(Object.assign({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', tipo: v.origen.tipo || null, estado: sOr.egreso ? 'done' : 'active' }, __hor('origen')));
 }
 (v.paradas||[]).forEach(function(p, i){
 if(typeof p.lat !== 'number') return;
 var sp = sr['parada'+i] || {};
 var est = sp.egreso ? 'done' : (sp.ingreso ? 'active' : 'pending');
-out.push({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), tipo: p.tipo || null, estado: est });
+out.push(Object.assign({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), tipo: p.tipo || null, estado: est }, __hor('parada'+i)));
 });
 if(v.destino && typeof v.destino.lat === 'number'){
 var sd = sr.destino || {};
-out.push({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', tipo: v.destino.tipo || null, estado: sd.ingreso ? 'done' : 'pending' });
+out.push(Object.assign({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', tipo: v.destino.tipo || null, estado: sd.ingreso ? 'done' : 'pending' }, __hor('destino')));
 }
 return out;
 }
@@ -3023,6 +3065,7 @@ function renderTracking(){
               var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
                 GV.getRoute(pts).then(function(route){
+                  try{ if(route && route.legs) gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; }catch(__eLC){}
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
@@ -5168,6 +5211,7 @@ if(addDestinoBtn) addDestinoBtn.addEventListener('click', agregarDestino);
 
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
+try{ if(route && route.legs) gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; }catch(__eLC2){}
 if(route && route.coords){
 detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
 } else {
