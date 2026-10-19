@@ -37,7 +37,7 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar por N° de solicitud..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
 <div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
@@ -276,6 +276,39 @@ function gvContinuidadChip(v){
 var t = gvEsEnCurso(v) ? gvContinuidadTexto(v) : '';
 return t ? (' &nbsp;|&nbsp; <span style="color:#d97706;font-weight:700">' + t + '</span>') : '';
 }
+/* 19/10: busqueda general del panel (Lista y Calendario). Busca por N de solicitud, chofer, unidad/interno,
+   patente, observaciones y nombre/direccion de origen, paradas y destino, incluyendo choferes y unidades de
+   tramos anteriores (cambio de chofer/camion). Ignora mayusculas, acentos, espacios y guiones, asi "ae905hp",
+   "AE 905 HP" o "martinez christian" encuentran el viaje. Varias palabras = tienen que aparecer todas. */
+function gvNormBusqueda(t){
+  return String(t == null ? '' : t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+function gvTextoBusquedaViaje(v, soloIdentidad){
+  if(!v) return '';
+  var partes = [v.solicitud, v.conductor, v.vehiculo];
+  try{ partes.push(gvSolicitudLabel(v)); }catch(e){}
+  (v.tramos || []).forEach(function(tr){ if(tr){ partes.push(tr.conductor, tr.vehiculo); } });
+  if(!soloIdentidad){
+    partes.push(v.observaciones);
+    [v.origen, v.destino].concat(v.paradas || []).forEach(function(st){ if(st){ partes.push(st.direccion, st.label, st.nombre); } });
+  }
+  return gvNormBusqueda(partes.filter(function(x){ return x != null && x !== ''; }).join(' | '));
+}
+function gvViajeCoincideBusqueda(v, q){
+  var qn = gvNormBusqueda(q).trim();
+  if(!qn) return true;
+  var txtTodo = gvTextoBusquedaViaje(v, false);
+  var txtId = gvTextoBusquedaViaje(v, true);
+  return qn.split(/\s+/).every(function(tok){
+    if(!tok) return true;
+    /* Un numero suelto (interno, solicitud, parte de patente) se busca solo en solicitud/chofer/unidad: si no,
+       "304" encontraria cualquier viaje con una direccion "calle 304". */
+    var txt = /^\d+$/.test(tok) ? txtId : txtTodo;
+    var compacto = txt.replace(/[\s\-_.\/]+/g, '');
+    var tokC = tok.replace(/[\-_.\/]+/g, '');
+    return txt.indexOf(tok) >= 0 || (tokC && compacto.indexOf(tokC) >= 0);
+  });
+}
 function renderTrips(){
   var list = document.getElementById('gv-trip-list');
   if(!list) return;
@@ -283,12 +316,14 @@ function renderTrips(){
 var filterInfo = document.getElementById('gv-list-filter-info');
 if(gSolQuery){
   var __q = gSolQuery.toLowerCase();
-  viajes = viajes.filter(function(v){ var s = String(v.solicitud || '').toLowerCase(); if(!s) return false; var lab = String(gvSolicitudLabel(v)).toLowerCase(); return s.indexOf(__q) >= 0 || lab.indexOf(__q) >= 0; });
+  viajes = viajes.filter(function(v){ return gvViajeCoincideBusqueda(v, gSolQuery); });
+  /* Si ademas se eligio un dia en el calendario (buscando desde el Calendario), se combinan los dos filtros. */
+  if(gCalSelectedDay){ viajes = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === gCalSelectedDay; }); }
   if(filterInfo){
     filterInfo.style.display = 'block';
-    filterInfo.innerHTML = '<span class="gv-filter-chip">Solicitud "' + GV.escapeHtml(gSolQuery) + '" - ' + viajes.length + ' viaje(s) <button type="button" id="gv-clear-sol" style="border:none;background:none;color:#1e3a8a;cursor:pointer;font-weight:700">&times; Quitar busqueda</button></span>';
+    filterInfo.innerHTML = '<span class="gv-filter-chip">Busqueda "' + GV.escapeHtml(gSolQuery) + '"' + (gCalSelectedDay ? (' del ' + gCalSelectedDay.split('-').reverse().join('/')) : '') + ' - ' + viajes.length + ' viaje(s) <button type="button" id="gv-clear-sol" style="border:none;background:none;color:#1e3a8a;cursor:pointer;font-weight:700">&times; Quitar busqueda</button></span>';
     var __cs = document.getElementById('gv-clear-sol');
-    if(__cs) __cs.addEventListener('click', function(){ gSolQuery = ''; var __bi = document.getElementById('gv-buscar-sol'); if(__bi) __bi.value = ''; renderTrips(); });
+    if(__cs) __cs.addEventListener('click', function(){ gSolQuery = ''; gCalSelectedDay = null; var __bi = document.getElementById('gv-buscar-sol'); if(__bi) __bi.value = ''; renderTrips(); });
   }
 } else if(gCalSelectedDay){
 viajes = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === gCalSelectedDay; });
@@ -2095,7 +2130,14 @@ switchPanelView('lista');
 });
 });
 var __bSol = document.getElementById('gv-buscar-sol');
-if(__bSol){ __bSol.addEventListener('input', function(){ gSolQuery = __bSol.value.trim(); if(gSolQuery){ gCalSelectedDay = null; gStatFilter = null; try{ updateStatCardHighlight(); }catch(__eU){} switchPanelView('lista'); } else { renderTrips(); } }); }
+if(__bSol){ __bSol.addEventListener('input', function(){
+  gSolQuery = __bSol.value.trim();
+  /* 19/10: la busqueda funciona en la vista actual. En Calendario se filtran los viajes de cada dia; al tocar un
+     dia se pasa a Lista con la busqueda y ese dia. En Lista busca en todos los viajes. */
+  if(gSolQuery){ gStatFilter = null; try{ updateStatCardHighlight(); }catch(__eU){} }
+  if(gPanelView === 'calendario'){ gCalSelectedDay = null; renderCalendar(); }
+  else { if(gSolQuery){ gCalSelectedDay = null; } renderTrips(); }
+}); }
 var calPrevBtn = document.getElementById('gv-cal-prev');
 if(calPrevBtn) calPrevBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()-1); renderCalendar(); });
 var calNextBtn = document.getElementById('gv-cal-next');
@@ -3140,8 +3182,9 @@ var title = document.getElementById('gv-cal-title');
 if(!grid) return;
 var year = gCalMonth.getFullYear(), month = gCalMonth.getMonth();
 var monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-if(title) title.textContent = monthNames[month] + ' ' + year;
+if(title) title.textContent = monthNames[month] + ' ' + year + (gSolQuery ? (' - busqueda: "' + gSolQuery + '"') : '');
 var viajes = GV.Storage.getViajes();
+if(gSolQuery){ viajes = viajes.filter(function(v){ return gvViajeCoincideBusqueda(v, gSolQuery); }); }
 var firstDow = (new Date(year, month, 1).getDay() + 6) % 7;
 var daysInMonth = new Date(year, month+1, 0).getDate();
 var todayStr = GV.dateStr(new Date());
