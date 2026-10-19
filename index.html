@@ -4252,7 +4252,11 @@ var patch = buildSitePatch(siteId, mergeObj);
    reescribirian horarios ya corregidos por otro usuario o por el propio vigilante de permanencia. */
 var __vAct = GV.Storage.getViaje(v.id) || v;
 var __srOld = __vAct.sitiosReal && __vAct.sitiosReal[siteId];
-if(__srOld && (__srOld.ingreso || __srOld.egreso)){
+/* Fix 19/10: solo se borra el ingreso/egreso si la ubicacion o la geocerca cambiaron de verdad. Si en esta
+   ventana solo se cambio el tipo o la permanencia, los horarios reales siguen siendo validos. */
+var __ubicCambio = (Number(cur.lat) !== Number(res.lat)) || (Number(cur.lng) !== Number(res.lng)) ||
+  JSON.stringify(cur.poligono || null) !== JSON.stringify(res.poligono || null);
+if(__ubicCambio && __srOld && (__srOld.ingreso || __srOld.egreso)){
 var __srNew = Object.assign({}, __vAct.sitiosReal);
 var __srSite = Object.assign({}, __srOld);
 delete __srSite.ingreso;
@@ -4264,7 +4268,7 @@ patch.sitiosReal = __srNew;
    si apunta a un sitio que ya tiene egreso registrado: en ese caso es un dwellState viejo que, al
    proximo chequeo, volveria a sellar un egreso con la hora actual. */
 var __dwAct = __vAct.dwellState;
-if(__dwAct && (__dwAct.siteId === siteId || (__vAct.sitiosReal && __vAct.sitiosReal[__dwAct.siteId] && __vAct.sitiosReal[__dwAct.siteId].egreso))){ patch.dwellState = null; }
+if(__dwAct && ((__ubicCambio && __dwAct.siteId === siteId) || (__vAct.sitiosReal && __vAct.sitiosReal[__dwAct.siteId] && __vAct.sitiosReal[__dwAct.siteId].egreso))){ patch.dwellState = null; }
 GV.Storage.updateViaje(v.id, patch).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
@@ -4531,7 +4535,13 @@ var __srP = (v.sitiosReal && v.sitiosReal[p.id]) || null;
    dejarle nada al sitio real, que quedaria trabado sin su ingreso/egreso. El horario de
    salida queda registrado unicamente en la fila del sitio de carga/descarga real. */
 var __coincideConSiguiente = !p.tipo && pts[i+1] && pts[i+1].tipo && GV.isWithinSite({lat:p.lat,lng:p.lng}, pts[i+1]);
-if(__coincideConSiguiente){
+/* Fix 19/10 (viaje H305 - Vallejos, Sol. 234389): el barrido arranca en iniciadoEn, que es justo la salida del
+   origen. Si se escanea el origen desde ahi, la unidad ya esta afuera y la proxima "entrada" al origen es la
+   VUELTA a la base al final del viaje: el cursor se va al final del historial y todas las paradas intermedias
+   quedan sin ingreso/egreso ("Pendiente"). Si el viaje ya salio, el origen no se escanea (su egreso queda en
+   sitiosReal.origen) y el cursor queda donde esta para las paradas. */
+var __origenYaSalido = (i === 0 && p.id === 'origen' && !p.tipo && !!v.iniciadoEn);
+if(__coincideConSiguiente || __origenYaSalido){
 /* no se escanea: se deja sin ingreso/egreso propio */
 } else if(!__seqBroken && fullHist && fullHist.length){
 /* Barrido del historial de GPS para este sitio. Dos correcciones respecto de la version anterior:
