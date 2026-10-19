@@ -1362,6 +1362,7 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
         var so = (siteRef.id === 'origen') ? act.origen : (siteRef.id === 'destino') ? act.destino : (act.paradas || [])[parseInt(siteRef.id.replace('parada', ''), 10)];
         if(so && so.esperaAcordada && so.esperaAcordada.hasta){
           var nd = Math.ceil((new Date(so.esperaAcordada.hasta).getTime() - new Date(realArrival).getTime()) / 60000);
+          if(so.esperaAcordada.duracionProgramadaMin && nd < so.esperaAcordada.duracionProgramadaMin) nd = so.esperaAcordada.duracionProgramadaMin;
           if(nd > 0){
             if(siteRef.id === 'origen'){ upd.origen = Object.assign({}, act.origen, { duracionMin: nd }); }
             else if(siteRef.id === 'destino'){ upd.destino = Object.assign({}, act.destino, { duracionMin: nd }); }
@@ -3193,6 +3194,14 @@ renderTrips();
 }
 }
 
+/* 19/10: permanencia PROGRAMADA de un sitio (sin la espera acordada). Con espera acordada, duracionMin guarda el
+   total hasta el horario acordado; la programada original queda en esperaAcordada.duracionProgramadaMin. */
+function gvDurProgMin(p){
+  if(!p) return 0;
+  var ea = p.esperaAcordada;
+  if(ea && ea.hasta && typeof ea.duracionProgramadaMin === 'number') return ea.duracionProgramadaMin;
+  return (typeof p.dur === 'number') ? p.dur : (p.duracionMin || 0);
+}
 /* ---------------- 19/10: ventanas del calendario ---------------- */
 function gvIrASeguimientoHoy(){
   showTab('seguimiento');
@@ -3218,17 +3227,29 @@ function gvViajeCardHtml(v, refDia, conEstado){
     '<span style="margin-left:auto;color:' + col + ';font-weight:600;white-space:nowrap">' + horario + '</span></div>' +
     '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + GV.escapeHtml(ruta) + '</div></div>';
 }
-function gvAbrirPopupViajes(titulo, secciones){
+/* 19/10: ventana con una sola lista de viajes y su propio buscador (misma busqueda que el buscador del panel:
+   solicitud, chofer, unidad, patente, cliente, sitios...). Arranca con lo que este escrito en el buscador del panel. */
+function gvAbrirPopupViajes(titulo, viajes, refDia, vacio){
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay';
   ov.style.zIndex = '99990'; /* debajo del detalle del viaje (100000), asi al cerrar el detalle se vuelve a esta ventana */
   ov.innerHTML = '<div class="gv-modal" style="max-width:760px;width:100%;max-height:85vh;display:flex;flex-direction:column">' +
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">' + GV.escapeHtml(titulo) + '</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-pop-cerrar>Cerrar</button></div>' +
-    '<div style="overflow:auto;min-height:0">' + secciones.map(function(sec){
-      return '<div style="margin-bottom:12px"><h4 style="margin:4px 0 6px;font-size:.9rem;color:' + (sec.color || '#059669') + '">' + GV.escapeHtml(sec.titulo) + ' <span style="color:#6b7280;font-weight:500">(' + sec.viajes.length + ')</span></h4>' +
-        (sec.viajes.length ? sec.viajes.map(function(v){ return gvViajeCardHtml(v, sec.refDia || null, !!sec.conEstado); }).join('') : '<div style="font-size:.8rem;color:#9ca3af;padding:6px 8px">' + GV.escapeHtml(sec.vacio || 'No hay viajes.') + '</div>') + '</div>';
-    }).join('') + '</div></div>';
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">' + GV.escapeHtml(titulo) + ' <span data-pop-n style="color:#6b7280;font-weight:500"></span></h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-pop-cerrar>Cerrar</button></div>' +
+    '<input type="search" data-pop-buscar placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem;margin-bottom:8px">' +
+    '<div data-pop-lista style="overflow:auto;min-height:0"></div></div>';
   document.body.appendChild(ov);
+  var inp = ov.querySelector('[data-pop-buscar]'), lista = ov.querySelector('[data-pop-lista]'), nEl = ov.querySelector('[data-pop-n]');
+  function pintar(){
+    var q = inp.value.trim();
+    var vs = q ? viajes.filter(function(v){ return gvViajeCoincideBusqueda(v, q); }) : viajes;
+    nEl.textContent = '(' + vs.length + (q ? ' de ' + viajes.length : '') + ')';
+    lista.innerHTML = vs.length ? vs.map(function(v){ return gvViajeCardHtml(v, refDia || null, v.estado !== 'completado'); }).join('')
+      : '<div style="font-size:.8rem;color:#9ca3af;padding:6px 8px">' + GV.escapeHtml(q ? 'Ningun viaje coincide con la busqueda.' : (vacio || 'No hay viajes.')) + '</div>';
+  }
+  inp.value = gSolQuery || '';
+  inp.addEventListener('input', pintar);
+  pintar();
+  try{ inp.focus(); }catch(e){}
   function cerrar(){ ov.remove(); document.removeEventListener('keydown', esc); }
   function esc(e){ if(e.key !== 'Escape') return; var ovs = document.querySelectorAll('.gv-modal-overlay'); if(ovs.length && ovs[ovs.length - 1] === ov) cerrar(); }
   document.addEventListener('keydown', esc);
@@ -3239,27 +3260,22 @@ function gvAbrirPopupViajes(titulo, secciones){
   });
 }
 function gvAbrirListaViajesPopup(titulo, viajes, refDia){
-  gvAbrirPopupViajes(titulo, [{ titulo: 'Viajes', viajes: viajes, refDia: refDia, conEstado: true, color: '#1d4ed8', vacio: 'No se encontraron viajes.' }]);
+  gvAbrirPopupViajes(titulo, viajes, refDia, 'No se encontraron viajes.');
+}
+/* Viajes de un dia: los que salieron ese dia mas los que se cerraron ese dia (un viaje de varios dias aparece
+   en el dia que salio y en el dia que termino). Es el mismo total que muestra el recuadro del calendario. */
+function gvViajesDelDia(todos, dia){
+  return todos.filter(function(v){
+    return GV.dateStr(v.fechaSalida) === dia || (v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dia);
+  });
 }
 function gvAbrirDiaPopup(dia){
-  var todos = GV.Storage.getViajes();
-  if(gSolQuery){ todos = todos.filter(function(v){ return gvViajeCoincideBusqueda(v, gSolQuery); }); }
-  var hoy = GV.dateStr(new Date());
-  var f = dia.split('-').reverse().join('/');
-  var tit = 'Viajes del ' + f + (gSolQuery ? (' - busqueda "' + gSolQuery + '"') : '');
-  if(dia > hoy){
-    var prog = todos.filter(function(v){ return GV.dateStr(v.fechaSalida) === dia; }).sort(function(a, b){ return new Date(a.fechaSalida) - new Date(b.fechaSalida); });
-    gvAbrirPopupViajes(tit, [{ titulo: 'Viajes programados', viajes: prog, refDia: dia, conEstado: true, color: '#1d4ed8', vacio: 'No hay viajes programados para este dia.' }]);
-    return;
-  }
-  var fin = todos.filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dia; })
-    .sort(function(a, b){ return new Date(b.completadoEn) - new Date(a.completadoEn); });
-  var ids = {}; fin.forEach(function(v){ ids[v.id] = 1; });
-  var otros = todos.filter(function(v){ return !ids[v.id] && GV.dateStr(v.fechaSalida) === dia; })
-    .sort(function(a, b){ return new Date(a.fechaSalida) - new Date(b.fechaSalida); });
-  var secs = [{ titulo: 'Viajes finalizados', viajes: fin, refDia: dia, color: '#059669', vacio: 'Ese dia no se cerro ningun viaje.' }];
-  if(otros.length) secs.push({ titulo: 'Otros viajes que salieron ese dia', viajes: otros, refDia: dia, conEstado: true, color: '#6b7280' });
-  gvAbrirPopupViajes(tit, secs);
+  var vs = gvViajesDelDia(GV.Storage.getViajes(), dia).sort(function(a, b){
+    var ta = new Date(a.iniciadoEn || a.fechaSalida).getTime(), tb = new Date(b.iniciadoEn || b.fechaSalida).getTime();
+    return ta - tb;
+  });
+  var p = dia.split('-');
+  gvAbrirPopupViajes('Viajes del ' + p[2] + '/' + p[1] + '/' + p[0].slice(2), vs, dia, 'No hay viajes este dia.');
 }
 function renderCalendar(){
 var grid = document.getElementById('gv-cal-grid');
@@ -3281,9 +3297,9 @@ for(var day=1; day<=daysInMonth; day++){
 var dateObj = new Date(year, month, day);
 var dateStr = GV.dateStr(dateObj);
 var dayTrips = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
-/* 19/10: en los dias anteriores a hoy se cuentan los viajes FINALIZADOS ese dia (lo mismo que muestra la ventana del dia). */
+/* 19/10: en los dias anteriores a hoy se cuentan los viajes de ese dia (salieron o terminaron ese dia), lo mismo que muestra la ventana del dia. */
 var __esPasado = dateStr < todayStr;
-var __finDia = __esPasado ? viajes.filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dateStr; }) : [];
+var __finDia = __esPasado ? gvViajesDelDia(viajes, dateStr) : [];
 var cls = 'gv-cal-day';
 if(dateStr === todayStr) cls += ' gv-cal-today';
 if(dateStr === gCalSelectedDay) cls += ' gv-cal-sel';
@@ -3293,7 +3309,7 @@ var comp = dayTrips.filter(function(v){ return v.estado === 'completado'; }).len
 html += '<div class="' + cls + '" data-date="' + dateStr + '">' +
 '<div class="gv-cal-daynum">' + day + '</div>' +
 (__esPasado
-  ? ((__finDia.length ? '<div class="gv-cal-count">' + __finDia.length + '</div><div class="gv-cal-sub">finalizado' + (__finDia.length === 1 ? '' : 's') + '</div>' : ''))
+  ? ((__finDia.length ? '<div class="gv-cal-count">' + __finDia.length + '</div><div class="gv-cal-sub">viaje' + (__finDia.length === 1 ? '' : 's') + '</div>' : ''))
   : ((dayTrips.length ? '<div class="gv-cal-count">' + dayTrips.length + '</div>' : '') +
      (dayTrips.length ? '<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>' : ''))) +
 '</div>';
@@ -4271,7 +4287,7 @@ ov2.innerHTML =
 '<button type="button" id="gv-es-opera">Opera</button>' +
 '</div>' +
 '<label style="display:block;font-size:.85rem;margin-bottom:6px">Tiempo estimado en el sitio</label>' +
-'<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px"><input type="number" id="gv-es-h" min="0" step="1" value="' + Math.floor((p.dur||0)/60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">horas</span> <input type="number" id="gv-es-m" min="0" max="59" step="5" value="' + ((p.dur||0)%60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">minutos</span></div>' +
+'<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px"><input type="number" id="gv-es-h" min="0" step="1" value="' + Math.floor(gvDurProgMin(p)/60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">horas</span> <input type="number" id="gv-es-m" min="0" max="59" step="5" value="' + (gvDurProgMin(p)%60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">minutos</span></div>' +
 ' <div id="gv-es-ing-box" style="margin-bottom:14px"><div style="font-size:.8rem;font-weight:600;margin-bottom:4px">Ingreso real al sitio</div><input type="datetime-local" id="gv-es-ing" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><div style="font-size:.72rem;color:#9ca3af;margin-top:4px">Si el horario que detecto el GPS no es el correcto, cambialo aca. Si lo dejas igual no se modifica.</div></div>' +
 ' <div id="gv-es-acord-box" style="border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:10px;margin-bottom:14px">' +
 ' <label style="display:flex;gap:6px;align-items:center;font-size:.85rem;font-weight:600;color:#92400e;cursor:pointer"><input type="checkbox" id="gv-es-acord"> Espera acordada con el cliente</label>' +
@@ -4311,6 +4327,7 @@ document.getElementById('gv-es-cancel').addEventListener('click', closeEs);
 ov2.addEventListener('click', function(e){ if(e.target === ov2) closeEs(); });
 document.getElementById('gv-es-save').addEventListener('click', function(){
 var newMin = (Math.max(0, parseInt(document.getElementById('gv-es-h').value, 10) || 0) * 60) + Math.max(0, parseInt(document.getElementById('gv-es-m').value, 10) || 0);
+var __minProgramados = newMin; /* 19/10: permanencia programada (la que escribio el coordinador), aparte de la espera acordada */
 var __ingNew = null;
 (function(){ var el = document.getElementById('gv-es-ing'); if(!el || !el.value) return; var d = new Date(el.value); if(isNaN(d.getTime())) return; var rw = (__itinRows || []).filter(function(r){ return r.id === siteId; })[0]; var cur = (rw && rw.realIn) ? new Date(rw.realIn).getTime() : null; if(cur !== null && Math.abs(d.getTime() - cur) < 60000) return; __ingNew = d.toISOString(); })();
 var __eaNew = null;
@@ -4325,7 +4342,7 @@ if(document.getElementById('gv-es-acord').checked){
     if(__mins <= 0){ alert('El horario tiene que ser posterior a la llegada de la unidad a este sitio.'); return; }
     if(__mins > newMin) newMin = __mins;
   }
-  __eaNew = { hasta: __hd.toISOString(), motivo: (document.getElementById('gv-es-acord-motivo').value || '').trim(), registradoEn: new Date().toISOString() };
+  __eaNew = { hasta: __hd.toISOString(), motivo: (document.getElementById('gv-es-acord-motivo').value || '').trim(), registradoEn: new Date().toISOString(), duracionProgramadaMin: __minProgramados };
 }
 var patch = {};
 if(siteId === 'origen'){ patch.origen = cloneSet(v.origen, tipoSel, newMin, __eaNew); }
@@ -4740,7 +4757,7 @@ if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigen
    pisar ni confundirse con el ingreso/egreso real de arriba. */
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
-rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
+rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, durProg: p.tipo ? gvDurProgMin(p) : null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
 
 /* Control de coherencia cronologica de los horarios reales. Los valores guardados en sitiosReal se
@@ -4793,7 +4810,10 @@ r.realOutDudoso = true;
   }
   for(var i = 1; i < rows.length; i++){
     var prev = rows[i - 1], r = rows[i];
-    var __salidaPrev = prev.realOut || prev.egreso;
+    /* La salida del sitio anterior que se toma es la MAS TARDIA entre la real y la estimada: si la unidad
+       salio despues de lo previsto (pernocte, demora) manda la real; si hay una espera acordada o una
+       permanencia programada mas larga, manda la estimada, y al cambiarla se corre tambien el sitio siguiente. */
+    var __salidaPrev = (prev.realOut && prev.egreso) ? new Date(Math.max(prev.realOut.getTime(), prev.egreso.getTime())) : (prev.realOut || prev.egreso);
     if(!prev.realOut && prev.realIn && __enCursoV && prev.egreso && prev.egreso.getTime() < __ahora){ __salidaPrev = new Date(__ahora); }
     if(!__salidaPrev || isNaN(__salidaPrev.getTime())) continue;
     var __legSeg = (__legs[i - 1] && typeof __legs[i - 1].duration === 'number') ? __legs[i - 1].duration : null;
@@ -5035,6 +5055,13 @@ var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
 var __dudosoTag = '';
 var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagIn + (r.realInDudoso ? __dudosoTag : ''));
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
+/* 19/10: con espera acordada se muestran las dos: el egreso segun la permanencia programada y, en ambar, el acordado
+   (que es el que se usa para el sitio siguiente y para medir la demora de salida). */
+if(!__isDestino && !r.coincideConSiguiente && r.tipo && r.esperaAcordada && r.esperaAcordada.hasta && r.durProg != null){
+  var __baseEa = r.realIn || r.ingreso;
+  var __egProg = __baseEa ? new Date(__baseEa.getTime() + r.durProg * 60000) : null;
+  __egresoEstCell = (__egProg ? fmtTimeCell(__egProg) : '-') + '<div title="Egreso segun la espera acordada" style="margin-top:3px;padding-left:5px;border-left:2px solid #f59e0b">' + fmtTimeCell(r.egreso).replace('class="gv-dt-h"', 'class="gv-dt-h" style="color:#b45309"') + '</div>';
+}
 var __egresoRealCell = __isDestino ? '-' : ('<span class="gv-er">' + (enSitioNote || fmtTimeCell(r.realOut)) + __salidaNote + '</span>' + __choferTagOut + (r.realOutDudoso ? __dudosoTag : ''));
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
@@ -5046,7 +5073,7 @@ return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : ''
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + __ingresoEstCell + '</td>' +
 '<td>' + __ingresoRealCell + '</td>' +
-'<td>' + (r.tipo === 'espera' ? ('<span title="Permanece cargado en el sitio hasta este horario">Hasta ' + (r.permaneceHasta ? GV.fmtDate(r.permaneceHasta) : '?') + '</span>') : (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar tipo y tiempo en el sitio">' + GV.fmtMin(r.dwell||0) + '</span>' + ((r.esperaAcordada && r.esperaAcordada.hasta) ? ('<div title="' + GV.escapeHtml(r.esperaAcordada.motivo || 'Espera acordada con el cliente') + '" style="font-size:.72rem;color:#92400e;font-weight:600;margin-top:2px">Espera acordada hasta ' + GV.fmtDate(r.esperaAcordada.hasta) + '</div>') : '')) : '-')) + '</td>' +
+'<td>' + (r.tipo === 'espera' ? ('<span title="Permanece cargado en el sitio hasta este horario">Hasta ' + (r.permaneceHasta ? GV.fmtDate(r.permaneceHasta) : '?') + '</span>') : (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar tipo y tiempo en el sitio">' + GV.fmtMin((r.durProg != null ? r.durProg : r.dwell) || 0) + '</span>' + ((r.esperaAcordada && r.esperaAcordada.hasta) ? ('<div title="' + GV.escapeHtml(r.esperaAcordada.motivo || 'Espera acordada con el cliente') + '" style="font-size:.7rem;color:#b45309;font-weight:700;margin-top:3px;line-height:1.25">+ espera acordada<br>hasta ' + fmtTimeInline(new Date(r.esperaAcordada.hasta)) + '</div>') : '')) : '-')) + '</td>' +
 '<td>' + __egresoEstCell + '</td>' +
 '<td>' + __egresoRealCell + '</td></tr>';
 }).join('') + '</tbody></table>' +
