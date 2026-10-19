@@ -5375,7 +5375,9 @@ function gvCortesDeDiaHtml(maxIdx){
     if(d && d !== prev){
       var pct = (i / maxIdx) * 100;
       var f = d.split('-'); var lbl = f[2] + '/' + f[1];
-      html += '<span title="Comienza el ' + lbl + '" style="position:absolute;left:' + pct.toFixed(2) + '%;top:-15px;width:5px;height:10px;margin-left:-2.5px;background:#0f172a;pointer-events:none;z-index:2"></span>' +
+      html += /* Corte angosto (2 px) con las puntas de la barra redondeadas a cada lado: un recuadro del color del fondo con
+   dos medios circulos transparentes que dejan ver la punta redonda de cada tramo. */
+'<span title="Comienza el ' + lbl + '" style="position:absolute;left:' + pct.toFixed(2) + '%;top:-14px;width:9px;height:8px;margin-left:-4.5px;pointer-events:none;z-index:2;background:radial-gradient(circle at 0 50%, transparent 3.5px, #0f172a 4px) left / 50% 100% no-repeat, radial-gradient(circle at 100% 50%, transparent 3.5px, #0f172a 4px) right / 50% 100% no-repeat"></span>' +
         '<span style="position:absolute;left:' + pct.toFixed(2) + '%;top:13px;transform:translateX(-50%);color:#cbd5e1;font-size:.58rem;font-weight:600;white-space:nowrap;pointer-events:none;z-index:2">' + lbl + '</span>';
       prev = d;
     }
