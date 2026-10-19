@@ -1585,14 +1585,33 @@ GV.rutaClave = function(a, b){
   function r(x){ return Number(x).toFixed(3); }
   return 'ruta_' + r(a.lat) + '_' + r(a.lng) + '__' + r(b.lat) + '_' + r(b.lng);
 };
+/* 19/10: al LEER la memoria de rutas se descartan las muestras que no pueden ser un recorrido directo entre los
+   dos puntos (km mayores al doble de la linea recta + 20 km), y el promedio se recalcula con las que quedan. Asi
+   una muestra mala ya guardada (ej. 366 km para dos sitios a 28 km) deja de afectar km y horarios estimados sin
+   tener que borrar nada. Si no queda ninguna muestra valida, el tramo se calcula como si no tuviera memoria. */
+GV.rutaMuestrasValidas = function(x){
+  if(!x || !x.n || !x.a || !x.b) return null;
+  var recta = GV.distKm(x.a, x.b);
+  var todas = x.muestras || [];
+  var ms = todas.filter(function(m){ return m && m.km > 0 && m.min > 0 && (recta === null || m.km <= recta * 2 + 20); });
+  if(!todas.length) return x;
+  if(!ms.length) return null;
+  if(ms.length === todas.length) return x;
+  var km = 0, mn = 0; ms.forEach(function(m){ km += m.km; mn += m.min; });
+  var y = Object.assign({}, x, { muestras: ms, n: ms.length, kmProm: Math.round(km / ms.length * 10) / 10, minProm: Math.round(mn / ms.length) });
+  var ultimaValida = ms[ms.length - 1];
+  if(x.geoFecha && ultimaValida && ultimaValida.fecha !== x.geoFecha){ delete y.geo; delete y.geoFecha; }
+  return y;
+};
 GV.buscarRutaAprendida = function(a, b){
   var R = (GV.Storage && GV.Storage.getRutas) ? GV.Storage.getRutas() : null;
   if(!R || !a || !b) return null;
   var k = GV.rutaClave(a, b);
-  if(R[k] && R[k].n) return { id: k, r: R[k] };
+  var __xk = R[k] ? GV.rutaMuestrasValidas(R[k]) : null;
+  if(__xk && __xk.n) return { id: k, r: __xk };
   var mejor = null, mejorD = 1e9;
   Object.keys(R).forEach(function(id){
-    var x = R[id]; if(!x || !x.n || !x.a || !x.b) return;
+    var x = GV.rutaMuestrasValidas(R[id]); if(!x || !x.n || !x.a || !x.b) return;
     var da = GV.distKm(a, x.a), db = GV.distKm(b, x.b);
     if(da === null || db === null || da > GV.RUTA_RADIO_KM || db > GV.RUTA_RADIO_KM) return;
     if(da + db < mejorD){ mejorD = da + db; mejor = { id: id, r: x }; }

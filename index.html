@@ -4689,6 +4689,37 @@ r.realOutDudoso = true;
 });
 })();
 
+/* 19/10: los horarios ESTIMADOS se recalculan sobre lo que realmente paso. Antes se encadenaban desde la hora de
+   salida programada sumando tramos y permanencias, asi que si la unidad pernoctaba en un sitio (o se demoraba
+   horas), los sitios siguientes quedaban con estimados imposibles (ej.: ingreso est. 05:14 de la manana despues de
+   haber dormido en la parada anterior). Ahora, para cada sitio:
+   - Ingreso est. = salida REAL del sitio anterior (o su egreso estimado si todavia no salio) + tiempo del tramo.
+   - Egreso est.  = ingreso (real si ya llego, si no el estimado) + permanencia programada.
+   El origen mantiene la salida programada del viaje. La demora de salida ("Xh de demora") queda medida contra la
+   permanencia programada en ese sitio, no contra el plan original del dia. */
+(function(){
+  if(!rows.length) return;
+  var __legs = (route && route.legs) || [];
+  var __ahora = Date.now();
+  var __enCursoV = (v.estado === 'en_curso' || v.estado === 'demorado');
+  function __egresoDesde(r, base){
+    if(r.tipo === 'espera' && r.permaneceHasta) return new Date(r.permaneceHasta);
+    if(r.tipo && r.esperaAcordada && r.esperaAcordada.hasta) return new Date(Math.max(base.getTime(), new Date(r.esperaAcordada.hasta).getTime()));
+    if(r.tipo && r.dwell) return new Date(base.getTime() + r.dwell * 60000);
+    return new Date(base.getTime());
+  }
+  for(var i = 1; i < rows.length; i++){
+    var prev = rows[i - 1], r = rows[i];
+    var __salidaPrev = prev.realOut || prev.egreso;
+    if(!prev.realOut && prev.realIn && __enCursoV && prev.egreso && prev.egreso.getTime() < __ahora){ __salidaPrev = new Date(__ahora); }
+    if(!__salidaPrev || isNaN(__salidaPrev.getTime())) continue;
+    var __legSeg = (__legs[i - 1] && typeof __legs[i - 1].duration === 'number') ? __legs[i - 1].duration : null;
+    if(__legSeg == null){ __legSeg = Math.max(0, (r.ingreso && prev.egreso) ? (r.ingreso.getTime() - prev.egreso.getTime()) / 1000 : 0); }
+    r.ingreso = new Date(__salidaPrev.getTime() + __legSeg * 1000);
+    r.egreso = __egresoDesde(r, r.realIn || r.ingreso);
+  }
+})();
+
 /* Si lo de arriba encontro (o corrigio) un ingreso/egreso real que todavia no estaba guardado en
    el viaje -- tipicamente porque editarUbicacionSitio lo borro al mover un sitio, o porque el
    valor guardado resulto cronologicamente imposible y se reemplazo por el automatico -- se
@@ -4822,14 +4853,21 @@ var __salidaStr = GV.dateStr(v.fechaSalida);
    Si el viaje arranco otro dia (por ejemplo se lo esta mirando hoy pero salio ayer) se
    agrega la fecha a cada horario: en gris cuando pertenece al dia de salida y en azul
    destacado cuando pertenece a un dia posterior, o sea cuando el viaje cruzo la medianoche. */
+/* 19/10: en las columnas de horarios siempre va la fecha arriba y la hora abajo (gris = dia de salida,
+   azul = dias posteriores). fmtTimeInline queda para textos dentro de una linea (marcas del chofer). */
 function fmtTimeCell(d){
 if(!d) return '-';
 var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
 var ds = GV.dateStr(d);
-if(ds === __salidaStr && ds === __hoyStr) return t;
 var fecha = d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
-if(ds === __salidaStr) return '<span style="color:#94a3b8;font-size:.72rem">' + fecha + '</span> ' + t;
-return '<b style="color:#1d4ed8">' + fecha + '</b> ' + t;
+var fechaHtml = (ds === __salidaStr) ? '<span class="gv-dt-f">' + fecha + '</span>' : '<b class="gv-dt-f gv-dt-f-sig">' + fecha + '</b>';
+return '<span class="gv-dt">' + fechaHtml + '<span class="gv-dt-h">' + t + '</span></span>';
+}
+function fmtTimeInline(d){
+if(!d) return '-';
+var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
+var fecha = d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+return fecha + ' ' + t;
 }
 /* Aviso de continuidad: aclara que el viaje no arranco hoy y/o que el recorrido paso
    de un dia al siguiente, para que no se lea un horario como si fuera del dia actual. */
@@ -4861,7 +4899,19 @@ if(!__partes.length) return;
 __partes.push('Los horarios de la tabla llevan la fecha del dia al que corresponden: en gris el dia de salida y en azul los dias posteriores.');
 continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81">' + __partes.join(' ') + '</div>';
 })();
-itinEl.innerHTML = /* Ajuste 16/10: el recuadro de continuidad (viaje que cruza la medianoche) ya no se muestra */ ((route && route.tramosAprendidos) ? '<div style="font-size:.75rem;color:#0f766e;margin-bottom:6px">&#10003; Ruta aprendida: ' + route.tramosAprendidos + ' de ' + ((route.legs || []).length) + ' tramo' + (((route.legs || []).length) === 1 ? '' : 's') + ' con tiempos y km promedio de recorridos reales anteriores.</div>' : '') + /* Ajuste 15/10: sin recuadros de demora de salida ni de progreso (ya se ve en la tabla) */ '<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
+itinEl.innerHTML = /* Ajuste 16/10: el recuadro de continuidad (viaje que cruza la medianoche) ya no se muestra */ ((route && route.tramosAprendidos) ? '<div style="font-size:.75rem;color:#0f766e;margin-bottom:6px">&#10003; Ruta aprendida: ' + route.tramosAprendidos + ' de ' + ((route.legs || []).length) + ' tramo' + (((route.legs || []).length) === 1 ? '' : 's') + ' con tiempos y km promedio de recorridos reales anteriores.</div>' : '') + /* Ajuste 15/10: sin recuadros de demora de salida ni de progreso (ya se ve en la tabla) */ '<style>' +
+'#gv-det-itin .gv-det-table th{white-space:nowrap;vertical-align:bottom}' +
+'#gv-det-itin .gv-det-table td{vertical-align:middle}' +
+'#gv-det-itin .gv-det-table td:first-child{min-width:150px;max-width:220px}' +
+'#gv-det-itin .gv-dt{display:inline-flex;flex-direction:column;line-height:1.25;white-space:nowrap}' +
+'#gv-det-itin .gv-dt-f{color:#94a3b8;font-size:.72rem;font-weight:400}' +
+'#gv-det-itin .gv-dt-f-sig{color:#1d4ed8;font-weight:700}' +
+'#gv-det-itin .gv-dt-h{font-weight:600}' +
+'#gv-det-itin .gv-er{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}' +
+'#gv-det-itin .gv-er-nota{font-size:.7rem;line-height:1.25;font-weight:700;white-space:nowrap}' +
+'#gv-det-itin .gv-site-nom{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3}' +
+'</style>' +
+'<table class="gv-det-table"><thead><tr><th>Sitio</th><th>Tipo</th><th>Estado</th><th>Distancia acum.</th><th>Ingreso est.</th><th>Ingreso real</th><th>Permanece</th><th>Egreso est.</th><th>Egreso real</th></tr></thead><tbody>' +
 rows.map(function(r){
 /* El aviso rojo "en sitio... y sigue" solo tiene sentido una vez que ya paso la hora en la que
    la unidad deberia haber salido de ahi (r.egreso: para el origen es la hora de salida programada
@@ -4883,24 +4933,24 @@ var __salidaNote = '';
 if(!__isDestino && r.realOut && r.egreso){
 var __demoraMs = r.realOut.getTime() - r.egreso.getTime();
 if(__demoraMs > 60000){
-__salidaNote = '<br><span style="font-size:.7rem;color:#dc2626;font-weight:700">(salio con ' + GV.fmtDurMin(__demoraMs) + ' de demora)</span>';
+__salidaNote = '<span class="gv-er-nota" style="color:#dc2626">' + GV.fmtDurMin(__demoraMs) + '<br>de demora</span>';
 } else if(__isOrigen || __esFilaSalida){
-__salidaNote = '<br><span style="font-size:.7rem;color:#059669;font-weight:600">(salio a horario)</span>';
+__salidaNote = '<span class="gv-er-nota" style="color:#059669">a<br>horario</span>';
 }
 }
-var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco inicio de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoIngreso) + '</span>') : '';
-var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeCell(r.choferMarcoEgreso) + '</span>') : '';
+var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco inicio de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeInline(r.choferMarcoIngreso) + '</span>') : '';
+var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeInline(r.choferMarcoEgreso) + '</span>') : '';
 var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
 /* 19/10: se oculta la leyenda "(recalculado por GPS: el horario registrado no era coherente)" a pedido de logistica.
    El horario mostrado sigue siendo el recalculado por GPS; solo se quita el texto. */
 var __dudosoTag = '';
 var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagIn + (r.realInDudoso ? __dudosoTag : ''));
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
-var __egresoRealCell = __isDestino ? '-' : ((enSitioNote || fmtTimeCell(r.realOut)) + __choferTagOut + __salidaNote + (r.realOutDudoso ? __dudosoTag : ''));
+var __egresoRealCell = __isDestino ? '-' : ('<span class="gv-er">' + (enSitioNote || fmtTimeCell(r.realOut)) + __salidaNote + '</span>' + __choferTagOut + (r.realOutDudoso ? __dudosoTag : ''));
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
 (__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') +
-'<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') +
+'<span class="gv-site-nom" title="' + GV.escapeHtml(String(r.label || '').replace(/<[^>]*>/g, '') + ' ' + (r.dir || '')) + '"><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</span>' +
 '</div>' +
 '</td>' +
 '<td>' + (r.tipo ? GV.tipoParadaLabel(r.tipo) : '<span style="color:#9ca3af">-</span>') + '</td>' +
@@ -5431,6 +5481,13 @@ function gvAprenderTramo(t){
       if(tb - ta >= 30 * 60000) paradoMs += tb - ta;
       i = j + 1;
     }
+    /* 19/10: no se aprende un tramo que no fue un viaje directo: mas de 24 hs entre salida y llegada, una parada
+       larga en el medio (pernocte, 4 hs o mas) o km muy por encima de la distancia en linea recta. Antes se
+       aprendio un tramo de 366 km para dos sitios a 28 km (el "ingreso" era de otro dia), y despues todos los
+       viajes por ese tramo mostraban km y horarios estimados disparatados. */
+    if(t1 - t0 > 24 * 3600000) return false;
+    if(paradoMs >= 4 * 3600000) return false;
+    if(km > recta * 2 + 20) return false;
     var min = Math.round((t1 - t0 - paradoMs) / 60000);
     if(min < 3) return false;
     var vel = km / (min / 60);
