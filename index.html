@@ -37,7 +37,7 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
 <div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
@@ -277,7 +277,7 @@ var t = gvEsEnCurso(v) ? gvContinuidadTexto(v) : '';
 return t ? (' &nbsp;|&nbsp; <span style="color:#d97706;font-weight:700">' + t + '</span>') : '';
 }
 /* 19/10: busqueda general del panel (Lista y Calendario). Busca por N de solicitud, chofer, unidad/interno,
-   patente, observaciones y nombre/direccion de origen, paradas y destino, incluyendo choferes y unidades de
+   patente, cliente (grupos "Clientes" de MyGeotab), observaciones y nombre/direccion de origen, paradas y destino, incluyendo choferes y unidades de
    tramos anteriores (cambio de chofer/camion). Ignora mayusculas, acentos, espacios y guiones, asi "ae905hp",
    "AE 905 HP" o "martinez christian" encuentran el viaje. Varias palabras = tienen que aparecer todas. */
 function gvNormBusqueda(t){
@@ -288,6 +288,13 @@ function gvTextoBusquedaViaje(v, soloIdentidad){
   var partes = [v.solicitud, v.conductor, v.vehiculo];
   try{ partes.push(gvSolicitudLabel(v)); }catch(e){}
   (v.tramos || []).forEach(function(tr){ if(tr){ partes.push(tr.conductor, tr.vehiculo); } });
+  /* 19/10: cliente = grupos hijos de "Clientes" en MyGeotab a los que esta asignada la unidad (la del viaje y
+     las de tramos anteriores). Es la asignacion ACTUAL del camion, la misma que usa la columna Cliente de Seguimiento. */
+  try{
+    var __mCli = GV.__clientesPorVeh || {};
+    var __vehIds = [v.vehiculoId].concat((v.tramos || []).map(function(tr){ return tr && tr.vehiculoId; }));
+    __vehIds.forEach(function(id){ if(id && __mCli[id]){ partes = partes.concat(__mCli[id]); } });
+  }catch(__eCliB){}
   if(!soloIdentidad){
     partes.push(v.observaciones);
     [v.origen, v.destino].concat(v.paradas || []).forEach(function(st){ if(st){ partes.push(st.direccion, st.label, st.nombre); } });
