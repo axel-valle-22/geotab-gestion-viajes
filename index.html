@@ -37,7 +37,7 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><span style="font-size:.78rem;color:#6b7280;align-self:center">Toca un dia: hoy abre Seguimiento, los otros dias muestran sus viajes.</span><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
 <div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
@@ -2130,20 +2130,28 @@ btn.addEventListener('click', function(){ switchPanelView(btn.getAttribute('data
 document.querySelectorAll('.gv-stat-card[data-stat-filter]').forEach(function(card){
 card.addEventListener('click', function(){
 var key = card.getAttribute('data-stat-filter');
-gStatFilter = (gStatFilter === key) ? null : key;
-gCalSelectedDay = null;
-updateStatCardHighlight();
-switchPanelView('lista');
+/* 19/10: sin vista Lista. Hoy / En curso llevan a Seguimiento; Completados / Demorados abren una ventana con esos viajes. */
+gStatFilter = null; gCalSelectedDay = null;
+if(key === 'hoy' || key === 'curso'){ gvIrASeguimientoHoy(); return; }
+var __todosSt = GV.Storage.getViajes();
+if(key === 'comp'){ gvAbrirListaViajesPopup('Viajes completados', __todosSt.filter(function(v){ return v.estado === 'completado'; }).sort(function(a, b){ return new Date(b.completadoEn || b.fechaSalida) - new Date(a.completadoEn || a.fechaSalida); }), null); }
+else if(key === 'dem'){ gvAbrirListaViajesPopup('Viajes demorados', __todosSt.filter(function(v){ return v.estado === 'demorado'; }), null); }
 });
 });
 var __bSol = document.getElementById('gv-buscar-sol');
 if(__bSol){ __bSol.addEventListener('input', function(){
   gSolQuery = __bSol.value.trim();
-  /* 19/10: la busqueda funciona en la vista actual. En Calendario se filtran los viajes de cada dia; al tocar un
-     dia se pasa a Lista con la busqueda y ese dia. En Lista busca en todos los viajes. */
-  if(gSolQuery){ gStatFilter = null; try{ updateStatCardHighlight(); }catch(__eU){} }
-  if(gPanelView === 'calendario'){ gCalSelectedDay = null; renderCalendar(); }
-  else { if(gSolQuery){ gCalSelectedDay = null; } renderTrips(); }
+  /* 19/10: la busqueda filtra los viajes del calendario. Con Enter se abre una ventana con todos los resultados. */
+  gStatFilter = null; gCalSelectedDay = null;
+  renderCalendar();
+});
+__bSol.addEventListener('keydown', function(e){
+  if(e.key !== 'Enter') return;
+  var q = __bSol.value.trim(); if(!q) return;
+  e.preventDefault();
+  var res = GV.Storage.getViajes().filter(function(v){ return gvViajeCoincideBusqueda(v, q); })
+    .sort(function(a, b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); });
+  gvAbrirListaViajesPopup('Busqueda "' + q + '"', res, null);
 }); }
 var calPrevBtn = document.getElementById('gv-cal-prev');
 if(calPrevBtn) calPrevBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()-1); renderCalendar(); });
@@ -3164,6 +3172,8 @@ todos.forEach(function(v){ updateTrackBadges(v); });
 }
 
 function switchPanelView(view){
+/* 19/10: se quito la vista Lista; el panel es solo Calendario. */
+view = 'calendario';
 gPanelView = view;
 document.querySelectorAll('.gv-view-btn').forEach(function(b){
 b.classList.toggle('gv-active', b.getAttribute('data-view') === view);
@@ -3183,6 +3193,74 @@ renderTrips();
 }
 }
 
+/* ---------------- 19/10: ventanas del calendario ---------------- */
+function gvIrASeguimientoHoy(){
+  showTab('seguimiento');
+  var b = document.getElementById('gv-mas-hoy'), t = document.getElementById('gv-btn-toggle-mas-hoy');
+  if(b && t && b.style.display === 'none'){ t.click(); }
+}
+var GV_ESTADO_TXT = { planificado: ['Planificado', '#6b7280', '#f3f4f6'], en_curso: ['En curso', '#1d4ed8', '#dbeafe'], demorado: ['Demorado', '#b91c1c', '#fee2e2'], completado: ['Completado', '#047857', '#d1fae5'], cancelado: ['Cancelado', '#6b7280', '#e5e7eb'] };
+/* Misma tarjeta que "Viajes finalizados hoy" de Seguimiento. refDia: fecha (YYYY-MM-DD) que no hace falta repetir en los horarios. */
+function gvViajeCardHtml(v, refDia, conEstado){
+  var cli = gvClientesDeViaje(v);
+  var ini = v.iniciadoEn || (v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso) || v.fechaSalida;
+  var fin = v.estado === 'completado' ? v.completadoEn : null;
+  function fh(iso){ if(!iso) return '-'; var d = new Date(iso); if(isNaN(d)) return '-'; return (GV.dateStr(d) !== refDia ? d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' : '') + gvHoraCorta(iso); }
+  var horario = (v.estado === 'planificado' || v.estado === 'cancelado') ? ('Salida ' + fh(v.fechaSalida)) : (fh(ini) + (fin ? (' → ' + fh(fin) + ' (' + GV.fmtDurMin(new Date(fin) - new Date(ini)) + ')') : ' → en curso'));
+  var col = v.estado === 'completado' ? '#059669' : (v.estado === 'demorado' ? '#b91c1c' : '#1d4ed8');
+  var est = GV_ESTADO_TXT[v.estado] || [v.estado || '', '#6b7280', '#f3f4f6'];
+  var ruta = [v.origen ? GV.siteNameFor(v.origen) : ''].concat((v.paradas || []).map(function(p){ return GV.siteNameFor(p); })).concat(v.destino ? [GV.siteNameFor(v.destino)] : []).filter(Boolean).join(' → ');
+  return '<div data-pop-viaje="' + v.id + '" title="Ver el detalle del viaje" style="cursor:pointer;padding:7px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px" onmouseover="this.style.background=\'#f0fdf4\'" onmouseout="this.style.background=\'\'">' +
+    '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' +
+    (cli.length ? cli.map(GV.clienteBadgeHtml).join(' ') : '') +
+    (v.solicitud ? '<span style="font-size:.7rem;color:#3730a3;background:#eef2ff;border-radius:4px;padding:1px 5px">Sol. ' + GV.escapeHtml(String(v.solicitud)) + '</span>' : '') +
+    (conEstado ? '<span style="font-size:.7rem;font-weight:600;color:' + est[1] + ';background:' + est[2] + ';border-radius:4px;padding:1px 6px">' + est[0] + '</span>' : '') +
+    '<span style="margin-left:auto;color:' + col + ';font-weight:600;white-space:nowrap">' + horario + '</span></div>' +
+    '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + GV.escapeHtml(ruta) + '</div></div>';
+}
+function gvAbrirPopupViajes(titulo, secciones){
+  var ov = document.createElement('div');
+  ov.className = 'gv-modal-overlay';
+  ov.style.zIndex = '99990'; /* debajo del detalle del viaje (100000), asi al cerrar el detalle se vuelve a esta ventana */
+  ov.innerHTML = '<div class="gv-modal" style="max-width:760px;width:100%;max-height:85vh;display:flex;flex-direction:column">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">' + GV.escapeHtml(titulo) + '</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-pop-cerrar>Cerrar</button></div>' +
+    '<div style="overflow:auto;min-height:0">' + secciones.map(function(sec){
+      return '<div style="margin-bottom:12px"><h4 style="margin:4px 0 6px;font-size:.9rem;color:' + (sec.color || '#059669') + '">' + GV.escapeHtml(sec.titulo) + ' <span style="color:#6b7280;font-weight:500">(' + sec.viajes.length + ')</span></h4>' +
+        (sec.viajes.length ? sec.viajes.map(function(v){ return gvViajeCardHtml(v, sec.refDia || null, !!sec.conEstado); }).join('') : '<div style="font-size:.8rem;color:#9ca3af;padding:6px 8px">' + GV.escapeHtml(sec.vacio || 'No hay viajes.') + '</div>') + '</div>';
+    }).join('') + '</div></div>';
+  document.body.appendChild(ov);
+  function cerrar(){ ov.remove(); document.removeEventListener('keydown', esc); }
+  function esc(e){ if(e.key !== 'Escape') return; var ovs = document.querySelectorAll('.gv-modal-overlay'); if(ovs.length && ovs[ovs.length - 1] === ov) cerrar(); }
+  document.addEventListener('keydown', esc);
+  ov.addEventListener('click', function(e){
+    if(e.target === ov || e.target.closest('[data-pop-cerrar]')){ cerrar(); return; }
+    var el = e.target.closest('[data-pop-viaje]');
+    if(el) abrirDetalleViaje(el.getAttribute('data-pop-viaje'));
+  });
+}
+function gvAbrirListaViajesPopup(titulo, viajes, refDia){
+  gvAbrirPopupViajes(titulo, [{ titulo: 'Viajes', viajes: viajes, refDia: refDia, conEstado: true, color: '#1d4ed8', vacio: 'No se encontraron viajes.' }]);
+}
+function gvAbrirDiaPopup(dia){
+  var todos = GV.Storage.getViajes();
+  if(gSolQuery){ todos = todos.filter(function(v){ return gvViajeCoincideBusqueda(v, gSolQuery); }); }
+  var hoy = GV.dateStr(new Date());
+  var f = dia.split('-').reverse().join('/');
+  var tit = 'Viajes del ' + f + (gSolQuery ? (' - busqueda "' + gSolQuery + '"') : '');
+  if(dia > hoy){
+    var prog = todos.filter(function(v){ return GV.dateStr(v.fechaSalida) === dia; }).sort(function(a, b){ return new Date(a.fechaSalida) - new Date(b.fechaSalida); });
+    gvAbrirPopupViajes(tit, [{ titulo: 'Viajes programados', viajes: prog, refDia: dia, conEstado: true, color: '#1d4ed8', vacio: 'No hay viajes programados para este dia.' }]);
+    return;
+  }
+  var fin = todos.filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dia; })
+    .sort(function(a, b){ return new Date(b.completadoEn) - new Date(a.completadoEn); });
+  var ids = {}; fin.forEach(function(v){ ids[v.id] = 1; });
+  var otros = todos.filter(function(v){ return !ids[v.id] && GV.dateStr(v.fechaSalida) === dia; })
+    .sort(function(a, b){ return new Date(a.fechaSalida) - new Date(b.fechaSalida); });
+  var secs = [{ titulo: 'Viajes finalizados', viajes: fin, refDia: dia, color: '#059669', vacio: 'Ese dia no se cerro ningun viaje.' }];
+  if(otros.length) secs.push({ titulo: 'Otros viajes que salieron ese dia', viajes: otros, refDia: dia, conEstado: true, color: '#6b7280' });
+  gvAbrirPopupViajes(tit, secs);
+}
 function renderCalendar(){
 var grid = document.getElementById('gv-cal-grid');
 var title = document.getElementById('gv-cal-title');
@@ -3203,6 +3281,9 @@ for(var day=1; day<=daysInMonth; day++){
 var dateObj = new Date(year, month, day);
 var dateStr = GV.dateStr(dateObj);
 var dayTrips = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
+/* 19/10: en los dias anteriores a hoy se cuentan los viajes FINALIZADOS ese dia (lo mismo que muestra la ventana del dia). */
+var __esPasado = dateStr < todayStr;
+var __finDia = __esPasado ? viajes.filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dateStr; }) : [];
 var cls = 'gv-cal-day';
 if(dateStr === todayStr) cls += ' gv-cal-today';
 if(dateStr === gCalSelectedDay) cls += ' gv-cal-sel';
@@ -3211,17 +3292,19 @@ var plan = dayTrips.filter(function(v){ return v.estado === 'planificado'; }).le
 var comp = dayTrips.filter(function(v){ return v.estado === 'completado'; }).length;
 html += '<div class="' + cls + '" data-date="' + dateStr + '">' +
 '<div class="gv-cal-daynum">' + day + '</div>' +
-(dayTrips.length ? '<div class="gv-cal-count">' + dayTrips.length + '</div>' : '') +
-(dayTrips.length ? '<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>' : '') +
+(__esPasado
+  ? ((__finDia.length ? '<div class="gv-cal-count">' + __finDia.length + '</div><div class="gv-cal-sub">finalizado' + (__finDia.length === 1 ? '' : 's') + '</div>' : ''))
+  : ((dayTrips.length ? '<div class="gv-cal-count">' + dayTrips.length + '</div>' : '') +
+     (dayTrips.length ? '<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>' : ''))) +
 '</div>';
 }
 grid.innerHTML = html;
 grid.querySelectorAll('.gv-cal-day[data-date]').forEach(function(cell){
 cell.addEventListener('click', function(){
-gCalSelectedDay = cell.getAttribute('data-date');
-gStatFilter = null;
-updateStatCardHighlight();
-switchPanelView('lista');
+/* 19/10: hoy -> Seguimiento (viajes en curso y finalizados del dia); otro dia -> ventana con los viajes de ese dia. */
+var __d = cell.getAttribute('data-date');
+if(__d === GV.dateStr(new Date())){ gvIrASeguimientoHoy(); return; }
+gvAbrirDiaPopup(__d);
 });
 });
 }
@@ -4848,6 +4931,7 @@ progresoHtml = '<div style="font-size:.85rem;margin-bottom:10px;padding:8px 12px
 
 var __hoyStr = GV.dateStr(new Date());
 var __salidaStr = GV.dateStr(v.fechaSalida);
+var __salD0 = new Date(v.fechaSalida); if(isNaN(__salD0.getTime())) __salD0 = new Date();
 /* Los horarios se muestran pelados (solo HH:MM) unicamente cuando no puede haber
    ninguna ambiguedad: el horario cae en el dia de salida del viaje Y ese dia es hoy.
    Si el viaje arranco otro dia (por ejemplo se lo esta mirando hoy pero salio ayer) se
@@ -4860,7 +4944,11 @@ if(!d) return '-';
 var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
 var ds = GV.dateStr(d);
 var fecha = d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
-var fechaHtml = (ds === __salidaStr) ? '<span class="gv-dt-f">' + fecha + '</span>' : '<b class="gv-dt-f gv-dt-f-sig">' + fecha + '</b>';
+/* 19/10: un color por dia del viaje (1er dia gris, 2do azul, 3ro indigo, 4to violeta, 5to purpura, 6to+ magenta). */
+var __nDia = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(__salD0.getFullYear(), __salD0.getMonth(), __salD0.getDate())) / 86400000);
+var __coloresDia = ['#94a3b8', '#1d4ed8', '#4338ca', '#7c3aed', '#a21caf', '#be185d'];
+var __colDia = __coloresDia[Math.max(0, Math.min(__coloresDia.length - 1, __nDia))];
+var fechaHtml = (__nDia <= 0) ? '<span class="gv-dt-f">' + fecha + '</span>' : '<b class="gv-dt-f gv-dt-f-sig" style="color:' + __colDia + '" title="Dia ' + (__nDia + 1) + ' del viaje">' + fecha + '</b>';
 return '<span class="gv-dt">' + fechaHtml + '<span class="gv-dt-h">' + t + '</span></span>';
 }
 function fmtTimeInline(d){
@@ -4900,9 +4988,10 @@ __partes.push('Los horarios de la tabla llevan la fecha del dia al que correspon
 continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81">' + __partes.join(' ') + '</div>';
 })();
 itinEl.innerHTML = /* Ajuste 16/10: el recuadro de continuidad (viaje que cruza la medianoche) ya no se muestra */ ((route && route.tramosAprendidos) ? '<div style="font-size:.75rem;color:#0f766e;margin-bottom:6px">&#10003; Ruta aprendida: ' + route.tramosAprendidos + ' de ' + ((route.legs || []).length) + ' tramo' + (((route.legs || []).length) === 1 ? '' : 's') + ' con tiempos y km promedio de recorridos reales anteriores.</div>' : '') + /* Ajuste 15/10: sin recuadros de demora de salida ni de progreso (ya se ve en la tabla) */ '<style>' +
-'#gv-det-itin .gv-det-table th{white-space:nowrap;vertical-align:bottom}' +
+'#gv-det-itin .gv-det-table th{white-space:normal;vertical-align:bottom;line-height:1.2}' +
 '#gv-det-itin .gv-det-table td{vertical-align:middle}' +
-'#gv-det-itin .gv-det-table td:first-child{min-width:150px;max-width:220px}' +
+'#gv-det-itin .gv-det-table td:first-child{min-width:120px;max-width:170px}' +
+'#gv-det-itin .gv-det-table td:nth-child(4){white-space:nowrap}' +
 '#gv-det-itin .gv-dt{display:inline-flex;flex-direction:column;line-height:1.25;white-space:nowrap}' +
 '#gv-det-itin .gv-dt-f{color:#94a3b8;font-size:.72rem;font-weight:400}' +
 '#gv-det-itin .gv-dt-f-sig{color:#1d4ed8;font-weight:700}' +
@@ -4949,8 +5038,7 @@ var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCel
 var __egresoRealCell = __isDestino ? '-' : ('<span class="gv-er">' + (enSitioNote || fmtTimeCell(r.realOut)) + __salidaNote + '</span>' + __choferTagOut + (r.realOutDudoso ? __dudosoTag : ''));
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
-(__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') +
-'<span class="gv-site-nom" title="' + GV.escapeHtml(String(r.label || '').replace(/<[^>]*>/g, '') + ' ' + (r.dir || '')) + '"><b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</span>' +
+'<span class="gv-site-nom" title="' + GV.escapeHtml(String(r.label || '').replace(/<[^>]*>/g, '') + ' ' + (r.dir || '')) + '">' + (__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') + '<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</span>' +
 '</div>' +
 '</td>' +
 '<td>' + (r.tipo ? GV.tipoParadaLabel(r.tipo) : '<span style="color:#9ca3af">-</span>') + '</td>' +
