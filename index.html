@@ -3368,6 +3368,11 @@ function gvSlbResolverSitio(txt){
   /* 3) nombre exacto */
   var ex = sitios.filter(function(s){ return gvSlbCompact(s.nombre) === c; })[0];
   if(ex) return ex;
+  /* 3b) 20/10: el texto del mail CONTIENE el nombre completo de un sitio guardado (ej. "Solalique / Base Neuquen" -> Solalique).
+     Se toma el nombre mas largo que coincida; nombres de menos de 6 letras no cuentan (muy genericos). */
+  var contiene = sitios.filter(function(s){ var k = gvSlbCompact(s.nombre); return k.length >= 6 && c.indexOf(k) >= 0; })
+    .sort(function(a, b){ return gvSlbCompact(b.nombre).length - gvSlbCompact(a.nombre).length; })[0];
+  if(contiene) return contiene;
   /* 4) codigo letras+numero (LCav174, PAD100, RIG219...): el sitio cuyo nombre contenga ese codigo */
   /* HP 217 / H&P 217 / H & P-217: en el sistema esos equipos estan cargados como "RIG 217" */
   var nCod = n.replace(/\bh\s*&?\s*(?:and\s*)?p\s*-?\s*(\d{2,5})/g, 'rig $1');
@@ -3470,7 +3475,8 @@ function gvSlbArmarPropuestas(pedido){
     var pad = function(n){ return (n < 10 ? '0' : '') + n; };
     var salLocal = fecha + 'T' + pad(Math.floor(minTot / 60)) + ':' + pad(minTot % 60) + ':00';
     var trTxt = (pedido.trs || {})[pat] || '';
-    if(!trTxt){ var __f1 = filas.filter(function(f){ return f.tr; })[0]; if(__f1) trTxt = __f1.tr; }
+    /* solicitud = TR del PRIMER servicio del dia de esa unidad (las filas ya estan ordenadas por fecha y hora) */
+    var __f1 = filas.filter(function(f){ return f.tr; })[0]; if(__f1) trTxt = __f1.tr;
     var obs = filas.map(function(f){ return 'CVU ' + (f.cvu || '?') + ' ' + (f.fecha ? f.fecha.slice(8, 10) + '/' + f.fecha.slice(5, 7) + ' ' : '') + (f.hora || '') + ' ' + f.origen + ' -> ' + f.destino +
         (f.tr ? (' - ' + f.tr) : '') + (f.gv ? (' - GV ' + f.gv) : '') + (f.sh ? (' - ' + f.sh) : '') + (f.detalle ? (' - ' + f.detalle) : ''); }).join(' / ') +
       '. ' + (filas[0].tipoUnidad || '') + (filas[0].contrato ? ('. Contrato ' + filas[0].contrato) : '') + (filas[0].bl ? ('. ' + filas[0].bl) : '') +
