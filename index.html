@@ -3029,7 +3029,7 @@ function gvRenderMasHoy(forzar){
 function gvPintarSinPlan(){
   var el = document.getElementById('gv-mh-sp'), n = document.getElementById('gv-mh-sp-n');
   if(!el) return;
-  if(n) n.textContent = '(' + (gMhSinPlan.length + gPropuestasSLB.length) + ')';
+  if(n) n.textContent = '(' + (gMhSinPlan.length + gPropuestasSLB.length + gCambiosSLB.length) + ')';
   var __slbHtml = gvSlbHtmlPropuestas();
   if(!gMhSinPlan.length){ el.innerHTML = __slbHtml + (__slbHtml ? '' : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'); gvSlbEnlazarBotones(el); return; }
   var grupos = {};
@@ -3485,7 +3485,7 @@ function gvSlbArmarPropuestas(pedido){
       if(v.estado === 'cancelado') return false;
       if(trTxt && v.solicitud === trTxt) return true;
       /* 20/10: un viaje por unidad y por dia: si la unidad ya tiene un viaje ese dia (aunque se haya cargado a mano), no se propone otro */
-      if(veh && v.vehiculoId === veh.id && GV.dateStr(v.fechaSalida) === fecha) return true;
+      if(veh && v.vehiculoId === veh.id && GV.dateStr(v.fechaSalida) === fecha && !v.origenPedidoSLB) return true; /* viaje cargado a mano ese dia */
       return filas.some(function(f){ return f.cvu && (v.observaciones || '').indexOf(f.cvu) >= 0; });
     })[0] || null;
     return gvSlbPosicion0600(veh && veh.id, fecha).then(function(pos){
@@ -3551,6 +3551,7 @@ function gvSlbCrearViaje(prop){
     solicitud: prop.solicitud || '',
     estado: 'planificado', creadoEn: new Date().toISOString(), notificado: false, gerenciamiento: null,
     origenPedidoSLB: true,
+    slbFilas: prop.filas.map(function(f){ return { cvu: f.cvu || '', fecha: f.fecha || '', hora: f.hora || '', origen: f.origen || '', destino: f.destino || '', patente: f.patente || '', tr: f.tr || '' }; }),
     tramos: [{ conductorId: prop.chofer.id, conductor: prop.chofer.text, vehiculoId: prop.vehiculo.id, vehiculo: prop.vehiculo.text, desde: prop.fechaSalida, hasta: null, motivo: null, motivoDetalle: '' }]
   };
   return GV.Storage.addViaje(viaje).then(function(){ return viaje; });
@@ -3573,23 +3574,49 @@ var gPropuestasSLB = [];
 var __gvSlbRecalcGen = 0;
 function gvSlbRecalcularPropuestas(){
   var gen = ++__gvSlbRecalcGen;
-  if(!gPedidosSLB.length){ gPropuestasSLB = []; gvSlbAvisoSeguimiento(); try{ gvPintarSinPlan(); }catch(e){} return; }
+  if(!gPedidosSLB.length){ gPropuestasSLB = []; gCambiosSLB = []; gvSlbAvisoSeguimiento(); try{ gvPintarSinPlan(); }catch(e){} return; }
   /* 20/10: el mismo servicio (CVU) puede venir en varios mails del dia (confirmacion, cambio de recorrido, update de
      la tarde). Vale el mail MAS NUEVO. Y una misma unidad puede venir en mails distintos (ej. 10:00 en uno y 13:00 en
      otro): se junta todo en UN viaje por unidad y por dia. gPedidosSLB ya viene ordenado del mas nuevo al mas viejo. */
-  var cvuVisto = {}, grupos = {}, orden = [];
+  /* 20/10 (regla de Logistica): un viaje TERMINA cuando la unidad descarga en Solalique (retorno a la base de SLB).
+     La siguiente carga de esa unidad abre un viaje nuevo. Si el servicio de otro dia arranca donde termino el
+     anterior (sin haber vuelto a Solalique), es continuacion del mismo viaje (ej. queda en locacion y vuelve al
+     dia siguiente). Si arranca en otro lado, es un viaje nuevo. */
+  var cvuVisto = {}, filasPorPat = {}, metaFila = [], cvuCancelado = {};
   gPedidosSLB.forEach(function(p){
-    var trsP = p.trs || {};
+    /* servicios cancelados por un mail mas nuevo: no se arman (y si ya hay viaje, se avisa) */
+    (p.cancelados || []).forEach(function(c){ if(!cvuVisto[c]){ cvuVisto[c] = 1; cvuCancelado[c] = p; } });
     (p.filas || []).forEach(function(f){
       if(f.cvu && cvuVisto[f.cvu]) return;
       if(f.cvu) cvuVisto[f.cvu] = 1;
-      var k = f.patente + '|' + (f.fecha || '');
+      (filasPorPat[f.patente] = filasPorPat[f.patente] || []).push(f);
+      metaFila.push({ f: f, p: p });
+    });
+  });
+  var pedidoDe = function(f){ var m = metaFila.filter(function(x){ return x.f === f; })[0]; return m ? m.p : null; };
+  var esSolalique = function(txt){ var s0 = gvSlbResolverSitio(txt); return /solalique/i.test(gvSlbCompact(s0 ? s0.nombre : txt)); };
+  var mismoLugar = function(a, b){ var sa = gvSlbResolverSitio(a), sb = gvSlbResolverSitio(b); if(sa && sb) return sa.id === sb.id; return gvSlbCompact(a) === gvSlbCompact(b); };
+  var grupos = {}, orden = [];
+  Object.keys(filasPorPat).forEach(function(pat){
+    var fl = filasPorPat[pat].slice().sort(function(a, b){ return ((a.fecha || '') + (a.hora || '')).localeCompare((b.fecha || '') + (b.hora || '')); });
+    var seg = 0, ant = null, cerrado = false;
+    fl.forEach(function(f){
+      if(ant){
+        if(cerrado) seg++;
+        else if((f.fecha || '') !== (ant.fecha || '') && !mismoLugar(f.origen, ant.destino)) seg++;
+      }
+      var k = pat + '|' + seg;
       var g = grupos[k];
-      if(!g){ g = grupos[k] = { _id: p._id, _ids: [], asunto: p.asunto, recibido: p.recibido, recorrido: null, trs: {}, filas: [] }; orden.push(k); }
-      if(g._ids.indexOf(p._id) < 0) g._ids.push(p._id);
-      if(!g.recorrido && p.recorrido && p.recorrido.length) g.recorrido = p.recorrido;
-      if(!g.trs[f.patente] && trsP[f.patente]) g.trs[f.patente] = trsP[f.patente];
+      if(!g){ g = grupos[k] = { _id: null, _ids: [], asunto: '', recibido: '', recorrido: null, trs: {}, filas: [] }; orden.push(k); }
+      var p = pedidoDe(f);
+      if(p){
+        if(g._ids.indexOf(p._id) < 0) g._ids.push(p._id);
+        if(!g._id || String(p.recibido) > String(g.recibido)){ g._id = p._id; g.asunto = p.asunto; g.recibido = p.recibido; }
+        if(!g.recorrido && p.recorrido && p.recorrido.length) g.recorrido = p.recorrido;
+      }
       g.filas.push(f);
+      cerrado = esSolalique(f.destino);
+      ant = f;
     });
   });
   var virtuales = orden.map(function(k){ return grupos[k]; });
@@ -3597,12 +3624,16 @@ function gvSlbRecalcularPropuestas(){
     if(gen !== __gvSlbRecalcGen) return;
     var todas = [].concat.apply([], listas);
     gPropuestasSLB = todas.filter(function(x){ return !x.existente; });
+    gvSlbDetectarCambios(todas, cvuCancelado);
     /* Un mail se cierra solo cuando todas sus unidades ya tienen viaje (o todos sus servicios los reemplazo un mail mas nuevo). */
     gPedidosSLB.forEach(function(p){
       var mias = todas.filter(function(x){ return x.pedido._ids.indexOf(p._id) >= 0; });
       var usadas = (p.filas || []).some(function(f){ return virtuales.some(function(g){ return g.filas.indexOf(f) >= 0; }); });
       if(!usadas && (p.filas || []).length){ gvSlbActualizarPedido(p._id, { estado: 'reemplazado', procesadoEn: new Date().toISOString() }); return; }
-      if(mias.length && mias.every(function(x){ return x.existente || x.creado; })) gvSlbActualizarPedido(p._id, { estado: 'procesado', procesadoEn: new Date().toISOString() });
+      var conCambio = gCambiosSLB.some(function(c){ return c.pedidos.indexOf(p._id) >= 0; });
+      if(conCambio) return;
+      var soloCancela = !(p.filas || []).length && (p.cancelados || []).length;
+      if(soloCancela || (mias.length && mias.every(function(x){ return x.existente || x.creado; }))) gvSlbActualizarPedido(p._id, { estado: 'procesado', procesadoEn: new Date().toISOString() });
     });
     gvSlbAvisoSeguimiento();
     try{ gvPintarSinPlan(); }catch(e){}
@@ -3612,8 +3643,9 @@ function gvSlbRecalcularPropuestas(){
 function gvSlbAvisoSeguimiento(){
   var t = document.getElementById('gv-btn-toggle-mas-hoy'); if(!t) return;
   var base = t.textContent.replace(/\s*\(\d+ por confirmar\)$/, '');
-  t.textContent = base + (gPropuestasSLB.length ? (' (' + gPropuestasSLB.length + ' por confirmar)') : '');
-  t.style.borderColor = gPropuestasSLB.length ? '#dc2626' : '';
+  var n = gPropuestasSLB.length + (typeof gCambiosSLB !== 'undefined' ? gCambiosSLB.length : 0);
+  t.textContent = base + (n ? (' (' + n + ' por confirmar)') : '');
+  t.style.borderColor = n ? '#dc2626' : '';
 }
 function gvSlbConfirmarPropuesta(idx, btn){
   var prop = gPropuestasSLB[idx]; if(!prop) return;
@@ -3630,11 +3662,119 @@ function gvSlbEnlazarBotones(el){
   if(!el) return;
   el.querySelectorAll('[data-slb-confirmar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvSlbConfirmarPropuesta(+b.getAttribute('data-slb-confirmar'), b); }); });
   el.querySelectorAll('[data-slb-revisar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvAbrirPedidosSLB(); }); });
+  el.querySelectorAll('[data-slb-aplicar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvSlbAplicarCambio(+b.getAttribute('data-slb-aplicar'), b); }); });
+  el.querySelectorAll('[data-slb-ignorar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvSlbIgnorarCambio(+b.getAttribute('data-slb-ignorar')); }); });
+}
+/* ---------------- 20/10: cambios en pedidos SLB de viajes YA creados ----------------
+   WCM cambia o cancela servicios a lo largo del dia. Si el viaje todavia no se confirmo, la propuesta se actualiza
+   sola (vale el mail mas nuevo). Si el viaje YA existe, no se toca solo: se muestra un aviso con lo que cambio y
+   los botones "Aplicar" (rearma SOLO los puntos pendientes; lo que ya registro el GPS queda igual) e "Ignorar". */
+var gCambiosSLB = [];
+function gvSlbDetectarCambios(todas, cvuCancelado){
+  var cambios = [], porViaje = {};
+  var hhmm = function(f){ return (f.fecha ? f.fecha.slice(8, 10) + '/' + f.fecha.slice(5, 7) + ' ' : '') + (f.hora || ''); };
+  var reg = function(v){ var c = porViaje[v.id]; if(!c){ c = porViaje[v.id] = { viaje: v, textos: [], nuevas: [], cancelar: [], pedidos: [] }; cambios.push(c); } return c; };
+  todas.forEach(function(x){
+    var v = x.existente;
+    if(!v || !v.slbFilas || v.estado === 'completado' || v.estado === 'cancelado') return;
+    var prev = {}; v.slbFilas.forEach(function(r){ if(r.cvu) prev[r.cvu] = r; });
+    x.filas.forEach(function(f){
+      var r = prev[f.cvu], t = [];
+      if(!r) t.push('Servicio nuevo ' + f.cvu + ' (' + hhmm(f) + '): ' + f.origen + ' → ' + f.destino);
+      else {
+        if((r.fecha || '') !== (f.fecha || '') || (r.hora || '') !== (f.hora || '')) t.push(f.cvu + ': hora ' + hhmm(r) + ' → ' + hhmm(f));
+        if(gvSlbCompact(r.origen) !== gvSlbCompact(f.origen)) t.push(f.cvu + ': origen ' + r.origen + ' → ' + f.origen);
+        if(gvSlbCompact(r.destino) !== gvSlbCompact(f.destino)) t.push(f.cvu + ': destino ' + r.destino + ' → ' + f.destino);
+        if(r.patente !== f.patente) t.push(f.cvu + ': SLB cambio la unidad a ' + f.patente + ' (este viaje es de ' + r.patente + ')');
+      }
+      if(t.length){ var c = reg(v); c.textos = c.textos.concat(t); c.nuevas.push(f); (x.pedido._ids || [x.pedido._id]).forEach(function(id){ if(c.pedidos.indexOf(id) < 0) c.pedidos.push(id); }); c.recorrido = c.recorrido || x.pedido.recorrido || null; }
+    });
+  });
+  /* cancelaciones de servicios de viajes ya creados */
+  Object.keys(cvuCancelado || {}).forEach(function(cvu){
+    GV.Storage.getViajes().forEach(function(v){
+      if(!v.slbFilas || v.estado === 'completado' || v.estado === 'cancelado') return;
+      if(!v.slbFilas.some(function(r){ return r.cvu === cvu; })) return;
+      var c = reg(v); c.textos.push('SLB cancelo el servicio ' + cvu); c.cancelar.push(cvu);
+      var pid = cvuCancelado[cvu]._id; if(c.pedidos.indexOf(pid) < 0) c.pedidos.push(pid);
+    });
+  });
+  /* los que ya se ignoraron (misma lista de cambios) no se vuelven a mostrar */
+  gCambiosSLB = cambios.filter(function(c){ c.firma = c.textos.join(' | '); return c.viaje.slbIgnorado !== c.firma; });
+}
+/* Junta lo que ya tenia el viaje con lo nuevo del mail y rearma SOLO los puntos pendientes. */
+function gvSlbAplicarCambio(k, btn){
+  var c = gCambiosSLB[k]; if(!c) return;
+  var v = GV.Storage.getViaje(c.viaje.id); if(!v) return;
+  if(btn){ btn.disabled = true; btn.textContent = 'Aplicando...'; }
+  var porCvu = {}, orden = [];
+  (v.slbFilas || []).forEach(function(r){ porCvu[r.cvu] = r; orden.push(r.cvu); });
+  c.nuevas.forEach(function(f){ if(!porCvu[f.cvu]) orden.push(f.cvu); porCvu[f.cvu] = f; });
+  c.cancelar.forEach(function(cvu){ delete porCvu[cvu]; });
+  /* si SLB paso un servicio a otra unidad, sale de este viaje (la otra unidad lo recibe como propuesta nueva) */
+  var filas = orden.filter(function(cvu){ return porCvu[cvu] && porCvu[cvu].patente === (v.slbFilas[0] || {}).patente; }).map(function(cvu){ return porCvu[cvu]; });
+  var sr = v.sitiosReal || {};
+  var ultimaVisitada = -1;
+  (v.paradas || []).forEach(function(p, i){ var x = sr['parada' + i]; if(x && (x.ingreso || x.egreso)) ultimaVisitada = i; });
+  var fin = function(patch){
+    GV.Storage.updateViaje(v.id, patch).then(function(){
+      gCambiosSLB = gCambiosSLB.filter(function(x){ return x !== c; });
+      try{ gvPintarSinPlan(); renderTracking(); renderTrips(); }catch(e){}
+      setTimeout(gvSlbRecalcularPropuestas, 1500);
+    });
+  };
+  if(!filas.length){
+    if(ultimaVisitada < 0){ if(!confirm('SLB cancelo todos los servicios de este viaje. ¿Cancelar el viaje?')){ if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return; } fin({ estado: 'cancelado', canceladoEn: new Date().toISOString(), slbFilas: [] }); return; }
+    fin({ paradas: (v.paradas || []).slice(0, ultimaVisitada + 1), slbFilas: [] });
+    return;
+  }
+  var pseudo = { _id: c.pedidos[0], _ids: c.pedidos, asunto: 'cambio', recorrido: c.recorrido || null, trs: {}, filas: filas };
+  gvSlbArmarPropuestas(pseudo).then(function(props){
+    var prop = props[0]; if(!prop) return;
+    var nuevas = prop.paradas.map(function(x){
+      if(!x.sitio) return null;
+      var cp = gvSlbCopiaSitio(x.sitio, x.tipo);
+      if(x.hora && (x.fecha || prop.fecha)){ var d = new Date((x.fecha || prop.fecha) + 'T' + (x.hora.length === 4 ? '0' + x.hora : x.hora) + ':00-03:00'); if(!isNaN(d.getTime())) cp.llegadaProgramada = d.toISOString(); }
+      return cp;
+    });
+    if(nuevas.some(function(x){ return !x; })){ alert('Hay lugares del mail sin ubicacion cargada. Cargalos con "Revisar" y volve a tocar Aplicar.'); if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return; }
+    /* lo ya visitado queda igual; de lo nuevo se sacan los primeros puntos que coinciden con lo ya visitado */
+    var hechas = (v.paradas || []).slice(0, ultimaVisitada + 1);
+    var j = 0;
+    hechas.forEach(function(h){ if(j < nuevas.length && GV.distKm(h, nuevas[j]) * 1000 < 300) j++; });
+    var paradas = hechas.concat(nuevas.slice(j));
+    var srN = {}; Object.keys(sr).forEach(function(key){ var m = /^parada(\d+)$/.exec(key); srN[key] = (m && +m[1] > ultimaVisitada) ? null : sr[key]; });
+    fin({ paradas: paradas, sitiosReal: srN, observaciones: prop.observaciones, slbFilas: filas.map(function(f){ return { cvu: f.cvu || '', fecha: f.fecha || '', hora: f.hora || '', origen: f.origen || '', destino: f.destino || '', patente: f.patente || '', tr: f.tr || '' }; }) });
+  });
+}
+function gvSlbIgnorarCambio(k){
+  var c = gCambiosSLB[k]; if(!c) return;
+  GV.Storage.updateViaje(c.viaje.id, { slbIgnorado: c.firma }).then(function(){
+    gCambiosSLB = gCambiosSLB.filter(function(x){ return x !== c; });
+    try{ gvPintarSinPlan(); }catch(e){}
+    setTimeout(gvSlbRecalcularPropuestas, 1500);
+  });
+}
+function gvSlbHtmlCambios(){
+  if(!gCambiosSLB.length) return '';
+  return '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b45309">Cambios en pedidos de viajes ya cargados (' + gCambiosSLB.length + ')</span></div>' +
+    gCambiosSLB.map(function(c, k){
+      var v = c.viaje;
+      return '<div style="padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px;background:#fffbeb">' +
+        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.vehiculo || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.conductor || '') + '</span>' +
+        (v.solicitud ? '<span style="font-size:.7rem;color:#3730a3;background:#eef2ff;border-radius:4px;padding:1px 5px">Sol. ' + GV.escapeHtml(v.solicitud) + '</span>' : '') +
+        '<span style="margin-left:auto;display:flex;gap:4px">' +
+          '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:2px 8px;font-size:.72rem" data-slb-ignorar="' + k + '">Ignorar</button>' +
+          '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" style="padding:2px 8px;font-size:.72rem;background:#d97706;border-color:#d97706" data-slb-aplicar="' + k + '">Aplicar</button>' +
+        '</span></div>' +
+        '<div style="color:#92400e;font-size:.74rem">' + c.textos.map(GV.escapeHtml).join('<br>') + '</div></div>';
+    }).join('') + '<div style="height:6px"></div>';
 }
 function gvSlbHtmlPropuestas(){
-  if(!gPropuestasSLB.length) return '';
+  var __cambiosHtml = gvSlbHtmlCambios();
+  if(!gPropuestasSLB.length) return __cambiosHtml;
   var TIPO = { carga: 'Carga', descarga: 'Descarga', ambos: 'Carga y Descarga' };
-  return '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b91c1c">Viajes del mail para confirmar (' + gPropuestasSLB.length + ')</span></div>' +
+  return __cambiosHtml + '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b91c1c">Viajes del mail para confirmar (' + gPropuestasSLB.length + ')</span></div>' +
     gPropuestasSLB.map(function(prop, k){
       var bloq = gvSlbProblemas(prop).filter(function(t){ return !/TR/.test(t); }).length > 0;
       var org = gvSlbOrigen(prop);
