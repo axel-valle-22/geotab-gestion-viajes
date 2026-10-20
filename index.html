@@ -86,7 +86,7 @@
 <div class="gv-form-row">
 <label>Recorrido<span class="gv-req">*</span></label>
 <div class="gv-route">
-<div class="gv-route-item"><button type="button" class="gv-route-btn gv-route-origen" id="gv-btn-origen"><span class="gv-route-lbl">Origen</span><span id="gv-origen-txt" class="gv-route-val gv-vacio">Tocá para elegir el punto de origen</span></button></div>
+<div class="gv-route-item gv-route-wrap"><button type="button" class="gv-route-btn gv-route-origen" id="gv-btn-origen"><span class="gv-route-lbl">Origen</span><span id="gv-origen-txt" class="gv-route-val gv-vacio">Tocá para elegir el punto de origen</span></button><button type="button" class="gv-route-x" id="gv-btn-quitar-origen" title="Quitar origen" style="display:none">&times;</button></div>
 <div id="gv-stops-list" class="gv-route"></div>
 <div class="gv-route-item"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-add-stop" style="width:100%">+ Agregar punto de carga/descarga</button></div>
 <div class="gv-route-item gv-route-wrap"><button type="button" class="gv-route-btn gv-route-destino" id="gv-btn-destino"><span class="gv-route-lbl">Destino</span><span id="gv-destino-txt" class="gv-route-val gv-vacio">Opcional: tocá para elegir el punto de destino</span></button><button type="button" class="gv-route-x" id="gv-btn-quitar-destino" title="Quitar destino" style="display:none">&times;</button></div>
@@ -2077,6 +2077,7 @@ function gvSetRouteTxt(id, loc, vacio){
   if(loc){ el.textContent = GV.siteNameFor(loc) + (loc.tipo ? ' - ' + GV.tipoParadaLabel(loc.tipo) + ' (' + GV.fmtMin(loc.duracionMin) + ')' : ''); el.classList.remove('gv-vacio'); }
   else { el.textContent = vacio; el.classList.add('gv-vacio'); }
   if(id === 'gv-destino-txt'){ var x = document.getElementById('gv-btn-quitar-destino'); if(x) x.style.display = loc ? '' : 'none'; }
+  if(id === 'gv-origen-txt'){ var xo = document.getElementById('gv-btn-quitar-origen'); if(xo) xo.style.display = loc ? '' : 'none'; }
 }
 function renderStopsList(){
   var sl = document.getElementById('gv-stops-list');
@@ -2205,6 +2206,10 @@ if(calNextBtn) calNextBtn.addEventListener('click', function(){ gCalMonth.setMon
     });
   });
 
+  document.getElementById('gv-btn-quitar-origen').addEventListener('click', function(){
+    gOrigen = null;
+    gvSetRouteTxt('gv-origen-txt', null, 'Tocá para elegir el punto de origen');
+  });
   document.getElementById('gv-btn-quitar-destino').addEventListener('click', function(){
     gDestino = null;
     gvSetRouteTxt('gv-destino-txt', null, 'Opcional: tocá para elegir el punto de destino');
@@ -5633,7 +5638,7 @@ GV.Storage.updateViaje(v.id, Object.assign({ sitiosReal: __srFinal }, __demoraFi
 
 function estadoBadge(r){
 if(r.id === 'destino' && v.estado === 'completado') return '<span class="gv-status" style="background:#d1fae5;color:#065f46">Finalizado</span>';
-if(!r.tipo) return '<span style="color:#9ca3af;font-size:.78rem">Punto de paso</span>';
+if(!r.tipo) return '<span style="color:#9ca3af;font-size:.78rem">' + (r.id === 'origen' ? 'Origen' : (r.id === 'destino' ? 'Destino' : 'Punto de paso')) + '</span>';
 if(r.realOut) return '<span class="gv-status" style="background:#d1fae5;color:#065f46">Finalizado</span>';
 if(r.realIn) return '<span class="gv-status" style="background:#fef3c7;color:#78350f">En sitio</span>';
 return '<span class="gv-status" style="background:#f3f4f6;color:#6b7280">Pendiente</span>';
