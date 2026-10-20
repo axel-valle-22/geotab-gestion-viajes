@@ -229,7 +229,11 @@ GV.pickSiteAt = function(pt, sites, opts){
     if(st) return st.site;
   }
   var pend = cands.filter(function(x){ return !x.done; });
-  var pool = pend.length ? pend : cands;
+  /* 20/10: si todos los sitios donde esta la unidad ya estan terminados (con egreso), no se vuelve a "abrir" ninguno:
+     antes se tomaba igual uno terminado y se pisaba su ingreso real (ej. volver a pasar por Solalique a la tarde
+     cambiaba el ingreso de la manana). Con sitios repetidos, la segunda pasada tiene su propio punto pendiente. */
+  if(!pend.length) return null;
+  var pool = pend;
   pool.sort(function(a, b){
     if(Math.abs(a.norm - b.norm) > 0.05) return a.norm - b.norm;
     return a.idx - b.idx;

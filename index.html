@@ -5505,6 +5505,8 @@ r.realOutDudoso = true;
 })();
 
 try{ window.__gvItinFilas = { viajeId: v.id, rows: rows }; }catch(__eIF){}
+/* 20/10: con los horarios reales ya calculados, se rehacen las marcas de la barra del reproductor para que coincidan con la tabla */
+try{ if(typeof detHistPts !== 'undefined' && detHistPts && detHistPts.length > 1){ var __plR = []; try{ __plR = detectarParadasLargas(detHistPts); }catch(__ePL2){} renderSliderMarks(findSiteIndices(pts, detHistPts), detHistPts.length - 1, __plR); } }catch(__eRSM){}
 /* 19/10: los horarios ESTIMADOS se recalculan sobre lo que realmente paso. Antes se encadenaban desde la hora de
    salida programada sumando tramos y permanencias, asi que si la unidad pernoctaba en un sitio (o se demoraba
    horas), los sitios siguientes quedaban con estimados imposibles (ej.: ingreso est. 05:14 de la manana despues de
@@ -6020,7 +6022,7 @@ var cursor = 0, broken = false;
 sitePts.forEach(function(p){
 var fila = filas.filter(function(r){ return r.id === p.id; })[0];
 var real = fila ? (p.id === 'origen' ? fila.realOut : fila.realIn) : null;
-if(!real && sr[p.id]) real = p.id === 'origen' ? sr[p.id].egreso : sr[p.id].ingreso;
+if(!real && sr[p.id]){ real = p.id === 'origen' ? sr[p.id].egreso : sr[p.id].ingreso; if(real && sr[p.id].egreso && p.id !== 'origen' && new Date(real) > new Date(sr[p.id].egreso)) real = null; }
 if(real){ var ix = idxDeHora(real); if(ix >= 0){ result.push({ idx: ix, label: p.label }); cursor = ix; return; } }
 if(broken) return;
 /* sin horario real (punto pendiente): se busca por geocerca, pero recien despues de salir del sitio anterior */
