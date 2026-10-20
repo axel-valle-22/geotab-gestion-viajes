@@ -1,0 +1,26 @@
+# Lee los mails de la carpeta SLB y deja los pedidos como borradores para confirmar en el panel.
+# APAGADO hasta que se cargue la variable de repositorio SLB_ACTIVO = true
+# (Settings > Secrets and variables > Actions > Variables) y los secretos de Microsoft (ver slb/leer-mails.mjs).
+name: Pedidos SLB desde Outlook
+on:
+  schedule:
+    - cron: '*/10 9-23 * * *'   # cada 10 min entre las 06 y las 20 hs de Argentina (UTC-3)
+  workflow_dispatch: {}
+jobs:
+  leer:
+    if: ${{ vars.SLB_ACTIVO == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node slb/test-parser.mjs > /dev/null
+      - run: node slb/leer-mails.mjs
+        env:
+          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
+          SLB_BUZON: ${{ secrets.SLB_BUZON }}
+          SLB_CARPETA: ${{ vars.SLB_CARPETA }}
