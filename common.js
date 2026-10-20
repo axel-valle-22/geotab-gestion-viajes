@@ -899,7 +899,16 @@ GV.upsertSitioPorNombre = function(nombre, lat, lng){
    (el pedacito ?mid=... de su link para compartir). Para agregar otro proveedor con su propia
    lista de sitios, alcanza con sumar otra entrada aca. */
 GV.SITIOS_AUTOSYNC_MIDS = [
-  '1weSqIhCycpP0XMub-RENyry0XNgAcKc' /* HP - Equipos y Lugares (equipos de perforacion) */
+  '1weSqIhCycpP0XMub-RENyry0XNgAcKc', /* HP - Equipos y Lugares (equipos de perforacion) */
+  /* 20/10: DLS - Ver Equipos. En el mapa figuran como "Equipo 4163" y en los pedidos como "DLS 163":
+     se guardan como "DLS 163" (el 4 de adelante es el prefijo de DLS). "Base DLS" queda igual. */
+  { mid: '1RstH1PUHyNfyMUr0KSTgThfmuDLvGwIs', renombrar: function(n){
+      var t = String(n || '').trim(), m = t.match(/^equipo\s+4(\d{3})$/i);
+      if(m) return 'DLS ' + m[1];
+      m = t.match(/^equipo\s+(.+)$/i);
+      if(m) return 'DLS ' + m[1].toUpperCase();
+      return t;
+  } }
 ];
 
 /* Se fija una vez por dia (por navegador) si hay que traer de nuevo las listas de arriba, y si
@@ -910,20 +919,23 @@ GV.SITIOS_AUTOSYNC_MIDS = [
    la app otro dia; no hace falta avisarle a nadie porque los sitios ya guardados de antes se
    siguen viendo igual mientras tanto. */
 GV.autoSyncSitiosDiario = function(){
-  var LS_KEY_SYNC = 'gv_dp_autosync_sitios_fecha';
+  var mids = GV.SITIOS_AUTOSYNC_MIDS || [];
+  /* la marca del dia incluye la cantidad de mapas: al sumar un mapa nuevo se sincroniza ese mismo dia */
+  var LS_KEY_SYNC = 'gv_dp_autosync_sitios_fecha' + (mids.length > 1 ? '_' + mids.length : '');
   var hoy = new Date().toISOString().slice(0, 10);
   try{ if(localStorage.getItem(LS_KEY_SYNC) === hoy) return; }catch(e){}
-  var mids = GV.SITIOS_AUTOSYNC_MIDS || [];
   if(!mids.length) return;
   var chain = Promise.resolve();
-  mids.forEach(function(mid){
+  mids.forEach(function(ent){
+    var mid = (typeof ent === 'string') ? ent : ent.mid;
+    var ren = (ent && typeof ent.renombrar === 'function') ? ent.renombrar : function(n){ return n; };
     chain = chain.then(function(){
       return GV.fetchMyMapsKml(mid).then(function(xmlText){
         var puntos = GV.parseKmlPlacemarks(xmlText);
         var puntosChain = Promise.resolve();
         puntos.forEach(function(p){
           if(!p.nombre) return; /* sin nombre no se puede saber con cual sitio ya guardado corresponde, se lo salta */
-          puntosChain = puntosChain.then(function(){ return GV.upsertSitioPorNombre(p.nombre, p.lat, p.lng); });
+          puntosChain = puntosChain.then(function(){ return GV.upsertSitioPorNombre(ren(p.nombre), p.lat, p.lng); });
         });
         return puntosChain;
       })['catch'](function(){ /* fallo silencioso: se reintenta la proxima vez que se abra la app */ });
