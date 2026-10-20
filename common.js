@@ -205,6 +205,23 @@ GV.pickSiteAt = function(pt, sites, opts){
     cands.push({ site: s, idx: idx, poly: poly, norm: (poly || dM == null) ? 0 : (dM/Math.max(rEff, 1)), done: !!(opts.doneIds && opts.doneIds.indexOf(s.id) >= 0) });
   });
   if(!cands.length) return null;
+  /* 20/10: sitio repetido en el recorrido (ej. carga en Solalique ... descarga final en Solalique). La segunda
+     aparicion no cuenta mientras haya puntos intermedios pendientes (sin ingreso): la unidad esta en la primera. */
+  if(opts.sitiosReal){
+    var __vis = function(id){ var x = opts.sitiosReal[id]; return !!(x && (x.ingreso || x.egreso)); };
+    cands = cands.filter(function(c){
+      if(String(c.site.id || '').indexOf('parada') !== 0) return true;
+      for(var j = 0; j < c.idx; j++){
+        var sj = sites[j]; if(!sj || typeof sj.lat !== 'number') continue;
+        var dj = GV.distKm(sj, c.site);
+        var igual = cands.some(function(o){ return o.idx === j; }) || (dj != null && dj * 1000 <= 300);
+        if(!igual) continue;
+        for(var m = j + 1; m < c.idx; m++){ var sm = sites[m]; if(sm && !__vis(sm.id)) return false; }
+      }
+      return true;
+    });
+    if(!cands.length) return null;
+  }
   var conPoly = cands.filter(function(x){ return x.poly; });
   if(conPoly.length) cands = conPoly;
   if(opts.stickyId){

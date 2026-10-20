@@ -1428,7 +1428,7 @@ function gvUnidadEnParadaFueraDeOrigen(v, r){
     if(v.origen && typeof v.origen.lat === 'number' && GV.isWithinSite(pos, v.origen)) return false;
     var sites = siteListFor(v); if(!sites.length) return false;
     var doneIds = []; Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) doneIds.push(k); });
-    var at = GV.pickSiteAt(pos, sites, { doneIds: doneIds });
+    var at = GV.pickSiteAt(pos, sites, { doneIds: doneIds, sitiosReal: v.sitiosReal || {} });
     return !!(at && at.id.indexOf('parada') === 0);
   }catch(e){ return false; }
 }
@@ -1450,7 +1450,7 @@ function gvReevaluarViajeAhora(viajeId){
         if(!sites.length) return;
         var doneIds = [];
         Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) doneIds.push(k); });
-        var atSite = GV.pickSiteAt(pos, sites, { stickyId: v.dwellState ? v.dwellState.siteId : null, doneIds: doneIds });
+        var atSite = GV.pickSiteAt(pos, sites, { stickyId: v.dwellState ? v.dwellState.siteId : null, doneIds: doneIds, sitiosReal: v.sitiosReal || {} });
         var refrescar = function(){ try{ renderTrips(); }catch(e){} try{ renderTracking(); }catch(e){} try{ renderStats(); }catch(e){} };
         /* Solo paradas: origen y destino tienen su propia logica (salida confirmada / llegada a destino). */
         if(!atSite || atSite.id.indexOf('parada') !== 0){ refrescar(); return; }
@@ -1819,7 +1819,7 @@ try{
          sitio ya abierto (con histeresis de salida) y desempate por el mas cercano / orden de itinerario. */
       var __doneIds = [];
       Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) __doneIds.push(k); });
-      var atSite = GV.pickSiteAt({lat:r.latitude,lng:r.longitude}, sites, { stickyId: dw ? dw.siteId : null, doneIds: __doneIds });
+      var atSite = GV.pickSiteAt({lat:r.latitude,lng:r.longitude}, sites, { stickyId: dw ? dw.siteId : null, doneIds: __doneIds, sitiosReal: v.sitiosReal || {} });
       if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){
         var __destSiteLive = sites.filter(function(s){ return s.id === 'destino'; })[0];
         var __mismoOrigenDestinoLive = v.origen && typeof v.origen.lat === 'number' && __destSiteLive && (GV.distKm(v.origen, __destSiteLive) * 1000) <= GV.effectiveRadiusM(__destSiteLive, sites);
@@ -5225,6 +5225,21 @@ var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __s
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
 rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, durProg: p.tipo ? gvDurProgMin(p) : null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
+
+/* 20/10: sitio repetido en el recorrido (carga en Solalique ... descarga final en Solalique). La segunda aparicion
+   queda pendiente mientras alguno de los puntos intermedios siga pendiente: si no, figuraba "en sitio" en los dos. */
+(function(){
+function __mismo(a, b){ if(a.label && b.label && a.label === b.label) return true; var d = GV.distKm(a, b); return d != null && d * 1000 <= 300; }
+rows.forEach(function(r, k){
+if(!r.id || String(r.id).indexOf('parada') !== 0 || (!r.realIn && !r.realOut)) return;
+for(var j = 0; j < k; j++){
+if(typeof rows[j].lat !== 'number' || !__mismo(rows[j], r)) continue;
+for(var m = j + 1; m < k; m++){
+if(!rows[m].realIn && !rows[m].realOut){ r.realIn = null; r.realOut = null; r.realInAuto = null; r.realOutAuto = null; r.choferMarcoIngreso = null; r.choferMarcoEgreso = null; return; }
+}
+}
+});
+})();
 
 /* Control de coherencia cronologica de los horarios reales. Los valores guardados en sitiosReal se
    sellan en vivo con la hora en que el panel detecta el cambio, asi que si el panel estuvo cerrado,
