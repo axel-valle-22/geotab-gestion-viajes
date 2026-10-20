@@ -1589,11 +1589,13 @@ GV.rutaClave = function(a, b){
    dos puntos (km mayores al doble de la linea recta + 20 km), y el promedio se recalcula con las que quedan. Asi
    una muestra mala ya guardada (ej. 366 km para dos sitios a 28 km) deja de afectar km y horarios estimados sin
    tener que borrar nada. Si no queda ninguna muestra valida, el tramo se calcula como si no tuviera memoria. */
-GV.rutaMuestrasValidas = function(x){
+/* 19/10: excluirVid = id de un viaje cuyas muestras NO se usan (al mostrar un viaje, sus propios recorridos no
+   cuentan para estimar sus horarios; si no, el estimado coincide exacto con el real). */
+GV.rutaMuestrasValidas = function(x, excluirVid){
   if(!x || !x.n || !x.a || !x.b) return null;
   var recta = GV.distKm(x.a, x.b);
   var todas = x.muestras || [];
-  var ms = todas.filter(function(m){ return m && m.km > 0 && m.min > 0 && (recta === null || m.km <= recta * 2 + 20); });
+  var ms = todas.filter(function(m){ return m && m.km > 0 && m.min > 0 && (recta === null || m.km <= recta * 2 + 20) && (!excluirVid || m.vid !== excluirVid); });
   if(!todas.length) return x;
   if(!ms.length) return null;
   if(ms.length === todas.length) return x;
@@ -1603,15 +1605,15 @@ GV.rutaMuestrasValidas = function(x){
   if(x.geoFecha && ultimaValida && ultimaValida.fecha !== x.geoFecha){ delete y.geo; delete y.geoFecha; }
   return y;
 };
-GV.buscarRutaAprendida = function(a, b){
+GV.buscarRutaAprendida = function(a, b, excluirVid){
   var R = (GV.Storage && GV.Storage.getRutas) ? GV.Storage.getRutas() : null;
   if(!R || !a || !b) return null;
   var k = GV.rutaClave(a, b);
-  var __xk = R[k] ? GV.rutaMuestrasValidas(R[k]) : null;
+  var __xk = R[k] ? GV.rutaMuestrasValidas(R[k], excluirVid) : null;
   if(__xk && __xk.n) return { id: k, r: __xk };
   var mejor = null, mejorD = 1e9;
   Object.keys(R).forEach(function(id){
-    var x = GV.rutaMuestrasValidas(R[id]); if(!x || !x.n || !x.a || !x.b) return;
+    var x = GV.rutaMuestrasValidas(R[id], excluirVid); if(!x || !x.n || !x.a || !x.b) return;
     var da = GV.distKm(a, x.a), db = GV.distKm(b, x.b);
     if(da === null || db === null || da > GV.RUTA_RADIO_KM || db > GV.RUTA_RADIO_KM) return;
     if(da + db < mejorD){ mejorD = da + db; mejor = { id: id, r: x }; }
@@ -1642,10 +1644,11 @@ GV.rutaGeoEncode = function(pts){
   while(s.length > 400){ tol *= 2; s = dps(pts); }
   return s.map(function(c){ return c[0].toFixed(5) + ',' + c[1].toFixed(5); }).join(';');
 };
-GV.getRoute = function(points){
+GV.getRoute = function(points, opts){
   if(!points || points.length < 2) return Promise.resolve(null);
+  var __excl = (opts && opts.excluirViajeId) || null;
   var mem = [];
-  for(var i = 0; i < points.length - 1; i++){ mem.push(GV.buscarRutaAprendida(points[i], points[i + 1])); }
+  for(var i = 0; i < points.length - 1; i++){ mem.push(GV.buscarRutaAprendida(points[i], points[i + 1], __excl)); }
   if(!mem.some(function(m){ return !!m; })) return GV.__getRouteOSRM(points);
   return Promise.all(mem.map(function(m, i){
     if(m){

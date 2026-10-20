@@ -2559,7 +2559,7 @@ function gvCalcularHorarioProgramado(v, legs){
   out[pts[0].id] = { ingreso: null, egreso: new Date(t).toISOString() };
   for(var i = 1; i < pts.length; i++){
     var legSeg = (legs && legs[i - 1] && typeof legs[i - 1].duration === 'number') ? legs[i - 1].duration : null;
-    if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, pts[i].p); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
+    if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, pts[i].p, v.id); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
     if(legSeg == null){ var dk = GV.distKm(pts[i - 1].p, pts[i].p) || 0; legSeg = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
     var ing = t + legSeg * 1000;
     var eg = egresoDe(pts[i].p, ing);
@@ -3091,7 +3091,7 @@ function renderTracking(){
       if(pts.length > 1){
               var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
-                GV.getRoute(pts).then(function(route){
+                GV.getRoute(pts, { excluirViajeId: v.id }).then(function(route){
                   try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC){}
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
@@ -5238,7 +5238,7 @@ if(addDestinoBtn) addDestinoBtn.addEventListener('click', agregarDestino);
 }
 
 if(pts.length > 1){
-GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
+GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; }), { excluirViajeId: v.id }).then(function(route){
 try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC2){}
 if(route && route.coords){
 detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
