@@ -4475,11 +4475,12 @@ if(document.getElementById('gv-es-acord').checked){
   __eaNew = { hasta: __hd.toISOString(), motivo: (document.getElementById('gv-es-acord-motivo').value || '').trim(), registradoEn: new Date().toISOString(), duracionProgramadaMin: __minProgramados };
 }
 var patch = {};
-if(siteId === 'origen'){ patch.origen = cloneSet(v.origen, tipoSel, newMin, __eaNew); }
-else if(siteId === 'destino'){ patch.destino = cloneSet(v.destino, tipoSel, newMin, __eaNew); }
+var vF2 = GV.Storage.getViaje(v.id) || v; /* 20/10: version fresca (ver buildSitePatch) */
+if(siteId === 'origen'){ patch.origen = cloneSet(vF2.origen, tipoSel, newMin, __eaNew); }
+else if(siteId === 'destino'){ patch.destino = cloneSet(vF2.destino, tipoSel, newMin, __eaNew); }
 else if(siteId.indexOf('parada') === 0){
 var idx = parseInt(siteId.replace('parada',''), 10);
-patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? cloneSet(pp, tipoSel, newMin, __eaNew) : pp; });
+patch.paradas = (vF2.paradas||[]).map(function(pp, i){ return i === idx ? cloneSet(pp, tipoSel, newMin, __eaNew) : pp; });
 }
 if(__ingNew){ var __srM = Object.assign({}, v.sitiosReal || {}); __srM[siteId] = Object.assign({}, __srM[siteId] || {}, { ingreso: __ingNew, ingresoGps: true, ingresoManual: true }); patch.sitiosReal = __srM; if(v.dwellState && v.dwellState.siteId === siteId){ patch.dwellState = Object.assign({}, v.dwellState, { arrivedAt: __ingNew }); } }
 GV.Storage.updateViaje(v.id, patch).then(function(){
@@ -4495,12 +4496,16 @@ gvReevaluarViajeAhora(v.id);
 }
 
 function buildSitePatch(siteId, mergeObj){
+/* 20/10: se arma sobre la version FRESCA del viaje, no sobre la copia del detalle abierto: si el viaje se modifico
+   mientras el detalle estaba abierto (otro usuario u otra pestana), editar un sitio reescribia las demas paradas con
+   los datos viejos (ej.: volvia una espera acordada que ya se habia sacado). */
+var vF = GV.Storage.getViaje(v.id) || v;
 var patch = {};
-if(siteId === 'origen'){ patch.origen = Object.assign({}, v.origen, mergeObj); }
-else if(siteId === 'destino'){ patch.destino = Object.assign({}, v.destino, mergeObj); }
+if(siteId === 'origen'){ patch.origen = Object.assign({}, vF.origen, mergeObj); }
+else if(siteId === 'destino'){ patch.destino = Object.assign({}, vF.destino, mergeObj); }
 else if(siteId.indexOf('parada') === 0){
 var idx = parseInt(siteId.replace('parada',''), 10);
-patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? Object.assign({}, pp, mergeObj) : pp; });
+patch.paradas = (vF.paradas||[]).map(function(pp, i){ return i === idx ? Object.assign({}, pp, mergeObj) : pp; });
 }
 return patch;
 }
