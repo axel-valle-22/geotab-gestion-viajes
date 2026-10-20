@@ -1473,7 +1473,17 @@ function planModal(id){
   var mat='<div class="tablewrap"><table class="tbl matrix" style="min-width:560px"><thead><tr><th>Servicio</th>'+cols.map(function(c){return '<th>'+(p.tipo==='Km'?fk(c).replace(' mil','k'):n0(c))+'</th>'}).join('')+'<th>Tareas</th></tr></thead><tbody>'+p.servicios.map(function(sv){return '<tr><td><b>Cada '+n0(sv.cada)+u+'</b></td>'+cols.map(function(c){return '<td>'+(c%sv.cada===0?'<span class="ck">✓</span>':'')+'</td>'}).join('')+'<td>'+sv.tareas.length+'</td></tr>'}).join('')+'</tbody></table></div>';
   var tareas=p.servicios.map(function(sv){return '<details><summary><b>Cada '+n0(sv.cada)+u+'</b> · '+sv.tareas.length+' tareas</summary><ul style="margin:6px 0 10px 18px;padding:0">'+sv.tareas.map(function(t){return '<li>'+esc(t)+'</li>'}).join('')+'</ul></details>'}).join('');
   var us=S.units.filter(function(x){return p.tipo==='Horas'?x.tipo!=='Eq de arrastre':p.tipo==='Km'?x.tipo!=='Eq de arrastre':true});
-  var asg='<div class="checks" style="max-height:170px;overflow:auto">'+us.map(function(x){return '<label><input class="pl-u" type="checkbox" value="'+x.id+'"'+(x.planes.indexOf(id)>=0?' checked':'')+'>'+esc(x.nombre)+' <span class="muted small">'+esc(x.patente)+'</span></label>'}).join('')+'</div>';
+  /* asignación + último service por unidad: una columna por intervalo del plan */
+  var mm=p.tipo==='Meses',ud=p.tipo==='Km'?'km':'hs';
+  var asg='<div class="note" style="margin-bottom:8px">Tildá las unidades y cargá '+(mm?'la <b>fecha</b>':'a qué <b>'+(p.tipo==='Km'?'kilómetro':'hora de motor')+'</b>')+' se hizo el último service de cada intervalo. Si lo dejás vacío se toma '+(mm?'la fecha de hoy':'la lectura actual')+' como punto de partida.</div>'+
+    '<div class="tablewrap" style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr><th></th><th>Unidad</th>'+(mm?'':'<th class="r">Actual</th>')+p.servicios.map(function(sv){return '<th>Últ. service · '+esc(svcLabel(p,sv).replace('Cada ','c/ '))+'</th>'}).join('')+'</tr></thead><tbody>'+
+    us.map(function(x){var cur=p.tipo==='Km'?x.odo:p.tipo==='Horas'?x.horas:null,has=x.planes.indexOf(id)>=0;
+      return '<tr><td><input class="pl-u" type="checkbox" value="'+x.id+'"'+(has?' checked':'')+' aria-label="Asignar a '+esc(x.nombre)+'"></td><td>'+esc(x.nombre)+' <span class="muted small">'+esc(x.patente)+'</span></td>'+
+      (mm?'':'<td class="r num">'+(cur!=null?n0(cur):'<span class="muted small">sin lectura</span>')+'</td>')+
+      p.servicios.map(function(sv,k){var st=has?S.svc[x.id+'|'+id+'|'+k]:null;
+        return '<td>'+(mm?'<input class="pl-v" data-u="'+x.id+'" data-k="'+k+'" data-mchg="plUv" type="date" max="'+iso(TD)+'" value="'+esc(st&&st.f||'')+'" aria-label="Fecha último service">':
+          '<input class="pl-v" data-u="'+x.id+'" data-k="'+k+'" data-mchg="plUv" type="number" min="0" step="any" style="width:110px" placeholder="'+ud+'" value="'+esc(st&&st.v!=null?st.v:'')+'" aria-label="Último service en '+ud+'">')+'</td>'}).join('')+'</tr>'}).join('')+
+    '</tbody></table></div>';
   modal(mhead(esc(p.nombre),'<span class="chip">'+esc(planRango(p))+'</span>')+mat+'<div><h3 style="margin-bottom:6px">Tareas por servicio</h3>'+tareas+'</div><div><h3 style="margin-bottom:6px">Unidades asignadas</h3>'+asg+'</div><div class="mf"><button class="btn" data-act="close">Cerrar</button><button class="btn" data-act="planEdit" data-id="'+id+'">Editar km y tareas</button><button class="btn primary" data-act="planAssign" data-id="'+id+'">Guardar asignación</button></div>',true)}
 function planNewModal(){modal(mhead('Nuevo plan de mantenimiento')+'<form class="form" autocomplete="off">'+fld('pn-n','Nombre del plan','','text','required')+sel('pn-t','Se mide en',[['Km','Kilómetros'],['Horas','Horas de motor'],['Meses','Meses']],'Km')+fld('pn-i','Intervalos (separados por coma)','10000, 20000','text','required')+'<label class="f full">Tareas del servicio más corto (una por línea)<textarea id="pn-ta">Cambio de aceite y filtros\nRevisión de frenos\nEngrase general</textarea></label></form><div class="mf"><button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="planSave">Crear plan</button></div>')}
 
@@ -1635,13 +1645,27 @@ var ACT={
  vidaDel:function(d){unitById(d.id).vida=null;save();closeModal();render()},
  planOpen:function(d){planModal(d.id)},
  planNew:function(){planNewModal()},
- planSave:function(){var n=val('pn-n').trim(),iv=val('pn-i').split(',').map(function(x){return parseFloat(x)}).filter(function(x){return x>0});if(!n||!iv.length){toast('Completá el nombre y al menos un intervalo.');return}var ta=val('pn-ta').split('\n').map(function(x){return x.trim()}).filter(Boolean);S.planes.push({id:'p'+(S.planes.length+1+Math.floor(Math.random()*1000)),nombre:n,tipo:val('pn-t'),servicios:iv.sort(function(a,b){return a-b}).map(function(c){return {cada:c,tareas:ta}})});save();closeModal();render();toast('Plan creado. Asignalo a las unidades desde la matriz.')},
+ planSave:function(){var n=val('pn-n').trim(),iv=val('pn-i').split(',').map(function(x){return parseFloat(x)}).filter(function(x){return x>0});if(!n||!iv.length){toast('Completá el nombre y al menos un intervalo.');return}var ta=val('pn-ta').split('\n').map(function(x){return x.trim()}).filter(Boolean);S.planes.push({id:'p'+(S.planes.length+1+Math.floor(Math.random()*1000)),nombre:n,tipo:val('pn-t'),servicios:iv.sort(function(a,b){return a-b}).map(function(c){return {cada:c,tareas:ta}})});var nid=S.planes[S.planes.length-1].id;save();render();planModal(nid);toast('Plan creado. Asignalo a las unidades y cargá el último service de cada una.')},
  planCopy:function(d){var o=OFICIALES.filter(function(x){return x.id===d.id})[0];S.planes.push({id:'p'+(S.planes.length+1+Math.floor(Math.random()*1000)),nombre:o.nombre.replace('Plan oficial · ','Plan '),tipo:o.tipo,servicios:JSON.parse(JSON.stringify(o.servicios))});UI.planTab='mis';save();render();toast('Plan copiado a "Mis planes".')},
  planAssign:function(d){var p=planById(d.id),ids=$$('.pl-u').filter(function(c){return c.checked}).map(function(c){return c.value});
+   /* último service cargado en la tabla: se valida todo antes de tocar el estado */
+   var mm=p.tipo==='Meses',ud=p.tipo==='Km'?'km':'hs',err=null,ult={};
+   $$('.pl-v').forEach(function(el){if(err||el.value==='')return;var u=unitById(el.dataset.u);if(!u||ids.indexOf(u.id)<0)return;var k=+el.dataset.k;
+     if(mm){if(el.value>iso(TD)){err=u.nombre+': la fecha del último service no puede ser futura.';return}ult[u.id+'|'+k]={f:el.value};return}
+     var v=+el.value,cur=p.tipo==='Km'?u.odo:u.horas;
+     if(isNaN(v)||v<0){err=u.nombre+': el último service tiene que ser un número mayor o igual a cero.';return}
+     if(cur!=null&&v>cur){err=u.nombre+': el último service ('+n0(v)+' '+ud+') no puede ser mayor al actual ('+n0(cur)+' '+ud+').';return}
+     ult[u.id+'|'+k]={v:v}});
+   if(err){toast(err);return}
+   var sinDato=0;
    S.units.forEach(function(u){var has=u.planes.indexOf(p.id)>=0,want=ids.indexOf(u.id)>=0;
-     if(want&&!has){u.planes.push(p.id);p.servicios.forEach(function(sv,k){var cur=p.tipo==='Km'?u.odo:p.tipo==='Horas'?u.horas:0;if(p.tipo!=='Meses'&&cur==null)return;S.svc[u.id+'|'+p.id+'|'+k]=p.tipo==='Meses'?{f:iso(TD)}:{v:cur,f:iso(TD)}})}
+     if(want&&!has)u.planes.push(p.id);
+     if(want)p.servicios.forEach(function(sv,k){var key=u.id+'|'+p.id+'|'+k,m=ult[u.id+'|'+k],st=has&&S.svc[key]?S.svc[key]:null;
+       if(m){st=st?JSON.parse(JSON.stringify(st)):{};if(mm)st.f=m.f;else{if(st.v!==m.v)delete st.f;st.v=m.v}S.svc[key]=st;return}
+       if(st)return;
+       var cur=p.tipo==='Km'?u.odo:p.tipo==='Horas'?u.horas:0;if(!mm&&cur==null){sinDato++;return}S.svc[key]=mm?{f:iso(TD)}:{v:cur,f:iso(TD)}});
      if(!want&&has){u.planes=u.planes.filter(function(x){return x!==p.id});p.servicios.forEach(function(sv,k){delete S.svc[u.id+'|'+p.id+'|'+k]})}});
-   save();closeModal();render();toast('Asignación guardada. Para cargar el último service de cada unidad usá Preventivo → Último service y preaviso.')},
+   save();closeModal();render();toast('Asignación y último service guardados.'+(sinDato?' Hay unidades sin lectura de '+(p.tipo==='Km'?'odómetro':'horómetro')+': cargales el último service para calcular el vencimiento.':''))},
  cfgSave:function(){var c=S.cfg,g=function(id,d){var v=parseFloat(val(id));return isNaN(v)?d:v};
    c.preKm=g('c-pk',c.preKm);c.preHs=g('c-ph',c.preHs);c.preDias=g('c-pd',c.preDias);c.minMotor=g('c-mm',c.minMotor);c.minKm=g('c-mk',c.minKm);c.checkVig=g('c-cv',c.checkVig);c.checkPre=g('c-cp',c.checkPre);c.precioLitro=g('c-pl',c.precioLitro);c.tolRend=g('c-tr',c.tolRend);c.refL100['Camión']=g('c-rc',c.refL100['Camión']);c.refL100['Camioneta']=g('c-rp',c.refL100['Camioneta']);
    var ru=val('c-ru').split(',').map(function(x){return parseFloat(x)});if(ru.length===4&&ru.every(function(x){return x>0})&&ru[0]<ru[1]&&ru[1]<ru[2]&&ru[2]<ru[3])c.ralU=ru;else toast('Las franjas de ralentí deben ser 4 valores crecientes. Se conservaron las anteriores.');
@@ -1659,6 +1683,7 @@ var CHG={
  otFac:function(el){if(el.files&&el.files[0]){collect();M.facturas.push(el.files[0].name);var o=otById(M.id);o.facturas=M.facturas.slice();logA(o,'Factura adjunta: '+el.files[0].name);save();showOT()}}
 };
 var MCHG={
+ plUv:function(el){if(el.value==='')return;var tr=el.closest('tr'),c=tr&&tr.querySelector('.pl-u');if(c)c.checked=true},
  unit:function(){collect();var u=unitById(val('o-unit'));M.unitId=u.id;M.odo=u.odo;M.horas=u.horas;M.svcKey='';M.avIds=[];showOT()},
  taller:function(){collect();M.mec=[];showOT()},
  engUnidad:function(){var u=unitById(val('e-u'));if(!u)return;var o=$('#e-odo'),h=$('#e-hs');if(o)o.value=u.odo!=null?Math.round(u.odo):'';if(h)h.value=u.horas!=null?Math.round(u.horas*10)/10:''},
