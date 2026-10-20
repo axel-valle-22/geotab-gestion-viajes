@@ -6010,10 +6010,23 @@ updateTimeLabelsForDate(new Date(r.dateTime));
 function findSiteIndices(sitePts, hist){
 var result = [];
 if(!hist || !hist.length) return result;
+/* 20/10: las marcas de la barra usan el MISMO horario real que muestra la tabla (ingreso registrado de cada sitio;
+   del origen, su salida). Antes se buscaba por geocerca en orden y, con sitios repetidos o pegados (Solalique / WIS /
+   Solalique / WIS), las marcas quedaban amontonadas en el primer paso y no coincidian con la tabla. */
+var sr = (v && v.sitiosReal) || {};
+var filas = (window.__gvItinFilas && window.__gvItinFilas.viajeId === v.id) ? window.__gvItinFilas.rows : [];
+var idxDeHora = function(iso){ var t = new Date(iso).getTime(); if(isNaN(t)) return -1; for(var i = 0; i < hist.length; i++){ if(new Date(hist[i].dateTime).getTime() >= t) return i; } return -1; };
 var cursor = 0, broken = false;
 sitePts.forEach(function(p){
+var fila = filas.filter(function(r){ return r.id === p.id; })[0];
+var real = fila ? (p.id === 'origen' ? fila.realOut : fila.realIn) : null;
+if(!real && sr[p.id]) real = p.id === 'origen' ? sr[p.id].egreso : sr[p.id].ingreso;
+if(real){ var ix = idxDeHora(real); if(ix >= 0){ result.push({ idx: ix, label: p.label }); cursor = ix; return; } }
 if(broken) return;
+/* sin horario real (punto pendiente): se busca por geocerca, pero recien despues de salir del sitio anterior */
 var hi = cursor, found = -1;
+var prev = result.length ? sitePts.filter(function(x){ return x.label === result[result.length - 1].label; })[0] : null;
+if(prev){ while(hi < hist.length && GV.isWithinSiteEx({lat:hist[hi].latitude,lng:hist[hi].longitude}, prev, sitePts, 0)) hi++; }
 for(; hi < hist.length; hi++){
 var hr = hist[hi];
 if(GV.isWithinSiteEx({lat:hr.latitude,lng:hr.longitude}, p, sitePts, 0)){ found = hi; break; }
