@@ -227,8 +227,11 @@ function siteGeofenceLayer(loc, layerGroup, opts){
   var color = opts.color || '#2563eb';
   var weight = opts.weight != null ? opts.weight : 1;
   var fillOpacity = opts.fillOpacity != null ? opts.fillOpacity : .12;
-  if(loc && loc.poligono && loc.poligono.length >= 3){
-    return layerGroup.add(new google.maps.Polygon({ paths: loc.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }), strokeColor: color, strokeWeight: weight, fillColor: color, fillOpacity: fillOpacity }));
+  /* 20/10: si el sitio del viaje no tiene geocerca propia pero hay un sitio guardado con geocerca dibujada en el
+     mismo lugar, se dibuja esa (GV.poligonoDeSitio en common.js). */
+  var __pgDib = (GV.poligonoDeSitio ? GV.poligonoDeSitio(loc) : (loc && loc.poligono));
+  if(loc && __pgDib && __pgDib.length >= 3){
+    return layerGroup.add(new google.maps.Polygon({ paths: __pgDib.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }), strokeColor: color, strokeWeight: weight, fillColor: color, fillOpacity: fillOpacity }));
   }
   /* Se dibuja el radio EFECTIVO: si otro sitio del mismo viaje esta cerca, el circulo se recorta para
      que las areas no se superpongan (opts.otros = los demas puntos del viaje). */

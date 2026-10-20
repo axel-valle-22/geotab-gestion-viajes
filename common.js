@@ -81,9 +81,33 @@ GV.pointInPolygon = function(pt, poly){
 };
 /* Determina si un punto esta dentro de un sitio: usa el poligono dibujado a mano si existe,
    o el circulo automatico (GV.SITE_GEOFENCE_M) en caso contrario. siteLike: {lat,lng,poligono?}. */
+/* 20/10: geocerca efectiva de un sitio de un viaje. Si el sitio del viaje no tiene poligono propio pero esta en
+   el mismo lugar (a 30 m o menos) que un sitio GUARDADO que tiene la geocerca dibujada a mano, se usa la del sitio
+   guardado. Asi todos los viajes (los ya cargados y los futuros) toman la geocerca dibujada (ej. RAO SLB) en lugar
+   del circulo por defecto, y si despues se redibuja en el sitio guardado, los viajes la siguen solos. */
+GV.__poliCache = { t: 0, n: -1, m: {} };
+GV.poligonoDeSitio = function(siteLike){
+  if(!siteLike || typeof siteLike.lat !== 'number') return null;
+  if(siteLike.poligono && siteLike.poligono.length >= 3) return siteLike.poligono;
+  var sitios = (GV.Storage && GV.Storage.getSitios) ? (GV.Storage.getSitios() || []) : [];
+  if(!Array.isArray(sitios)) sitios = Object.values(sitios);
+  var C = GV.__poliCache, ahora = Date.now();
+  if(ahora - C.t > 30000 || C.n !== sitios.length){ C.t = ahora; C.n = sitios.length; C.m = {}; }
+  var k = siteLike.lat.toFixed(5) + ',' + siteLike.lng.toFixed(5);
+  if(Object.prototype.hasOwnProperty.call(C.m, k)) return C.m[k];
+  var best = null, bestD = null;
+  sitios.forEach(function(s){
+    if(!s || typeof s.lat !== 'number' || !s.poligono || s.poligono.length < 3) return;
+    var d = GV.distKm(siteLike, s);
+    if(d != null && d * 1000 <= 30 && (bestD == null || d < bestD)){ bestD = d; best = s.poligono; }
+  });
+  C.m[k] = best;
+  return best;
+};
 GV.isWithinSite = function(pt, siteLike){
   if(!pt || !siteLike || typeof siteLike.lat !== 'number') return false;
-  if(siteLike.poligono && siteLike.poligono.length >= 3) return GV.pointInPolygon(pt, siteLike.poligono);
+  var __pg = GV.poligonoDeSitio(siteLike);
+  if(__pg) return GV.pointInPolygon(pt, __pg);
   var d = GV.distKm(pt, siteLike);
   return d != null && d*1000 <= GV.SITE_GEOFENCE_M;
 };
@@ -139,7 +163,8 @@ GV.effectiveRadiusM = function(loc, others){
 };
 GV.isWithinSiteEx = function(pt, siteLike, others, extraM){
   if(!pt || !siteLike || typeof siteLike.lat !== "number") return false;
-  if(siteLike.poligono && siteLike.poligono.length >= 3) return GV.pointInPolygon(pt, siteLike.poligono);
+  var __pg = GV.poligonoDeSitio(siteLike);
+  if(__pg) return GV.pointInPolygon(pt, __pg);
   var d = GV.distKm(pt, siteLike);
   return d != null && d*1000 <= GV.effectiveRadiusM(siteLike, others) + (extraM || 0);
 };
@@ -169,12 +194,13 @@ GV.pickSiteAt = function(pt, sites, opts){
   var cands = [];
   (sites||[]).forEach(function(s, idx){
     if(!s || typeof s.lat !== "number") return;
-    var poly = !!(s.poligono && s.poligono.length >= 3);
+    var __pgS = GV.poligonoDeSitio(s);
+    var poly = !!__pgS;
     var extra = (opts.stickyId && opts.stickyId === s.id) ? GV.SITE_EXIT_HYSTERESIS_M : 0;
     var rEff = GV.effectiveRadiusM(s, sites);
     var dKm = GV.distKm(pt, s);
     var dM = (dKm == null) ? null : dKm*1000;
-    var dentro = poly ? GV.pointInPolygon(pt, s.poligono) : (dM != null && dM <= rEff + extra);
+    var dentro = poly ? GV.pointInPolygon(pt, __pgS) : (dM != null && dM <= rEff + extra);
     if(!dentro) return;
     cands.push({ site: s, idx: idx, poly: poly, norm: (poly || dM == null) ? 0 : (dM/Math.max(rEff, 1)), done: !!(opts.doneIds && opts.doneIds.indexOf(s.id) >= 0) });
   });
