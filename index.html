@@ -4859,7 +4859,9 @@ GV.pickLocation({
 title: 'Editar ubicacion: ' + (p ? (p.dir || p.label) : siteId),
 initial: { lat: cur.lat, lng: cur.lng, direccion: cur.direccion || (p && p.dir) || '', tipo: cur.tipo, duracionMin: cur.duracionMin, poligono: cur.poligono || null },
 withStopFields: isParada,
-otros: pts.filter(function(pp){ return pp.id !== siteId; })
+otros: pts.filter(function(pp){ return pp.id !== siteId; }),
+mantenerNombre: true, nombreSitio: GV.siteNameFor(cur) || cur.direccion || (p && (p.dir || p.label)) || '',
+mostrarCamion: true, vehiculoId: v.vehiculoId, api: gApi
 }).then(function(res){
 if(!res) return;
 var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null };
