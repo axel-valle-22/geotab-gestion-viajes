@@ -37,7 +37,7 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><span style="font-size:.78rem;color:#6b7280;align-self:center">Toca un dia: hoy abre Seguimiento, los otros dias muestran sus viajes.</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-pedidos-slb" title="Viajes armados desde los mails de confirmacion de SLB, para revisar y crear">Pedidos SLB <span id="gv-pedidos-slb-n" style="display:none;background:#dc2626;color:#fff;border-radius:999px;padding:0 6px;font-size:.7rem;margin-left:3px"></span></button><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><span style="font-size:.78rem;color:#6b7280;align-self:center">Toca un dia: hoy abre Seguimiento, los otros dias muestran sus viajes.</span><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
 <div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
@@ -3017,12 +3017,13 @@ function gvRenderMasHoy(forzar){
 function gvPintarSinPlan(){
   var el = document.getElementById('gv-mh-sp'), n = document.getElementById('gv-mh-sp-n');
   if(!el) return;
-  if(n) n.textContent = '(' + gMhSinPlan.length + ')';
-  if(!gMhSinPlan.length){ el.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'; return; }
+  if(n) n.textContent = '(' + (gMhSinPlan.length + gPropuestasSLB.length) + ')';
+  var __slbHtml = gvSlbHtmlPropuestas();
+  if(!gMhSinPlan.length){ el.innerHTML = __slbHtml + (__slbHtml ? '' : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'); gvSlbEnlazarBotones(el); return; }
   var grupos = {};
   gMhSinPlan.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
   var claves = Object.keys(grupos).sort(function(a, b){ return a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b); });
-  el.innerHTML = claves.map(function(c){
+  el.innerHTML = __slbHtml + claves.map(function(c){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
         return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
@@ -3030,6 +3031,7 @@ function gvPintarSinPlan(){
           '<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span><span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
       }).join('');
   }).join('');
+  gvSlbEnlazarBotones(el);
 }
 /* Abre Nuevo Viaje con la unidad, el chofer detectado (si Geotab lo identifico) y el origen en la ultima posicion
    del camion (como el boton "Usar ultima posicion del camion": si esta circulando, el viaje nace en curso). */
@@ -3487,12 +3489,74 @@ function gvSlbPintarContador(){
   n.textContent = gPedidosSLB.length ? String(gPedidosSLB.length) : '';
   n.style.display = gPedidosSLB.length ? 'inline-block' : 'none';
 }
+/* 20/10: los viajes armados desde los pedidos aparecen PRIMERO en Seguimiento, en el cuadro "Viajes en curso sin
+   planificacion", dentro de SLB, con un boton "Confirmar" (o "Revisar" si falta algun dato). */
+var gPropuestasSLB = [];
+var __gvSlbRecalcGen = 0;
+function gvSlbRecalcularPropuestas(){
+  var gen = ++__gvSlbRecalcGen;
+  if(!gPedidosSLB.length){ gPropuestasSLB = []; gvSlbAvisoSeguimiento(); try{ gvPintarSinPlan(); }catch(e){} return; }
+  Promise.all(gPedidosSLB.map(function(p){ return gvSlbArmarPropuestas(p).then(function(props){ return props.map(function(x){ x.pedido = p; x.todas = props; return x; }); })['catch'](function(){ return []; }); })).then(function(listas){
+    if(gen !== __gvSlbRecalcGen) return;
+    gPropuestasSLB = [].concat.apply([], listas).filter(function(x){ return !x.existente; });
+    /* pedidos que ya tienen todos sus viajes cargados: se cierran solos */
+    gPedidosSLB.forEach(function(p){ var ps = [].concat.apply([], listas).filter(function(x){ return x.pedido === p; }); if(ps.length && ps.every(function(x){ return x.existente; })) gvSlbActualizarPedido(p._id, { estado: 'procesado', procesadoEn: new Date().toISOString() }); });
+    gvSlbAvisoSeguimiento();
+    try{ gvPintarSinPlan(); }catch(e){}
+  });
+}
+/* En el boton "Mostrar mas viajes de hoy" de Seguimiento se avisa cuantos viajes de SLB hay para confirmar. */
+function gvSlbAvisoSeguimiento(){
+  var t = document.getElementById('gv-btn-toggle-mas-hoy'); if(!t) return;
+  var base = t.textContent.replace(/\s*\(\d+ por confirmar\)$/, '');
+  t.textContent = base + (gPropuestasSLB.length ? (' (' + gPropuestasSLB.length + ' por confirmar)') : '');
+  t.style.borderColor = gPropuestasSLB.length ? '#dc2626' : '';
+}
+function gvSlbConfirmarPropuesta(idx, btn){
+  var prop = gPropuestasSLB[idx]; if(!prop) return;
+  if(btn){ btn.disabled = true; btn.textContent = 'Creando...'; }
+  gvSlbCrearViaje(prop).then(function(){
+    prop.creado = true;
+    var faltan = (prop.todas || []).filter(function(x){ return !x.creado && !x.existente; }).length;
+    if(!faltan && prop.pedido){ gvSlbActualizarPedido(prop.pedido._id, { estado: 'procesado', procesadoEn: new Date().toISOString() }); }
+    gPropuestasSLB = gPropuestasSLB.filter(function(x){ return x !== prop; });
+    gvSlbAvisoSeguimiento();
+    try{ gvPintarSinPlan(); renderTracking(); renderStats(); }catch(e){}
+  });
+}
+function gvSlbEnlazarBotones(el){
+  if(!el) return;
+  el.querySelectorAll('[data-slb-confirmar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvSlbConfirmarPropuesta(+b.getAttribute('data-slb-confirmar'), b); }); });
+  el.querySelectorAll('[data-slb-revisar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvAbrirPedidosSLB(); }); });
+}
+function gvSlbHtmlPropuestas(){
+  if(!gPropuestasSLB.length) return '';
+  var TIPO = { carga: 'Carga', descarga: 'Descarga', ambos: 'Carga y Descarga' };
+  return '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b91c1c">Viajes del mail para confirmar (' + gPropuestasSLB.length + ')</span></div>' +
+    gPropuestasSLB.map(function(prop, k){
+      var bloq = gvSlbProblemas(prop).filter(function(t){ return !/TR/.test(t); }).length > 0;
+      var org = gvSlbOrigen(prop);
+      var ruta = [org ? (GV.siteNameFor(org) || org.direccion) : '?'].concat(prop.paradas.map(function(x){ return (x.sitio ? x.sitio.nombre : (x.txt + ' (sin ubicacion)')) + ' (' + TIPO[x.tipo] + ')'; })).join(' → ');
+      return '<div style="padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px;background:#fef2f2">' +
+        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(prop.vehiculo ? prop.vehiculo.text : prop.patente) + '</b><span style="color:#374151">' + GV.escapeHtml(prop.chofer ? prop.chofer.text : (prop.filas[0].chofer || '')) + '</span>' +
+        (prop.solicitud ? '<span style="font-size:.7rem;color:#3730a3;background:#eef2ff;border-radius:4px;padding:1px 5px">Sol. ' + GV.escapeHtml(prop.solicitud) + '</span>' : '') +
+        '<span style="font-size:.74rem;color:#6b7280">Salida ' + GV.escapeHtml(prop.fechaSalida.slice(8, 10) + '/' + prop.fechaSalida.slice(5, 7) + ' ' + prop.fechaSalida.slice(11, 16)) + '</span>' +
+        '<span style="margin-left:auto;display:flex;gap:4px">' +
+          '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:2px 8px;font-size:.72rem" data-slb-revisar="' + k + '">Revisar</button>' +
+          (bloq ? '' : '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" style="padding:2px 8px;font-size:.72rem" data-slb-confirmar="' + k + '">Confirmar</button>') +
+        '</span></div>' +
+        '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + GV.escapeHtml(ruta) + '">' + GV.escapeHtml(ruta) + '</div>' +
+        (bloq ? '<div style="color:#b45309;font-size:.72rem">' + gvSlbProblemas(prop).map(GV.escapeHtml).join(' ') + ' Toca "Revisar".</div>' : '') +
+        '</div>';
+    }).join('') + '<div style="height:6px"></div>';
+}
 function gvEscucharPedidosSLB(){
   GV.loadFirebase().then(function(firebase){
     if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
     firebase.firestore().collection('gv_pedidos_slb').where('estado', '==', 'pendiente').onSnapshot(function(qs){
       gPedidosSLB = qs.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); }).sort(function(a, b){ return String(b.recibido).localeCompare(String(a.recibido)); });
       gvSlbPintarContador();
+      gvSlbRecalcularPropuestas();
     }, function(err){ try{ console.warn('[GV] pedidos SLB', err && err.message); }catch(e){} });
   })['catch'](function(){});
 }
@@ -3548,6 +3612,7 @@ function gvAbrirPedidosSLB(){
         gvSlbCrearViaje(prop).then(function(){
           prop.creado = true;
           renderStats(); if(gPanelView === 'calendario') renderCalendar();
+          try{ gvSlbRecalcularPropuestas(); }catch(__eRc){}
           var faltan = props.filter(function(x){ return !x.creado && !x.existente; }).length;
           if(!faltan){ gvSlbActualizarPedido(p._id, { estado: 'procesado', procesadoEn: new Date().toISOString() }); }
           armar(p);
@@ -6031,7 +6096,7 @@ function doInit(api){
   setupEvents();
 
   GV.Storage.init(api).then(function(){
-    try{ gvEscucharPedidosSLB(); var __bps = document.getElementById('gv-btn-pedidos-slb'); if(__bps) __bps.addEventListener('click', gvAbrirPedidosSLB); }catch(__ePS){}
+    try{ gvEscucharPedidosSLB(); }catch(__ePS){}
     checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
