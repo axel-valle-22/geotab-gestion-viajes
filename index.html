@@ -2533,42 +2533,69 @@ llega) y no solo los que suman al avance. */
 /* 19/10: legs de ruta (duracion de cada tramo) calculados por el panel (Seguimiento o detalle), por viaje, para que
    el link del cliente use los mismos tiempos de tramo que se ven en el detalle. */
 var gvRutaLegsCache = {};
-/* 19/10: horario ESTIMADO de ingreso/egreso de cada sitio para el link del cliente, con la misma logica del detalle:
-   la salida del sitio anterior es la mas tardia entre la real y la estimada (pernocte, demora o espera acordada),
-   y se le suma el tiempo del tramo (ruta aprendida, la calculada por el panel, o un aproximado por distancia). */
-function gvEstimadosCompartir(v){
+/* 19/10: horario PROGRAMADO (fijo) de cada sitio para el link del cliente. Sale solo de la programacion del viaje:
+   salida programada + tiempo de cada tramo + permanencia programada (o la espera acordada, si la hay). No se
+   recalcula con lo que va pasando en el viaje: queda guardado en el viaje (v.horarioProgramado) y solo se vuelve a
+   calcular si cambia la programacion (fecha de salida, sitios, tipos, permanencias o esperas acordadas). */
+function gvFirmaProgramacion(v){
+  return JSON.stringify([v.fechaSalida || ''].concat(gvRutaPuntosViaje(v).map(function(x){
+    var p = x.p || {};
+    return [x.id, Number(p.lat).toFixed(5), Number(p.lng).toFixed(5), p.tipo || '', p.duracionMin || 0, (p.esperaAcordada && p.esperaAcordada.hasta) || '', p.permaneceHasta || ''];
+  })));
+}
+function gvCalcularHorarioProgramado(v, legs){
   var pts = gvRutaPuntosViaje(v);
-  var sr = v.sitiosReal || {};
-  var res = {};
-  if(!pts.length) return res;
-  var cache = gvRutaLegsCache[v.id];
-  var legsOk = cache && cache.n === pts.length ? cache.legs : null;
-  var enCurso = (v.estado === 'en_curso' || v.estado === 'demorado');
-  function ms(iso){ var t = iso ? new Date(iso).getTime() : NaN; return isNaN(t) ? null : t; }
-  var sal = ms(v.fechaSalida);
-  var o = sr[pts[0].id] || {};
-  var prevEgEst = sal, prevEgReal = ms(o.egreso), prevInReal = ms(o.ingreso), prevDur = 0;
-  if(pts[0].id !== 'origen'){ prevEgEst = sal; }
-  res[pts[0].id] = { ingresoEst: null, egresoEst: sal ? new Date(sal).toISOString() : null };
-  for(var i = 1; i < pts.length; i++){
-    var P = pts[i].p, id = pts[i].id, s = sr[id] || {};
-    var salidaPrev = (prevEgReal != null && prevEgEst != null) ? Math.max(prevEgReal, prevEgEst) : (prevEgReal != null ? prevEgReal : prevEgEst);
-    if(prevEgReal == null && prevInReal != null && enCurso && prevEgEst != null && prevEgEst < Date.now()) salidaPrev = Date.now();
-    if(salidaPrev == null){ res[id] = { ingresoEst: null, egresoEst: null }; prevEgEst = null; prevEgReal = ms(s.egreso); prevInReal = ms(s.ingreso); continue; }
-    var legSeg = null;
-    if(legsOk && legsOk[i - 1] && typeof legsOk[i - 1].duration === 'number') legSeg = legsOk[i - 1].duration;
-    if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, P); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
-    if(legSeg == null){ var dk = GV.distKm(pts[i - 1].p, P) || 0; legSeg = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
-    var ing = salidaPrev + legSeg * 1000;
-    var base = ms(s.ingreso) != null ? ms(s.ingreso) : ing;
-    var eg = base;
-    if(P.tipo === 'espera' && P.permaneceHasta) eg = ms(P.permaneceHasta);
-    else if(P.tipo && P.esperaAcordada && P.esperaAcordada.hasta) eg = Math.max(base, ms(P.esperaAcordada.hasta));
-    else if(P.tipo && P.duracionMin) eg = base + P.duracionMin * 60000;
-    res[id] = { ingresoEst: new Date(ing).toISOString(), egresoEst: eg != null ? new Date(eg).toISOString() : null };
-    prevEgEst = eg; prevEgReal = ms(s.egreso); prevInReal = ms(s.ingreso);
+  var out = {};
+  if(!pts.length) return out;
+  var t = new Date(v.fechaSalida).getTime();
+  if(isNaN(t)) return out;
+  function egresoDe(p, ing){
+    if(p.tipo === 'espera' && p.permaneceHasta) return new Date(p.permaneceHasta).getTime();
+    var prog = (p.esperaAcordada && typeof p.esperaAcordada.duracionProgramadaMin === 'number') ? p.esperaAcordada.duracionProgramadaMin : (p.duracionMin || 0);
+    var eg = ing + (p.tipo ? prog : 0) * 60000;
+    if(p.tipo && p.esperaAcordada && p.esperaAcordada.hasta){ var h = new Date(p.esperaAcordada.hasta).getTime(); if(!isNaN(h) && h > eg) eg = h; }
+    return eg;
   }
+  out[pts[0].id] = { ingreso: null, egreso: new Date(t).toISOString() };
+  for(var i = 1; i < pts.length; i++){
+    var legSeg = (legs && legs[i - 1] && typeof legs[i - 1].duration === 'number') ? legs[i - 1].duration : null;
+    if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, pts[i].p); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
+    if(legSeg == null){ var dk = GV.distKm(pts[i - 1].p, pts[i].p) || 0; legSeg = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
+    var ing = t + legSeg * 1000;
+    var eg = egresoDe(pts[i].p, ing);
+    out[pts[i].id] = { ingreso: new Date(ing).toISOString(), egreso: new Date(eg).toISOString() };
+    t = eg;
+  }
+  return out;
+}
+/* Devuelve el horario programado guardado si sigue valido; si no hay (o cambio la programacion) y se tienen los
+   tramos de la ruta (legs), lo calcula y lo guarda en el viaje para que quede fijo para todos. */
+function gvHorarioProgramado(v, legs){
+  if(!v) return {};
+  var __vAct = GV.Storage.getViaje(v.id) || v;
+  var firma = gvFirmaProgramacion(__vAct);
+  var hp = __vAct.horarioProgramado || v.horarioProgramado;
+  if(hp && hp.firma === firma && hp.sitios) return hp.sitios;
+  var calc = gvCalcularHorarioProgramado(__vAct, legs);
+  if(legs && __vAct.estado !== 'completado' && __vAct.estado !== 'cancelado'){
+    var __hpNuevo = { firma: firma, sitios: calc, calculadoEn: new Date().toISOString() };
+    try{ __vAct.horarioProgramado = __hpNuevo; v.horarioProgramado = __hpNuevo; GV.Storage.updateViaje(v.id, { horarioProgramado: __hpNuevo }); }catch(__eHP){}
+  }
+  return calc;
+}
+function gvEstimadosCompartir(v){
+  var cache = gvRutaLegsCache[v.id];
+  var n = gvRutaPuntosViaje(v).length;
+  var hp = gvHorarioProgramado(v, (cache && cache.n === n) ? cache.legs : null);
+  var res = {};
+  Object.keys(hp).forEach(function(k){ res[k] = { ingresoEst: hp[k].ingreso, egresoEst: hp[k].egreso }; });
   return res;
+}
+/* Para el link: campo aparte "horarios" en el documento compartido (no lo pisa una version vieja del panel que
+   todavia mande "sitios" sin horarios). */
+function gvHorariosCompartir(v){
+  var e = {}; try{ e = gvEstimadosCompartir(v); }catch(__eH){}
+  return e;
 }
 function gvSitiosCompartir(v){
 var out = [];
@@ -3065,7 +3092,7 @@ function renderTracking(){
               var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
                 GV.getRoute(pts).then(function(route){
-                  try{ if(route && route.legs) gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; }catch(__eLC){}
+                  try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC){}
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
@@ -3224,6 +3251,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''),
             destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''),
             sitios: gvSitiosCompartir(v),
+            horarios: gvHorariosCompartir(v),
             pos: (res && res.length && res[0].latitude != null) ? { lat: res[0].latitude, lng: res[0].longitude, bearing: res[0].bearing || 0, speed: Math.round(res[0].speed || 0), dateTime: res[0].dateTime || null } : null
           });
         }
@@ -4223,7 +4251,7 @@ var __detCompartirBtn = document.getElementById('gv-det-compartir'); if(__detCom
   if(v.compartirToken){ closeDetalle(); abrirDetalleViaje(v.id); return; }
   var __tok = GV.genId('sh');
   GV.Storage.updateViaje(v.id, { compartirToken: __tok }).then(function(){
-    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), sitios: gvSitiosCompartir(v), creadoEn: new Date().toISOString() });
+    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), sitios: gvSitiosCompartir(v), horarios: gvHorariosCompartir(v), creadoEn: new Date().toISOString() });
   }).then(function(){ closeDetalle(); abrirDetalleViaje(v.id); });
 }); }
 var __detCompartirCopiarBtn = document.getElementById('gv-det-compartir-copiar'); if(__detCompartirCopiarBtn){ __detCompartirCopiarBtn.addEventListener('click', function(){
@@ -5211,7 +5239,7 @@ if(addDestinoBtn) addDestinoBtn.addEventListener('click', agregarDestino);
 
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
-try{ if(route && route.legs) gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; }catch(__eLC2){}
+try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC2){}
 if(route && route.coords){
 detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
 } else {

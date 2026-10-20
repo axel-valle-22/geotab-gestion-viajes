@@ -183,6 +183,7 @@
   var gSiteLabels = {};
   var gPolyline = null;
   var gSitiosDrawn = false;
+  var gHorariosVistos = {};
   var gBoundsFitted = false;
 
   var ESTADO_COLOR = { done:'#059669', active:'#2563eb', pending:'#d97706' };
@@ -291,6 +292,16 @@
 
     /* 19/10: lista de sitios con el horario estimado de llegada (o el real si ya llego/salio). Hora de Argentina. */
     var sitEl = document.getElementById('gv-sh-sitios');
+    /* Horario programado fijo: viene en "horarios" (o en cada sitio). Si una actualizacion llega sin horarios, se
+       mantienen los ultimos conocidos para que no desaparezcan de la pantalla. */
+    var H = data.horarios || {};
+    (data.sitios || []).forEach(function(s){
+      var h = H[s.id] || {};
+      var ing = h.ingresoEst || s.ingresoEst || null, eg = h.egresoEst || s.egresoEst || null;
+      if(ing || eg){ gHorariosVistos[s.id] = { ingresoEst: ing, egresoEst: eg }; }
+      var g = gHorariosVistos[s.id] || {};
+      s.ingresoEst = g.ingresoEst || null; s.egresoEst = g.egresoEst || null;
+    });
     if(sitEl){
       var sitios = data.sitios || [];
       var nPar = 0;
@@ -300,7 +311,7 @@
         if(s.role === 'origen'){ dot = 'O'; col = '#059669'; } else if(s.role === 'destino'){ dot = 'D'; col = '#dc2626'; } else { nPar++; dot = String(nPar); col = '#d97706'; }
         var hor = '';
         if(s.role === 'origen'){
-          hor = s.egresoReal ? ('<span class="real">Salio ' + fh(s.egresoReal) + '</span>') : (s.egresoEst ? ('<span class="est">Salida prevista ' + fh(s.egresoEst) + '</span>') : '');
+          hor = s.egresoReal ? ('<span class="real">Salio ' + fh(s.egresoReal) + '</span>') : (s.egresoEst ? ('<span class="est">Salida programada ' + fh(s.egresoEst) + '</span>') : '');
         } else if(s.ingresoReal){
           hor = '<span class="real">Llego ' + fh(s.ingresoReal) + '</span>' + (s.egresoReal ? ('<small>Salio ' + fh(s.egresoReal) + '</small>') : (s.role !== 'destino' && s.egresoEst && estado !== 'completado' ? ('<small>Salida estimada ' + fh(s.egresoEst) + '</small>') : ''));
         } else if(estado === 'completado' || estado === 'cancelado'){
