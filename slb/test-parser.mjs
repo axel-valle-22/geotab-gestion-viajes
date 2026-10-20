@@ -14,4 +14,22 @@ const html = `<p>Estimados, confirmamos el servicio de transporte solicitado:</p
 const r = parseMailSLB(html, '2026-10-19T22:10:00Z');
 console.log(JSON.stringify(r, null, 1));
 const ok = r.filas.length === 6 && r.trs.AF576JA === 'TR2600591149' && r.trs.AG791PX === 'TR2600591148' && r.filas[0].fecha === '2026-10-20' && r.filas[1].hora === '11:00' && r.filas[0].origen.includes('Añelo');
-console.log(ok ? 'TEST OK' : 'TEST FALLO'); process.exit(ok ? 0 : 1);
+/* 20/10: formatos reales (datos inventados) */
+const T = (enc, filas) => '<table><tr>' + enc.map(c => '<td>' + c + '</td>').join('') + '</tr>' + filas.map(f => '<tr>' + f.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</table>';
+const ENC = ['CVU','Segmento','Fecha','Hora Carga','Origen','Destino','Tipo Unidad','Proveedor','Contrato','Chofer','Patente','GV','TR','SH','Detalle de carga'];
+const viejo = T(ENC, [['VG1','WCE','20/10/26','8:00','Solalique / Base Neuquén','BPO / HP217 / Vista','Semi','Dolores Parra','Rental','Perez Juan','AA111AA','','TR2600000001','SH_1','x']]);
+const nuevoT = T(ENC, [
+  ['VG1','WCE','20/10/26','8:00','Solalique / Base Neuquén','BPO / HP217 / Vista','Semi','Dolores Parra','Rental','Perez Juan','AB222BB','339','TR2600000001','SH_1','x'],
+  ['VG2','WCE','20/10/26','8:00','Solalique / Base Neuquén','MMO / HP234 / Phoenix','Semi','Dolores Parra','Rental','Perez Juan','AB222BB','339','TR2600000002','SH_2','y'],
+  ['VG3','WCE','21/10/26','8:00','APO / DLS165 / PAE','Solalique / Base Neuquén','Semi','Dolores Parra','Rental','Perez Juan','AB222BB','','TR2600000003','SH_3','z']]);
+const cita = '<hr><div id="divRplyFwdMsg"><b>From:</b> Alguien</div>' + viejo;
+const r2 = parseMailSLB('<p>Confirmamos:</p>' + nuevoT + cita, '2026-10-20T12:00:00Z');
+const ok2 = r2.filas.length === 3 && r2.filas.every(f => f.patente === 'AB222BB') && r2.trs.AB222BB === 'TR2600000001' && r2.filas[2].fecha === '2026-10-21' && r2.filas[1].gv === '339' && r2.filas[1].sh === 'SH_2' && r2.filas[0].bl === 'WCE';
+const r3 = parseMailSLB('<div>Recorrido: Base Solalique &gt;&gt; H&amp;P 234 &gt;&gt; H&amp;P 217 &gt;&gt; DLS 165 &gt;&gt; Base Solalique</div>' + '<hr><div id="divRplyFwdMsg"><b>De:</b> x</div>' + nuevoT, '2026-10-20T13:00:00Z');
+const ok3 = r3.actualizacion === true && r3.filas.length === 3 && JSON.stringify(r3.recorrido) === JSON.stringify(['Base Solalique','H&P 234','H&P 217','DLS 165','Base Solalique']);
+const ENC2 = ['CVU','BL','Fecha','Hora Carga','Origen','Destino','Tipo Unidad','Proveedor','Contrato','Chofer','Patente','Telefono','GIN','TR','SH','Detalle Carga','Observaciones'];
+const r4 = parseMailSLB(T(ENC2, [['PB1','RPS','10/20/2026','8:00','BDT / BDTN-49 / YPF','LCav / LCav174_2 / YPF','Carreton','Dolores Parra','Rental','Gomez Ana','AC333CC','299','190','TR2600000009','DTM','obs1','obs2'],['PB2','RPS','10/20/2026','14:00','BDT / BDTN-49 / YPF','LCav / LCav174_2 / YPF','Carreton','Dolores Parra','Rental','Gomez Ana','AC333CC','299','190','n/a','DTM','obs1','obs2']]), '2026-10-20T10:00:00Z');
+const ok4 = r4.filas.length === 2 && r4.filas[0].fecha === '2026-10-20' && r4.filas[1].tr === '' && r4.trs.AC333CC === 'TR2600000009' && r4.filas[0].telefono === '299';
+console.log('cita/columnas:', ok2, '| recorrido:', ok3, '| fecha EEUU:', ok4);
+const todo = ok && ok2 && ok3 && ok4;
+console.log(todo ? 'TEST OK' : 'TEST FALLO'); process.exit(todo ? 0 : 1);
