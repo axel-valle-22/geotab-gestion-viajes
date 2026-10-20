@@ -5302,6 +5302,20 @@ order.splice(toIdx, 0, orderItem);
 var __mapOldToNew = {};
 order.forEach(function(oldIdx, newIdx){ __mapOldToNew[oldIdx] = newIdx; });
 var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
+/* 20/10: al reordenar, los horarios detectados por GPS de las paradas desde la primera que cambio de lugar ya no
+   valen (la unidad paso por los sitios en otro orden, y con sitios repetidos o pegados se asignaban mal: ej. T280
+   quedo con dos puntos "en sitio" y horarios cruzados). Se borran y el detalle los recalcula del historial GPS en
+   el nuevo orden. Los marcados a mano (chofer o coordinador) se respetan. */
+var __desde = Math.min(fromIdx, toIdx);
+Object.keys(__remap.sitiosReal).forEach(function(key){
+  var m = /^parada(\d+)$/.exec(key); var x = __remap.sitiosReal[key];
+  if(!m || !x || +m[1] < __desde) return;
+  var y = Object.assign({}, x);
+  if(!y.ingresoManual && !y.choferMarcoIngreso){ delete y.ingreso; delete y.ingresoGps; }
+  if(!y.egresoManual && !y.choferMarcoEgreso){ delete y.egreso; delete y.egresoGps; }
+  __remap.sitiosReal[key] = y;
+});
+if(__remap.dwellState && /^parada(\d+)$/.test(__remap.dwellState.siteId || '') && +__remap.dwellState.siteId.slice(6) >= __desde) __remap.dwellState = null;
 GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: __remap.sitiosReal, dwellState: __remap.dwellState }).then(function(){
 closeDetalle();
 abrirDetalleViaje(v.id);
