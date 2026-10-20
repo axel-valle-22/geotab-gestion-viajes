@@ -79,11 +79,12 @@ while(url){
     /* 20/10: solo servicios de hoy en adelante (hora Argentina): los de dias pasados ya se hicieron. */
     const hoyAR = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
     r.filas = r.filas.filter(f => !f.fecha || f.fecha >= hoyAR);
-    if(!r.filas.length) continue;
+    r.filas.forEach(f => { delete f.telefono; }); /* no se guardan los telefonos de los choferes */
+    if(!r.filas.length && !(r.cancelados && r.cancelados.length)) continue;
     const ok = await crearDoc(id, {
       estado: 'pendiente', mailId: m.id, asunto: m.subject || '', recibido: m.receivedDateTime,
       de: (m.from && m.from.emailAddress && (m.from.emailAddress.name || m.from.emailAddress.address)) || '',
-      filas: r.filas, trs: r.trs, recorrido: r.recorrido || null, actualizacion: !!r.actualizacion,
+      filas: r.filas, trs: r.trs, recorrido: r.recorrido || null, actualizacion: !!r.actualizacion, cancelados: r.cancelados || [],
       conversacion: m.conversationId || '', creadoEn: new Date().toISOString()
     });
     if(ok){ nuevos++; console.log('Pedido nuevo:', m.subject, '-', r.filas.length, 'filas'); }

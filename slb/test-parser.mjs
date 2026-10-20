@@ -31,5 +31,9 @@ const ENC2 = ['CVU','BL','Fecha','Hora Carga','Origen','Destino','Tipo Unidad','
 const r4 = parseMailSLB(T(ENC2, [['PB1','RPS','10/20/2026','8:00','BDT / BDTN-49 / YPF','LCav / LCav174_2 / YPF','Carreton','Dolores Parra','Rental','Gomez Ana','AC333CC','299','190','TR2600000009','DTM','obs1','obs2'],['PB2','RPS','10/20/2026','14:00','BDT / BDTN-49 / YPF','LCav / LCav174_2 / YPF','Carreton','Dolores Parra','Rental','Gomez Ana','AC333CC','299','190','n/a','DTM','obs1','obs2']]), '2026-10-20T10:00:00Z');
 const ok4 = r4.filas.length === 2 && r4.filas[0].fecha === '2026-10-20' && r4.filas[1].tr === '' && r4.trs.AC333CC === 'TR2600000009' && r4.filas[0].telefono === '299';
 console.log('cita/columnas:', ok2, '| recorrido:', ok3, '| fecha EEUU:', ok4);
-const todo = ok && ok2 && ok3 && ok4;
+const r5 = parseMailSLB('<div>Buenas tardes, se cancela el CVU VG2 por pedido del cliente.</div>' + nuevoT.replace(/VG2/g, 'VG2'), '2026-10-20T14:00:00Z');
+const r5b = parseMailSLB('<div>Se cancela el servicio AL62643.</div>' + T(ENC, [['AL62643','WCM','20/10/26','15:00','Solalique','HP224','Semi','Dolores Parra','Rental','X','AG004TC','','TR2600000005','',''],['AL62644','WCM','20/10/26','17:00','Solalique','HP217','Semi','Dolores Parra','Rental','Y','AE939LY','','TR2600000006','','']]), '2026-10-20T14:00:00Z');
+const ok5 = r5b.cancelados.includes('AL62643') && r5b.filas.length === 1 && r5b.filas[0].cvu === 'AL62644';
+console.log('cancelacion:', ok5);
+const todo = ok && ok2 && ok3 && ok4 && ok5;
 console.log(todo ? 'TEST OK' : 'TEST FALLO'); process.exit(todo ? 0 : 1);

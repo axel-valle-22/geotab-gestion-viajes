@@ -132,6 +132,8 @@ function filasDeTablas(html, recibidoIso){
       };
       if(!fila.patente || !fila.origen) continue;
       if(fila.proveedor && !/dolores|parra|tdp/i.test(fila.proveedor)) continue;
+      /* fila marcada como cancelada en alguna columna (ej. Observaciones "CANCELADO") */
+      if(f.some(c => /cancelad|se cancela|anulad/i.test(c))) fila.cancelado = true;
       filas.push(fila);
     }
     if(filas.length) break; /* la primera tabla de servicios es la que vale */
@@ -169,5 +171,13 @@ export function parseMailSLB(html, recibidoIso){
   }
   const todosTR = [...new Set((texto.match(/\bTR\s*-?\s*\d{6,}\b/gi) || []).map(x => 'TR' + x.replace(/\D/g, '')))];
   if(todosTR.length === 1) patentes.forEach(p => { if(!trs[p]) trs[p] = todosTR[0]; });
-  return { filas, trs, recorrido, actualizacion };
+  /* 20/10: cancelaciones. Filas marcadas como canceladas, o lineas del texto nuevo que hablen de cancelar y
+     nombren CVUs (ej. "Se cancela el CVU AL62643"). Esas filas no se arman: se avisan en el panel. */
+  const cancelados = new Set(filas.filter(f => f.cancelado).map(f => f.cvu).filter(Boolean));
+  for(const l of textoPlano(nuevo).split(/\n+/)){
+    if(!/cancel|anula|sin efecto|se suspende/i.test(l)) continue;
+    (l.match(/\b[A-Z]{2}\d{5}\b/g) || []).forEach(c => cancelados.add(c));
+  }
+  filas = filas.filter(f => !f.cancelado && !cancelados.has(f.cvu));
+  return { filas, trs, recorrido, actualizacion, cancelados: [...cancelados] };
 }
