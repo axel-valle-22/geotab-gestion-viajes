@@ -3003,13 +3003,22 @@ function gvRenderMasHoy(forzar){
     var nomVeh = {}; (gState.vehiculos || []).forEach(function(x){ nomVeh[x.id] = x.nombre; });
     var nomCond = {}; (gState.conductores || []).forEach(function(c){ nomCond[c.id] = c.nombre; });
     var ahora = Date.now();
+    /* 20/10: tambien entran las unidades DETENIDAS fuera de las bases operativas de TDP (Plottier, Añelo, RDLS):
+       si no esta en una base y no tiene viaje cargado, esta trabajando sin planificacion aunque ahora este parada. */
+    var __bases = (GV.Storage.getSitios() || []).filter(function(s){ var n = gvNormBusqueda(s.nombre); return /tdp/.test(n) && /plottier|anelo|rdls|rincon/.test(n) && typeof s.lat === 'number'; });
+    var __enBase = function(pos){ return __bases.some(function(b){ try{ if(GV.isWithinSite(pos, b)) return true; }catch(e){} var d = GV.distKm(pos, b); return d != null && d <= 0.5; }); };
+    var __durMs = function(t){ var m = String(t || '').match(/^(?:(\d+)\.)?(\d+):(\d+):(\d+)/); return m ? ((+(m[1] || 0)) * 86400 + (+m[2]) * 3600 + (+m[3]) * 60 + (+m[4])) * 1000 : null; };
     gMhSinPlan = (res || []).filter(function(r){
-      var id = r.device && r.device.id; if(!id || conViaje[id] || !nomVeh[id]) return false;
+      var id = r.device && r.device.id; if(!id || conViaje[id] || !nomVeh[id] || r.latitude == null) return false;
       var reciente = r.dateTime && (ahora - new Date(r.dateTime).getTime()) < 20 * 60000;
-      return reciente && (r.isDriving === true || (r.speed || 0) >= 5) && r.latitude != null;
+      if(reciente && (r.isDriving === true || (r.speed || 0) >= 5)) return true;
+      /* detenida: alcanza con que haya reportado en las ultimas 3 h y este fuera de las bases */
+      var reportando = r.dateTime && (ahora - new Date(r.dateTime).getTime()) < 3 * 3600000;
+      return !!(reportando && __bases.length && !__enBase({ lat: r.latitude, lng: r.longitude }));
     }).map(function(r){
       var id = r.device.id, dId = r.driver && r.driver.id;
-      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: Math.round(r.speed || 0), t: r.dateTime,
+      var __mov = (r.isDriving === true || (r.speed || 0) >= 5);
+      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: Math.round(r.speed || 0), t: r.dateTime, detenida: !__mov, detenidaMs: __mov ? null : __durMs(r.currentStateDuration),
         condId: (dId && nomCond[dId]) ? dId : null, cond: (dId && nomCond[dId]) ? nomCond[dId] : null,
         clientes: (GV.__clientesPorVeh || {})[id] || [] };
     });
@@ -3031,7 +3040,7 @@ function gvPintarSinPlan(){
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
         return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
           '<b>' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">chofer no identificado</i>') + '</span>' +
-          '<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span><span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
+          (u.detenida ? ('<span style="margin-left:auto;color:#6b7280;white-space:nowrap" title="Detenida fuera de las bases de TDP">Detenida' + (u.detenidaMs ? ' hace ' + GV.fmtDurMin(u.detenidaMs) : '') + '</span>') : ('<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
       }).join('');
   }).join('');
   gvSlbEnlazarBotones(el);
