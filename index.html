@@ -37,7 +37,7 @@
 <div class="gv-stat-card" data-stat-filter="comp"><div class="gv-stat-num gv-green" id="stat-comp">0</div><div class="gv-stat-lbl">Completados</div></div>
 <div class="gv-stat-card" data-stat-filter="dem"><div class="gv-stat-num gv-red" id="stat-dem">0</div><div class="gv-stat-lbl">Demorados</div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:14px"><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn gv-active" data-view="calendario" id="gv-view-calendario">Calendario</button><button class="gv-btn gv-btn-sec gv-btn-sm gv-view-btn" data-view="lista" id="gv-view-lista">Lista</button><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
+<div style="display:flex;gap:8px;margin-bottom:14px"><span style="font-size:.78rem;color:#6b7280;align-self:center">Toca un dia: hoy abre Seguimiento, los otros dias muestran sus viajes.</span><input type="search" id="gv-buscar-sol" placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="margin-left:auto;flex:1;max-width:300px;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem"></div>
 <div id="gv-calendar-wrap" style="display:block;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-prev">&lsaquo; Anterior</button><h3 id="gv-cal-title" style="margin:0;color:var(--gv-accent);font-size:1rem"></h3><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-cal-next">Siguiente &rsaquo;</button></div><div id="gv-cal-grid" class="gv-cal-grid"></div></div>
 <div id="gv-loading" style="text-align:center;padding:20px;color:#666;display:none">Cargando conductores y vehiculos...</div>
 <div id="gv-list-filter-info" style="display:none"></div>
@@ -227,8 +227,11 @@ function siteGeofenceLayer(loc, layerGroup, opts){
   var color = opts.color || '#2563eb';
   var weight = opts.weight != null ? opts.weight : 1;
   var fillOpacity = opts.fillOpacity != null ? opts.fillOpacity : .12;
-  if(loc && loc.poligono && loc.poligono.length >= 3){
-    return layerGroup.add(new google.maps.Polygon({ paths: loc.poligono.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }), strokeColor: color, strokeWeight: weight, fillColor: color, fillOpacity: fillOpacity }));
+  /* 20/10: si el sitio del viaje no tiene geocerca propia pero hay un sitio guardado con geocerca dibujada en el
+     mismo lugar, se dibuja esa (GV.poligonoDeSitio en common.js). */
+  var __pgDib = (GV.poligonoDeSitio ? GV.poligonoDeSitio(loc) : (loc && loc.poligono));
+  if(loc && __pgDib && __pgDib.length >= 3){
+    return layerGroup.add(new google.maps.Polygon({ paths: __pgDib.map(function(pt){ return { lat: pt.lat, lng: pt.lng }; }), strokeColor: color, strokeWeight: weight, fillColor: color, fillOpacity: fillOpacity }));
   }
   /* Se dibuja el radio EFECTIVO: si otro sitio del mismo viaje esta cerca, el circulo se recorta para
      que las areas no se superpongan (opts.otros = los demas puntos del viaje). */
@@ -754,6 +757,36 @@ nunca llego a detectar la llegada al destino (o el panel no estaba abierto para 
 chequeo automatico), el ingreso real a ese sitio quedaba vacio para siempre aunque el viaje ya
 figurase Finalizado. Esto completa sitiosReal.destino.ingreso con el horario del cierre manual
 SOLO si todavia no tenia uno cargado (nunca pisa un horario real ya confirmado por GPS). */
+/* 19/10: hora de cierre al completar A MANO un viaje que se habia REABIERTO (por ejemplo para agregar sitios
+   que ya se recorrieron): no es "ahora", es el ultimo horario real del recorrido (llegada al destino o salida del
+   ultimo sitio) segun la tabla del detalle; si no hay, la hora en que se habia cerrado antes de reabrirlo. Asi un
+   viaje del viernes reabierto y cerrado hoy sigue figurando como finalizado el viernes. Un cierre normal (viaje
+   que no se reabrio) sigue usando la hora actual. */
+function gvHoraCierreManual(v){
+  var ahora = new Date().toISOString();
+  if(!v || !(v.reaperturaExplicita || v.completadoEnPrevio)) return ahora;
+  var ultimo = null;
+  var F = window.__gvItinFilas;
+  if(F && F.viajeId === v.id && F.rows && F.rows.length){
+    /* 20/10: si el viaje tiene destino, el cierre es la LLEGADA al destino (no la salida del destino, que puede ser
+       el arranque del dia siguiente: un viaje del 19 con destino Base TDP Plottier quedaba cerrado el 20 a las 08:47,
+       cuando el camion volvio a salir de la base). Sin destino, es la salida del ultimo sitio. */
+    var __filaDest = F.rows.filter(function(r){ return r.id === 'destino'; })[0];
+    function __ok(d){ return d && !isNaN(d.getTime()) && d.getTime() <= Date.now(); }
+    if(__filaDest){
+      if(__ok(__filaDest.realIn)) ultimo = __filaDest.realIn;
+    }
+    if(!ultimo){
+      F.rows.forEach(function(r){
+        if(r.id === 'destino') return;
+        [r.realIn, r.realOut].forEach(function(d){ if(__ok(d) && (!ultimo || d > ultimo)) ultimo = d; });
+      });
+    }
+  }
+  if(ultimo) return ultimo.toISOString();
+  if(v.completadoEnPrevio) return v.completadoEnPrevio;
+  return ahora;
+}
 function sitiosRealAlCompletar(v, hitISO){
 var sr = Object.assign({}, v.sitiosReal || {});
 if(v.destino){
@@ -1362,6 +1395,7 @@ function gvRefinarIngresoGps(vv, siteRef, refIso){
         var so = (siteRef.id === 'origen') ? act.origen : (siteRef.id === 'destino') ? act.destino : (act.paradas || [])[parseInt(siteRef.id.replace('parada', ''), 10)];
         if(so && so.esperaAcordada && so.esperaAcordada.hasta){
           var nd = Math.ceil((new Date(so.esperaAcordada.hasta).getTime() - new Date(realArrival).getTime()) / 60000);
+          if(so.esperaAcordada.duracionProgramadaMin && nd < so.esperaAcordada.duracionProgramadaMin) nd = so.esperaAcordada.duracionProgramadaMin;
           if(nd > 0){
             if(siteRef.id === 'origen'){ upd.origen = Object.assign({}, act.origen, { duracionMin: nd }); }
             else if(siteRef.id === 'destino'){ upd.destino = Object.assign({}, act.destino, { duracionMin: nd }); }
@@ -1394,7 +1428,7 @@ function gvUnidadEnParadaFueraDeOrigen(v, r){
     if(v.origen && typeof v.origen.lat === 'number' && GV.isWithinSite(pos, v.origen)) return false;
     var sites = siteListFor(v); if(!sites.length) return false;
     var doneIds = []; Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) doneIds.push(k); });
-    var at = GV.pickSiteAt(pos, sites, { doneIds: doneIds });
+    var at = GV.pickSiteAt(pos, sites, { doneIds: doneIds, sitiosReal: v.sitiosReal || {} });
     return !!(at && at.id.indexOf('parada') === 0);
   }catch(e){ return false; }
 }
@@ -1416,7 +1450,7 @@ function gvReevaluarViajeAhora(viajeId){
         if(!sites.length) return;
         var doneIds = [];
         Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) doneIds.push(k); });
-        var atSite = GV.pickSiteAt(pos, sites, { stickyId: v.dwellState ? v.dwellState.siteId : null, doneIds: doneIds });
+        var atSite = GV.pickSiteAt(pos, sites, { stickyId: v.dwellState ? v.dwellState.siteId : null, doneIds: doneIds, sitiosReal: v.sitiosReal || {} });
         var refrescar = function(){ try{ renderTrips(); }catch(e){} try{ renderTracking(); }catch(e){} try{ renderStats(); }catch(e){} };
         /* Solo paradas: origen y destino tienen su propia logica (salida confirmada / llegada a destino). */
         if(!atSite || atSite.id.indexOf('parada') !== 0){ refrescar(); return; }
@@ -1785,7 +1819,7 @@ try{
          sitio ya abierto (con histeresis de salida) y desempate por el mas cercano / orden de itinerario. */
       var __doneIds = [];
       Object.keys(v.sitiosReal || {}).forEach(function(k){ if(v.sitiosReal[k] && v.sitiosReal[k].egreso) __doneIds.push(k); });
-      var atSite = GV.pickSiteAt({lat:r.latitude,lng:r.longitude}, sites, { stickyId: dw ? dw.siteId : null, doneIds: __doneIds });
+      var atSite = GV.pickSiteAt({lat:r.latitude,lng:r.longitude}, sites, { stickyId: dw ? dw.siteId : null, doneIds: __doneIds, sitiosReal: v.sitiosReal || {} });
       if(atSite && atSite.id === 'destino' && v.estado !== 'completado' && v.estado !== 'cancelado'){
         var __destSiteLive = sites.filter(function(s){ return s.id === 'destino'; })[0];
         var __mismoOrigenDestinoLive = v.origen && typeof v.origen.lat === 'number' && __destSiteLive && (GV.distKm(v.origen, __destSiteLive) * 1000) <= GV.effectiveRadiusM(__destSiteLive, sites);
@@ -2130,20 +2164,28 @@ btn.addEventListener('click', function(){ switchPanelView(btn.getAttribute('data
 document.querySelectorAll('.gv-stat-card[data-stat-filter]').forEach(function(card){
 card.addEventListener('click', function(){
 var key = card.getAttribute('data-stat-filter');
-gStatFilter = (gStatFilter === key) ? null : key;
-gCalSelectedDay = null;
-updateStatCardHighlight();
-switchPanelView('lista');
+/* 19/10: sin vista Lista. Hoy / En curso llevan a Seguimiento; Completados / Demorados abren una ventana con esos viajes. */
+gStatFilter = null; gCalSelectedDay = null;
+if(key === 'hoy' || key === 'curso'){ gvIrASeguimientoHoy(); return; }
+var __todosSt = GV.Storage.getViajes();
+if(key === 'comp'){ gvAbrirListaViajesPopup('Viajes completados', __todosSt.filter(function(v){ return v.estado === 'completado'; }).sort(function(a, b){ return new Date(b.completadoEn || b.fechaSalida) - new Date(a.completadoEn || a.fechaSalida); }), null); }
+else if(key === 'dem'){ gvAbrirListaViajesPopup('Viajes demorados', __todosSt.filter(function(v){ return v.estado === 'demorado'; }), null); }
 });
 });
 var __bSol = document.getElementById('gv-buscar-sol');
 if(__bSol){ __bSol.addEventListener('input', function(){
   gSolQuery = __bSol.value.trim();
-  /* 19/10: la busqueda funciona en la vista actual. En Calendario se filtran los viajes de cada dia; al tocar un
-     dia se pasa a Lista con la busqueda y ese dia. En Lista busca en todos los viajes. */
-  if(gSolQuery){ gStatFilter = null; try{ updateStatCardHighlight(); }catch(__eU){} }
-  if(gPanelView === 'calendario'){ gCalSelectedDay = null; renderCalendar(); }
-  else { if(gSolQuery){ gCalSelectedDay = null; } renderTrips(); }
+  /* 19/10: la busqueda filtra los viajes del calendario. Con Enter se abre una ventana con todos los resultados. */
+  gStatFilter = null; gCalSelectedDay = null;
+  renderCalendar();
+});
+__bSol.addEventListener('keydown', function(e){
+  if(e.key !== 'Enter') return;
+  var q = __bSol.value.trim(); if(!q) return;
+  e.preventDefault();
+  var res = GV.Storage.getViajes().filter(function(v){ return gvViajeCoincideBusqueda(v, q); })
+    .sort(function(a, b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); });
+  gvAbrirListaViajesPopup('Busqueda "' + q + '"', res, null);
 }); }
 var calPrevBtn = document.getElementById('gv-cal-prev');
 if(calPrevBtn) calPrevBtn.addEventListener('click', function(){ gCalMonth.setMonth(gCalMonth.getMonth()-1); renderCalendar(); });
@@ -2502,22 +2544,111 @@ cuentan los hitos de carga/descarga para el % de avance), aca van TODOS los punt
 tengan coordenadas, incluido un origen que sea solo punto de paso, porque en el mapa del
 cliente conviene mostrar el recorrido completo (de donde sale, por donde para, a donde
 llega) y no solo los que suman al avance. */
+/* 19/10: cuando un viaje compartido se FINALIZA o se CANCELA (de cualquier forma: cierre automatico o manual),
+   el link del cliente deja de compartirse solo: se manda el estado final con activo:false (la pagina del cliente
+   muestra "Viaje finalizado el ...") y se borra el token del viaje. Corre en el chequeo de cada minuto del panel. */
+var __gvCerrandoComp = {};
+function gvCerrarCompartidosFinalizados(){
+  try{
+    GV.Storage.getViajes().forEach(function(v){
+      if(!v || !v.compartirToken) return;
+      if(v.estado !== 'completado' && v.estado !== 'cancelado') return;
+      var tok = v.compartirToken;
+      if(__gvCerrandoComp[tok]) return;
+      __gvCerrandoComp[tok] = 1;
+      var fin = v.estado === 'completado' ? (v.completadoEn || new Date().toISOString()) : (v.canceladoEn || new Date().toISOString());
+      GV.Storage.pushCompartido(tok, { estado: v.estado, activo: false, finalizadoEn: fin, viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '' })
+        .then(function(){ return GV.Storage.stopCompartido(tok); })
+        .then(function(){ return GV.Storage.updateViaje(v.id, { compartirToken: null, compartirCerradoEn: new Date().toISOString() }); })
+        ['catch'](function(){ delete __gvCerrandoComp[tok]; });
+    });
+  }catch(e){}
+}
+/* 19/10: legs de ruta (duracion de cada tramo) calculados por el panel (Seguimiento o detalle), por viaje, para que
+   el link del cliente use los mismos tiempos de tramo que se ven en el detalle. */
+var gvRutaLegsCache = {};
+/* 19/10: horario PROGRAMADO (fijo) de cada sitio para el link del cliente. Sale solo de la programacion del viaje:
+   salida programada + tiempo de cada tramo + permanencia programada (o la espera acordada, si la hay). No se
+   recalcula con lo que va pasando en el viaje: queda guardado en el viaje (v.horarioProgramado) y solo se vuelve a
+   calcular si cambia la programacion (fecha de salida, sitios, tipos, permanencias o esperas acordadas). */
+function gvFirmaProgramacion(v){
+  return JSON.stringify([v.fechaSalida || ''].concat(gvRutaPuntosViaje(v).map(function(x){
+    var p = x.p || {};
+    return [x.id, Number(p.lat).toFixed(5), Number(p.lng).toFixed(5), p.tipo || '', p.duracionMin || 0, (p.esperaAcordada && p.esperaAcordada.hasta) || '', p.permaneceHasta || ''];
+  })));
+}
+function gvCalcularHorarioProgramado(v, legs){
+  var pts = gvRutaPuntosViaje(v);
+  var out = {};
+  if(!pts.length) return out;
+  var t = new Date(v.fechaSalida).getTime();
+  if(isNaN(t)) return out;
+  function egresoDe(p, ing){
+    if(p.tipo === 'espera' && p.permaneceHasta) return new Date(p.permaneceHasta).getTime();
+    var prog = (p.esperaAcordada && typeof p.esperaAcordada.duracionProgramadaMin === 'number') ? p.esperaAcordada.duracionProgramadaMin : (p.duracionMin || 0);
+    var eg = ing + (p.tipo ? prog : 0) * 60000;
+    if(p.tipo && p.esperaAcordada && p.esperaAcordada.hasta){ var h = new Date(p.esperaAcordada.hasta).getTime(); if(!isNaN(h) && h > eg) eg = h; }
+    return eg;
+  }
+  out[pts[0].id] = { ingreso: null, egreso: new Date(t).toISOString() };
+  for(var i = 1; i < pts.length; i++){
+    var legSeg = (legs && legs[i - 1] && typeof legs[i - 1].duration === 'number') ? legs[i - 1].duration : null;
+    if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, pts[i].p, v.id); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
+    if(legSeg == null){ var dk = GV.distKm(pts[i - 1].p, pts[i].p) || 0; legSeg = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
+    var ing = t + legSeg * 1000;
+    var eg = egresoDe(pts[i].p, ing);
+    out[pts[i].id] = { ingreso: new Date(ing).toISOString(), egreso: new Date(eg).toISOString() };
+    t = eg;
+  }
+  return out;
+}
+/* Devuelve el horario programado guardado si sigue valido; si no hay (o cambio la programacion) y se tienen los
+   tramos de la ruta (legs), lo calcula y lo guarda en el viaje para que quede fijo para todos. */
+function gvHorarioProgramado(v, legs){
+  if(!v) return {};
+  var __vAct = GV.Storage.getViaje(v.id) || v;
+  var firma = gvFirmaProgramacion(__vAct);
+  var hp = __vAct.horarioProgramado || v.horarioProgramado;
+  if(hp && hp.firma === firma && hp.sitios) return hp.sitios;
+  var calc = gvCalcularHorarioProgramado(__vAct, legs);
+  if(legs && __vAct.estado !== 'completado' && __vAct.estado !== 'cancelado'){
+    var __hpNuevo = { firma: firma, sitios: calc, calculadoEn: new Date().toISOString() };
+    try{ __vAct.horarioProgramado = __hpNuevo; v.horarioProgramado = __hpNuevo; GV.Storage.updateViaje(v.id, { horarioProgramado: __hpNuevo }); }catch(__eHP){}
+  }
+  return calc;
+}
+function gvEstimadosCompartir(v){
+  var cache = gvRutaLegsCache[v.id];
+  var n = gvRutaPuntosViaje(v).length;
+  var hp = gvHorarioProgramado(v, (cache && cache.n === n) ? cache.legs : null);
+  var res = {};
+  Object.keys(hp).forEach(function(k){ res[k] = { ingresoEst: hp[k].ingreso, egresoEst: hp[k].egreso }; });
+  return res;
+}
+/* Para el link: campo aparte "horarios" en el documento compartido (no lo pisa una version vieja del panel que
+   todavia mande "sitios" sin horarios). */
+function gvHorariosCompartir(v){
+  var e = {}; try{ e = gvEstimadosCompartir(v); }catch(__eH){}
+  return e;
+}
 function gvSitiosCompartir(v){
 var out = [];
 var sr = v.sitiosReal || {};
+var __est = {}; try{ __est = gvEstimadosCompartir(v); }catch(__eEst){}
+function __hor(id){ var e = __est[id] || {}, s = sr[id] || {}; return { ingresoEst: e.ingresoEst || null, egresoEst: e.egresoEst || null, ingresoReal: s.ingreso || null, egresoReal: s.egreso || null }; }
 if(v.origen && typeof v.origen.lat === 'number'){
 var sOr = sr.origen || {};
-out.push({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', tipo: v.origen.tipo || null, estado: sOr.egreso ? 'done' : 'active' });
+out.push(Object.assign({ id:'origen', role:'origen', lat:v.origen.lat, lng:v.origen.lng, label: GV.siteNameFor(v.origen) || 'Origen', tipo: v.origen.tipo || null, estado: sOr.egreso ? 'done' : 'active' }, __hor('origen')));
 }
 (v.paradas||[]).forEach(function(p, i){
 if(typeof p.lat !== 'number') return;
 var sp = sr['parada'+i] || {};
 var est = sp.egreso ? 'done' : (sp.ingreso ? 'active' : 'pending');
-out.push({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), tipo: p.tipo || null, estado: est });
+out.push(Object.assign({ id:'parada'+i, role:'parada', lat:p.lat, lng:p.lng, label: GV.siteNameFor(p) || ('Parada ' + (i+1)), tipo: p.tipo || null, estado: est }, __hor('parada'+i)));
 });
 if(v.destino && typeof v.destino.lat === 'number'){
 var sd = sr.destino || {};
-out.push({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', tipo: v.destino.tipo || null, estado: sd.ingreso ? 'done' : 'pending' });
+out.push(Object.assign({ id:'destino', role:'destino', lat:v.destino.lat, lng:v.destino.lng, label: GV.siteNameFor(v.destino) || 'Destino', tipo: v.destino.tipo || null, estado: sd.ingreso ? 'done' : 'pending' }, __hor('destino')));
 }
 return out;
 }
@@ -2872,13 +3003,22 @@ function gvRenderMasHoy(forzar){
     var nomVeh = {}; (gState.vehiculos || []).forEach(function(x){ nomVeh[x.id] = x.nombre; });
     var nomCond = {}; (gState.conductores || []).forEach(function(c){ nomCond[c.id] = c.nombre; });
     var ahora = Date.now();
+    /* 20/10: tambien entran las unidades DETENIDAS fuera de las bases operativas de TDP (Plottier, Añelo, RDLS):
+       si no esta en una base y no tiene viaje cargado, esta trabajando sin planificacion aunque ahora este parada. */
+    var __bases = (GV.Storage.getSitios() || []).filter(function(s){ var n = gvNormBusqueda(s.nombre); return /tdp/.test(n) && /plottier|anelo|rdls|rincon/.test(n) && typeof s.lat === 'number'; });
+    var __enBase = function(pos){ return __bases.some(function(b){ try{ if(GV.isWithinSite(pos, b)) return true; }catch(e){} var d = GV.distKm(pos, b); return d != null && d <= 0.5; }); };
+    var __durMs = function(t){ var m = String(t || '').match(/^(?:(\d+)\.)?(\d+):(\d+):(\d+)/); return m ? ((+(m[1] || 0)) * 86400 + (+m[2]) * 3600 + (+m[3]) * 60 + (+m[4])) * 1000 : null; };
     gMhSinPlan = (res || []).filter(function(r){
-      var id = r.device && r.device.id; if(!id || conViaje[id] || !nomVeh[id]) return false;
+      var id = r.device && r.device.id; if(!id || conViaje[id] || !nomVeh[id] || r.latitude == null) return false;
       var reciente = r.dateTime && (ahora - new Date(r.dateTime).getTime()) < 20 * 60000;
-      return reciente && (r.isDriving === true || (r.speed || 0) >= 5) && r.latitude != null;
+      if(reciente && (r.isDriving === true || (r.speed || 0) >= 5)) return true;
+      /* detenida: alcanza con que haya reportado en las ultimas 3 h y este fuera de las bases */
+      var reportando = r.dateTime && (ahora - new Date(r.dateTime).getTime()) < 3 * 3600000;
+      return !!(reportando && __bases.length && !__enBase({ lat: r.latitude, lng: r.longitude }));
     }).map(function(r){
       var id = r.device.id, dId = r.driver && r.driver.id;
-      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: Math.round(r.speed || 0), t: r.dateTime,
+      var __mov = (r.isDriving === true || (r.speed || 0) >= 5);
+      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: Math.round(r.speed || 0), t: r.dateTime, detenida: !__mov, detenidaMs: __mov ? null : __durMs(r.currentStateDuration),
         condId: (dId && nomCond[dId]) ? dId : null, cond: (dId && nomCond[dId]) ? nomCond[dId] : null,
         clientes: (GV.__clientesPorVeh || {})[id] || [] };
     });
@@ -2889,19 +3029,21 @@ function gvRenderMasHoy(forzar){
 function gvPintarSinPlan(){
   var el = document.getElementById('gv-mh-sp'), n = document.getElementById('gv-mh-sp-n');
   if(!el) return;
-  if(n) n.textContent = '(' + gMhSinPlan.length + ')';
-  if(!gMhSinPlan.length){ el.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'; return; }
+  if(n) n.textContent = '(' + (gMhSinPlan.length + gPropuestasSLB.length) + ')';
+  var __slbHtml = gvSlbHtmlPropuestas();
+  if(!gMhSinPlan.length){ el.innerHTML = __slbHtml + (__slbHtml ? '' : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'); gvSlbEnlazarBotones(el); return; }
   var grupos = {};
   gMhSinPlan.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
   var claves = Object.keys(grupos).sort(function(a, b){ return a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b); });
-  el.innerHTML = claves.map(function(c){
+  el.innerHTML = __slbHtml + claves.map(function(c){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
         return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
           '<b>' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">chofer no identificado</i>') + '</span>' +
-          '<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span><span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
+          (u.detenida ? ('<span style="margin-left:auto;color:#6b7280;white-space:nowrap" title="Detenida fuera de las bases de TDP">Detenida' + (u.detenidaMs ? ' hace ' + GV.fmtDurMin(u.detenidaMs) : '') + '</span>') : ('<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
       }).join('');
   }).join('');
+  gvSlbEnlazarBotones(el);
 }
 /* Abre Nuevo Viaje con la unidad, el chofer detectado (si Geotab lo identifico) y el origen en la ultima posicion
    del camion (como el boton "Usar ultima posicion del camion": si esta circulando, el viaje nace en curso). */
@@ -2994,7 +3136,8 @@ function renderTracking(){
       if(pts.length > 1){
               var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
-                GV.getRoute(pts).then(function(route){
+                GV.getRoute(pts, { excluirViajeId: v.id }).then(function(route){
+                  try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC){}
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
@@ -3139,7 +3282,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             __truckMarker.addListener('mouseout', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaCorta)); });
           }
         }
-        if(v.compartirToken){
+        if(v.compartirToken && v.estado !== 'completado' && v.estado !== 'cancelado'){
           var __navC = null; try{ __navC = gvNavDetalleTexto(v, v.sitiosReal); }catch(navErrC){ }
           var __avC = null; try{ __avC = gvAvanceViaje(v); }catch(avErrC){ }
           GV.Storage.pushCompartido(v.compartirToken, {
@@ -3153,6 +3296,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''),
             destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''),
             sitios: gvSitiosCompartir(v),
+            horarios: gvHorariosCompartir(v),
             pos: (res && res.length && res[0].latitude != null) ? { lat: res[0].latitude, lng: res[0].longitude, bearing: res[0].bearing || 0, speed: Math.round(res[0].speed || 0), dateTime: res[0].dateTime || null } : null
           });
         }
@@ -3164,6 +3308,8 @@ todos.forEach(function(v){ updateTrackBadges(v); });
 }
 
 function switchPanelView(view){
+/* 19/10: se quito la vista Lista; el panel es solo Calendario. */
+view = 'calendario';
 gPanelView = view;
 document.querySelectorAll('.gv-view-btn').forEach(function(b){
 b.classList.toggle('gv-active', b.getAttribute('data-view') === view);
@@ -3183,6 +3329,476 @@ renderTrips();
 }
 }
 
+/* ================= 20/10: Pedidos SLB (borradores desde los mails) =================
+   El proceso de GitHub (slb/leer-mails.mjs) deja cada mail de confirmacion de SLB como un documento en
+   Firestore (gv_pedidos_slb, estado "pendiente") con las filas de la tabla. Aca se arman los viajes con las
+   reglas acordadas con Logistica y un coordinador los revisa y los crea:
+   - Un viaje por unidad (patente) con todo su recorrido del dia, en el orden de la hora de carga.
+   - En cada fila del mail, Origen = sitio de CARGA y Destino = sitio de DESCARGA. Si en un sitio descarga y
+     despues vuelve a cargar, queda una sola parada "Carga y Descarga".
+   - Origen del viaje = donde estaba el camion a las 06:00 de ese dia (GPS). Si estaba dentro de la geocerca
+     del primer sitio de carga, el origen es ese mismo sitio.
+   - La ultima descarga queda como parada (sin destino). Permanencia 1 h por sitio, sin espera acordada.
+   - Solicitud = TR de esa patente. CVU, tipo de unidad y contrato van en observaciones.
+   - Sitio que no se reconoce: hay que elegir su ubicacion antes de crear el viaje (queda guardado como sitio
+     nuevo con el nombre del mail, para reconocerlo la proxima vez). */
+var gPedidosSLB = [];
+var GV_ALIAS_SITIOS_SLB = [
+  { re: /gunshop|base operativa a[nñ]elo|a[nñ]elo\s*-\s*base|^a[nñ]elo base|^rao\b|base rao/i, sitio: 'RAO SLB' }
+];
+function gvSlbNorm(t){ return gvNormBusqueda(t).replace(/\s+/g, ' ').trim(); }
+function gvSlbCompact(t){ return gvNormBusqueda(t).replace(/[^a-z0-9]/g, ''); }
+function gvSlbSitios(){ var S = GV.Storage.getSitios() || []; return Array.isArray(S) ? S : Object.values(S); }
+/* Nombre sugerido para un sitio nuevo a partir del texto del mail: "LCav / LCav174_2 / YPF" -> "LCav 174". */
+function gvSlbNombreSugerido(txt){
+  var m = String(txt || '').match(/\b([A-Za-z]{2,6})\s*-?\s*(\d{2,5})/);
+  if(m) return m[1] + ' ' + m[2];
+  return String(txt || '').split('/').map(function(x){ return x.trim(); }).filter(Boolean)[0] || txt;
+}
+/* Busca el sitio guardado que corresponde al texto del mail. Devuelve el sitio o null. */
+function gvSlbResolverSitio(txt){
+  var sitios = gvSlbSitios();
+  var n = gvSlbNorm(txt), c = gvSlbCompact(txt);
+  var porNombre = function(nombre){ var k = gvSlbCompact(nombre); return sitios.filter(function(s){ return gvSlbCompact(s.nombre) === k; })[0] || null; };
+  /* 1) sitios ya asociados a este texto (aprendidos al confirmar uno nuevo) */
+  var ap = sitios.filter(function(s){ return (s.aliasMail || []).indexOf(c) >= 0; })[0];
+  if(ap) return ap;
+  /* 2) alias fijos */
+  for(var i = 0; i < GV_ALIAS_SITIOS_SLB.length; i++){ if(GV_ALIAS_SITIOS_SLB[i].re.test(n)){ var s1 = porNombre(GV_ALIAS_SITIOS_SLB[i].sitio); if(s1) return s1; } }
+  /* 3) nombre exacto */
+  var ex = sitios.filter(function(s){ return gvSlbCompact(s.nombre) === c; })[0];
+  if(ex) return ex;
+  /* 4) codigo letras+numero (LCav174, PAD100, RIG219...): el sitio cuyo nombre contenga ese codigo */
+  /* HP 217 / H&P 217 / H & P-217: en el sistema esos equipos estan cargados como "RIG 217" */
+  var nCod = n.replace(/\bh\s*&?\s*(?:and\s*)?p\s*-?\s*(\d{2,5})/g, 'rig $1');
+  var codigos = (nCod.match(/[a-z]{2,6}\s*-?\s*\d{2,5}/g) || []).map(function(x){ return x.replace(/[^a-z0-9]/g, ''); });
+  for(var j = 0; j < codigos.length; j++){
+    var cod = codigos[j];
+    var cands = sitios.filter(function(s){ var k = gvSlbCompact(s.nombre); var m = k.match(new RegExp(cod + '(\\d?)')); return m && !m[1]; });
+    if(cands.length === 1) return cands[0];
+    if(cands.length > 1){
+      /* si hay varios con el mismo numero (ej. "RIG 217 - NEW" y "RIG 217 - Bajada del Palo"), manda el que dice NEW: es la ubicacion nueva */
+      var nuevo = cands.filter(function(s){ return /\bnew\b|\bnuev[oa]\b/.test(gvSlbNorm(s.nombre)); })[0];
+      if(nuevo) return nuevo;
+      var exc = cands.filter(function(s){ return gvSlbCompact(s.nombre) === cod; })[0]; return exc || cands[0];
+    }
+  }
+  return null;
+}
+function gvSlbOpcion(selId, filtro){
+  var sel = document.getElementById(selId); if(!sel) return [];
+  return Array.prototype.slice.call(sel.options).filter(function(o){ return o.value && filtro(o.text); }).map(function(o){ return { id: o.value, text: o.text }; });
+}
+function gvSlbVehiculo(patente){
+  var p = String(patente || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return gvSlbOpcion('gv-vehiculo', function(t){ return t.toUpperCase().replace(/[^A-Z0-9]/g, '').indexOf(p) >= 0; })[0] || null;
+}
+function gvSlbChofer(nombre, vehiculoId){
+  var toks = gvSlbNorm(nombre).split(' ').filter(function(x){ return x.length > 1; });
+  if(!toks.length) return null;
+  var cands = gvSlbOpcion('gv-conductor', function(t){ var n = gvSlbNorm(t); return toks.every(function(k){ return n.split(' ').indexOf(k) >= 0; }); });
+  if(cands.length <= 1) return cands[0] || null;
+  /* varios iguales (cargados dos veces): se elige el que se uso en el ultimo viaje de esa unidad, o el de mas viajes */
+  var vs = GV.Storage.getViajes().slice().sort(function(a, b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); });
+  var conVeh = vs.filter(function(v){ return v.vehiculoId === vehiculoId && cands.some(function(c){ return c.id === v.conductorId; }); })[0];
+  if(conVeh) return cands.filter(function(c){ return c.id === conVeh.conductorId; })[0];
+  var cuenta = function(c){ return vs.filter(function(v){ return v.conductorId === c.id; }).length; };
+  return cands.sort(function(a, b){ return cuenta(b) - cuenta(a); })[0];
+}
+/* Posicion del camion a las 06:00 (hora Argentina) de la fecha; si esa hora todavia no llego, la posicion actual. */
+function gvSlbPosicion0600(vehiculoId, fecha){
+  return new Promise(function(resolve){
+    if(!gApi || !vehiculoId){ resolve(null); return; }
+    var t6 = new Date(fecha + 'T06:00:00-03:00');
+    if(isNaN(t6) || t6.getTime() > Date.now()){
+      gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: vehiculoId } } }, function(r){ var x = r && r[0]; resolve(x && x.latitude != null ? { lat: x.latitude, lng: x.longitude } : null); }, function(){ resolve(null); });
+      return;
+    }
+    var desde = new Date(t6.getTime() - 12 * 3600000);
+    gApi.call('Get', { typeName: 'LogRecord', search: { deviceSearch: { id: vehiculoId }, fromDate: desde.toISOString(), toDate: t6.toISOString() } }, function(rs){
+      var ok = (rs || []).filter(function(x){ return x.latitude != null && x.latitude !== 0; });
+      var x = ok[ok.length - 1]; resolve(x ? { lat: x.latitude, lng: x.longitude } : null);
+    }, function(){ resolve(null); });
+  });
+}
+function gvSlbCopiaSitio(s, tipo){ return { lat: s.lat, lng: s.lng, direccion: s.direccion || s.nombre, poligono: s.poligono || null, tipo: tipo, duracionMin: 60 }; }
+/* Arma las propuestas de viaje (una por patente) de un pedido. Devuelve una Promise. */
+function gvSlbArmarPropuestas(pedido){
+  var porPat = {};
+  (pedido.filas || []).forEach(function(f){ (porPat[f.patente] = porPat[f.patente] || []).push(f); });
+  return Promise.all(Object.keys(porPat).map(function(pat){
+    var filas = porPat[pat].slice().sort(function(a, b){ return ((a.fecha || '') + (a.hora || '')).localeCompare((b.fecha || '') + (b.hora || '')); });
+    var fecha = filas[0].fecha || GV.dateStr(new Date());
+    var veh = gvSlbVehiculo(pat);
+    var cho = gvSlbChofer(filas[0].chofer, veh && veh.id);
+    /* eventos: carga en el origen de la fila, descarga en el destino.
+       20/10: varias filas con el mismo origen, fecha y hora son UNA sola carga, seguida de todas sus descargas;
+       las descargas van en el orden de la linea "Recorrido:" del mail (si la trae). */
+    var rec = (pedido.recorrido || []).map(function(t){ return { s: gvSlbResolverSitio(t), c: gvSlbCompact(t).replace(/^(base|h&?p|hp)/, '') }; });
+    var posRec = function(txt){
+      if(!rec.length) return 999;
+      var s = gvSlbResolverSitio(txt), c = gvSlbCompact(txt);
+      for(var i = 1; i < rec.length; i++){ /* el 0 es el origen */
+        if(s && rec[i].s && rec[i].s.id === s.id) return i;
+        if(rec[i].c && rec[i].c.length >= 4 && c.indexOf(rec[i].c) >= 0) return i;
+      }
+      return 999;
+    };
+    var bloques = [];
+    filas.forEach(function(f){
+      var k = (f.fecha || '') + '|' + (f.hora || '') + '|' + gvSlbCompact(f.origen);
+      var b = bloques.filter(function(x){ return x.k === k; })[0];
+      if(!b){ b = { k: k, origen: f.origen, hora: f.hora, destinos: [] }; bloques.push(b); }
+      if(b.destinos.map(gvSlbCompact).indexOf(gvSlbCompact(f.destino)) < 0) b.destinos.push(f.destino);
+    });
+    var ev = [];
+    bloques.forEach(function(b){
+      ev.push({ txt: b.origen, tipo: 'carga', hora: b.hora });
+      b.destinos.map(function(d, i){ return { d: d, i: i, r: posRec(d) }; }).sort(function(x, y){ return (x.r - y.r) || (x.i - y.i); })
+        .forEach(function(x){ ev.push({ txt: x.d, tipo: 'descarga' }); });
+    });
+    var paradas = [];
+    ev.forEach(function(e){
+      var s = gvSlbResolverSitio(e.txt);
+      var key = s ? ('s:' + s.id) : ('t:' + gvSlbCompact(e.txt));
+      var ult = paradas[paradas.length - 1];
+      if(ult && ult.key === key){ if(ult.tipo !== e.tipo) ult.tipo = 'ambos'; if(e.hora && !ult.hora) ult.hora = e.hora; return; }
+      paradas.push({ key: key, txt: e.txt, sitio: s, tipo: e.tipo, hora: e.hora || null });
+    });
+    var h0 = filas[0].hora || '08:00';
+    var hm = h0.split(':'); var minTot = (+hm[0]) * 60 + (+hm[1] || 0) - 15; if(minTot < 0) minTot = 0;
+    var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+    var salLocal = fecha + 'T' + pad(Math.floor(minTot / 60)) + ':' + pad(minTot % 60) + ':00';
+    var trTxt = (pedido.trs || {})[pat] || '';
+    if(!trTxt){ var __f1 = filas.filter(function(f){ return f.tr; })[0]; if(__f1) trTxt = __f1.tr; }
+    var obs = filas.map(function(f){ return 'CVU ' + (f.cvu || '?') + ' ' + (f.fecha ? f.fecha.slice(8, 10) + '/' + f.fecha.slice(5, 7) + ' ' : '') + (f.hora || '') + ' ' + f.origen + ' -> ' + f.destino +
+        (f.tr ? (' - ' + f.tr) : '') + (f.gv ? (' - GV ' + f.gv) : '') + (f.sh ? (' - ' + f.sh) : '') + (f.detalle ? (' - ' + f.detalle) : ''); }).join(' / ') +
+      '. ' + (filas[0].tipoUnidad || '') + (filas[0].contrato ? ('. Contrato ' + filas[0].contrato) : '') + (filas[0].bl ? ('. ' + filas[0].bl) : '') +
+      (pedido.recorrido && pedido.recorrido.length ? ('. Recorrido: ' + pedido.recorrido.join(' >> ')) : '') + '. Cargado desde mail SLB "' + (pedido.asunto || '') + '".';
+    var existente = GV.Storage.getViajes().filter(function(v){
+      if(v.estado === 'cancelado') return false;
+      if(trTxt && v.solicitud === trTxt) return true;
+      /* 20/10: un viaje por unidad y por dia: si la unidad ya tiene un viaje ese dia (aunque se haya cargado a mano), no se propone otro */
+      if(veh && v.vehiculoId === veh.id && GV.dateStr(v.fechaSalida) === fecha) return true;
+      return filas.some(function(f){ return f.cvu && (v.observaciones || '').indexOf(f.cvu) >= 0; });
+    })[0] || null;
+    return gvSlbPosicion0600(veh && veh.id, fecha).then(function(pos){
+      return { patente: pat, fecha: fecha, filas: filas, vehiculo: veh, chofer: cho, paradas: paradas, pos0600: pos, fechaSalida: salLocal, solicitud: trTxt, observaciones: obs, existente: existente };
+    });
+  }));
+}
+function gvSlbOrigen(prop){
+  var primera = prop.paradas[0] && prop.paradas[0].sitio;
+  if(prop.pos0600){
+    if(primera && GV.isWithinSite(prop.pos0600, primera)) return { lat: primera.lat, lng: primera.lng, direccion: primera.direccion || primera.nombre, poligono: primera.poligono || null };
+    var nombre = GV.siteNameFor({ lat: prop.pos0600.lat, lng: prop.pos0600.lng });
+    var s = gvSlbSitios().filter(function(x){ return x.nombre === nombre; })[0];
+    if(s) return { lat: s.lat, lng: s.lng, direccion: s.direccion || s.nombre, poligono: s.poligono || null };
+    return { lat: prop.pos0600.lat, lng: prop.pos0600.lng, direccion: 'Posicion del camion a las 06:00' };
+  }
+  if(primera) return { lat: primera.lat, lng: primera.lng, direccion: primera.direccion || primera.nombre, poligono: primera.poligono || null };
+  return null;
+}
+function gvSlbProblemas(prop){
+  var p = [];
+  if(!prop.vehiculo) p.push('No se encontro la unidad con patente ' + prop.patente + '.');
+  if(!prop.chofer) p.push('No se encontro el chofer "' + (prop.filas[0].chofer || '') + '".');
+  prop.paradas.forEach(function(x){ if(!x.sitio) p.push('Falta la ubicacion de "' + x.txt + '".'); });
+  if(!prop.solicitud) p.push('El mail no trae el TR de esta unidad (se crea sin solicitud).');
+  return p;
+}
+function gvSlbCrearViaje(prop){
+  var origen = gvSlbOrigen(prop);
+  var viaje = {
+    id: GV.genId(),
+    conductorId: prop.chofer.id, conductor: prop.chofer.text,
+    vehiculoId: prop.vehiculo.id, vehiculo: prop.vehiculo.text,
+    fechaSalida: prop.fechaSalida,
+    origen: origen, destino: null,
+    paradas: prop.paradas.map(function(x){ return gvSlbCopiaSitio(x.sitio, x.tipo); }),
+    observaciones: prop.observaciones,
+    solicitud: prop.solicitud || '',
+    estado: 'planificado', creadoEn: new Date().toISOString(), notificado: false, gerenciamiento: null,
+    origenPedidoSLB: true,
+    tramos: [{ conductorId: prop.chofer.id, conductor: prop.chofer.text, vehiculoId: prop.vehiculo.id, vehiculo: prop.vehiculo.text, desde: prop.fechaSalida, hasta: null, motivo: null, motivoDetalle: '' }]
+  };
+  return GV.Storage.addViaje(viaje).then(function(){ return viaje; });
+}
+function gvSlbActualizarPedido(id, patch){
+  return GV.loadFirebase().then(function(firebase){
+    if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
+    return firebase.firestore().collection('gv_pedidos_slb').doc(id).set(patch, { merge: true });
+  });
+}
+function gvSlbPintarContador(){
+  var b = document.getElementById('gv-btn-pedidos-slb'), n = document.getElementById('gv-pedidos-slb-n');
+  if(!b || !n) return;
+  n.textContent = gPedidosSLB.length ? String(gPedidosSLB.length) : '';
+  n.style.display = gPedidosSLB.length ? 'inline-block' : 'none';
+}
+/* 20/10: los viajes armados desde los pedidos aparecen PRIMERO en Seguimiento, en el cuadro "Viajes en curso sin
+   planificacion", dentro de SLB, con un boton "Confirmar" (o "Revisar" si falta algun dato). */
+var gPropuestasSLB = [];
+var __gvSlbRecalcGen = 0;
+function gvSlbRecalcularPropuestas(){
+  var gen = ++__gvSlbRecalcGen;
+  if(!gPedidosSLB.length){ gPropuestasSLB = []; gvSlbAvisoSeguimiento(); try{ gvPintarSinPlan(); }catch(e){} return; }
+  /* 20/10: el mismo servicio (CVU) puede venir en varios mails del dia (confirmacion, cambio de recorrido, update de
+     la tarde). Vale el mail MAS NUEVO. Y una misma unidad puede venir en mails distintos (ej. 10:00 en uno y 13:00 en
+     otro): se junta todo en UN viaje por unidad y por dia. gPedidosSLB ya viene ordenado del mas nuevo al mas viejo. */
+  var cvuVisto = {}, grupos = {}, orden = [];
+  gPedidosSLB.forEach(function(p){
+    var trsP = p.trs || {};
+    (p.filas || []).forEach(function(f){
+      if(f.cvu && cvuVisto[f.cvu]) return;
+      if(f.cvu) cvuVisto[f.cvu] = 1;
+      var k = f.patente + '|' + (f.fecha || '');
+      var g = grupos[k];
+      if(!g){ g = grupos[k] = { _id: p._id, _ids: [], asunto: p.asunto, recibido: p.recibido, recorrido: null, trs: {}, filas: [] }; orden.push(k); }
+      if(g._ids.indexOf(p._id) < 0) g._ids.push(p._id);
+      if(!g.recorrido && p.recorrido && p.recorrido.length) g.recorrido = p.recorrido;
+      if(!g.trs[f.patente] && trsP[f.patente]) g.trs[f.patente] = trsP[f.patente];
+      g.filas.push(f);
+    });
+  });
+  var virtuales = orden.map(function(k){ return grupos[k]; });
+  Promise.all(virtuales.map(function(p){ return gvSlbArmarPropuestas(p).then(function(props){ return props.map(function(x){ x.pedido = p; x.todas = props; return x; }); })['catch'](function(){ return []; }); })).then(function(listas){
+    if(gen !== __gvSlbRecalcGen) return;
+    var todas = [].concat.apply([], listas);
+    gPropuestasSLB = todas.filter(function(x){ return !x.existente; });
+    /* Un mail se cierra solo cuando todas sus unidades ya tienen viaje (o todos sus servicios los reemplazo un mail mas nuevo). */
+    gPedidosSLB.forEach(function(p){
+      var mias = todas.filter(function(x){ return x.pedido._ids.indexOf(p._id) >= 0; });
+      var usadas = (p.filas || []).some(function(f){ return virtuales.some(function(g){ return g.filas.indexOf(f) >= 0; }); });
+      if(!usadas && (p.filas || []).length){ gvSlbActualizarPedido(p._id, { estado: 'reemplazado', procesadoEn: new Date().toISOString() }); return; }
+      if(mias.length && mias.every(function(x){ return x.existente || x.creado; })) gvSlbActualizarPedido(p._id, { estado: 'procesado', procesadoEn: new Date().toISOString() });
+    });
+    gvSlbAvisoSeguimiento();
+    try{ gvPintarSinPlan(); }catch(e){}
+  });
+}
+/* En el boton "Mostrar mas viajes de hoy" de Seguimiento se avisa cuantos viajes de SLB hay para confirmar. */
+function gvSlbAvisoSeguimiento(){
+  var t = document.getElementById('gv-btn-toggle-mas-hoy'); if(!t) return;
+  var base = t.textContent.replace(/\s*\(\d+ por confirmar\)$/, '');
+  t.textContent = base + (gPropuestasSLB.length ? (' (' + gPropuestasSLB.length + ' por confirmar)') : '');
+  t.style.borderColor = gPropuestasSLB.length ? '#dc2626' : '';
+}
+function gvSlbConfirmarPropuesta(idx, btn){
+  var prop = gPropuestasSLB[idx]; if(!prop) return;
+  if(btn){ btn.disabled = true; btn.textContent = 'Creando...'; }
+  gvSlbCrearViaje(prop).then(function(){
+    prop.creado = true;
+    gPropuestasSLB = gPropuestasSLB.filter(function(x){ return x !== prop; });
+    setTimeout(gvSlbRecalcularPropuestas, 1500); /* cierra los mails que ya quedaron con todas sus unidades cargadas */
+    gvSlbAvisoSeguimiento();
+    try{ gvPintarSinPlan(); renderTracking(); renderStats(); }catch(e){}
+  });
+}
+function gvSlbEnlazarBotones(el){
+  if(!el) return;
+  el.querySelectorAll('[data-slb-confirmar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvSlbConfirmarPropuesta(+b.getAttribute('data-slb-confirmar'), b); }); });
+  el.querySelectorAll('[data-slb-revisar]').forEach(function(b){ b.addEventListener('click', function(e){ e.stopPropagation(); gvAbrirPedidosSLB(); }); });
+}
+function gvSlbHtmlPropuestas(){
+  if(!gPropuestasSLB.length) return '';
+  var TIPO = { carga: 'Carga', descarga: 'Descarga', ambos: 'Carga y Descarga' };
+  return '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b91c1c">Viajes del mail para confirmar (' + gPropuestasSLB.length + ')</span></div>' +
+    gPropuestasSLB.map(function(prop, k){
+      var bloq = gvSlbProblemas(prop).filter(function(t){ return !/TR/.test(t); }).length > 0;
+      var org = gvSlbOrigen(prop);
+      var ruta = [org ? (GV.siteNameFor(org) || org.direccion) : '?'].concat(prop.paradas.map(function(x){ return (x.sitio ? x.sitio.nombre : (x.txt + ' (sin ubicacion)')) + ' (' + TIPO[x.tipo] + ')'; })).join(' → ');
+      return '<div style="padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px;background:#fef2f2">' +
+        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(prop.vehiculo ? prop.vehiculo.text : prop.patente) + '</b><span style="color:#374151">' + GV.escapeHtml(prop.chofer ? prop.chofer.text : (prop.filas[0].chofer || '')) + '</span>' +
+        (prop.solicitud ? '<span style="font-size:.7rem;color:#3730a3;background:#eef2ff;border-radius:4px;padding:1px 5px">Sol. ' + GV.escapeHtml(prop.solicitud) + '</span>' : '') +
+        '<span style="font-size:.74rem;color:#6b7280">Salida ' + GV.escapeHtml(prop.fechaSalida.slice(8, 10) + '/' + prop.fechaSalida.slice(5, 7) + ' ' + prop.fechaSalida.slice(11, 16)) + '</span>' +
+        '<span style="margin-left:auto;display:flex;gap:4px">' +
+          '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:2px 8px;font-size:.72rem" data-slb-revisar="' + k + '">Revisar</button>' +
+          (bloq ? '' : '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" style="padding:2px 8px;font-size:.72rem" data-slb-confirmar="' + k + '">Confirmar</button>') +
+        '</span></div>' +
+        '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + GV.escapeHtml(ruta) + '">' + GV.escapeHtml(ruta) + '</div>' +
+        (bloq ? '<div style="color:#b45309;font-size:.72rem">' + gvSlbProblemas(prop).map(GV.escapeHtml).join(' ') + ' Toca "Revisar".</div>' : '') +
+        '</div>';
+    }).join('') + '<div style="height:6px"></div>';
+}
+function gvEscucharPedidosSLB(){
+  GV.loadFirebase().then(function(firebase){
+    if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
+    firebase.firestore().collection('gv_pedidos_slb').where('estado', '==', 'pendiente').onSnapshot(function(qs){
+      gPedidosSLB = qs.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); }).sort(function(a, b){ return String(b.recibido).localeCompare(String(a.recibido)); });
+      gvSlbPintarContador();
+      gvSlbRecalcularPropuestas();
+    }, function(err){ try{ console.warn('[GV] pedidos SLB', err && err.message); }catch(e){} });
+  })['catch'](function(){});
+}
+function gvAbrirPedidosSLB(){
+  var ov = document.createElement('div');
+  ov.className = 'gv-modal-overlay'; ov.style.zIndex = '99990';
+  ov.innerHTML = '<div class="gv-modal" style="max-width:860px;width:100%;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">Pedidos SLB para confirmar</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ps-cerrar>Cerrar</button></div>' +
+    '<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">Viajes armados automaticamente desde los mails de confirmacion de SLB. Revisa cada uno y toca "Crear viaje".</div>' +
+    '<div data-ps-cuerpo style="overflow:auto;min-height:0"></div></div>';
+  document.body.appendChild(ov);
+  var cuerpo = ov.querySelector('[data-ps-cuerpo]');
+  var cerrar = function(){ ov.remove(); };
+  ov.addEventListener('click', function(e){ if(e.target === ov || e.target.closest('[data-ps-cerrar]')) cerrar(); });
+  var fmt = function(iso){ try{ return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); }catch(e){ return iso; } };
+  var TIPO = { carga: 'Carga', descarga: 'Descarga', ambos: 'Carga y Descarga' };
+  function pintarLista(){
+    if(!gPedidosSLB.length){ cuerpo.innerHTML = '<div style="padding:20px;text-align:center;color:#6b7280">No hay pedidos de SLB pendientes.</div>'; return; }
+    cuerpo.innerHTML = gPedidosSLB.map(function(p){
+      return '<div data-ps-pedido="' + p._id + '" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:10px">' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="flex:1">' + GV.escapeHtml(p.asunto || '(sin asunto)') + '</b><span style="font-size:.75rem;color:#6b7280">' + GV.escapeHtml(p.de || '') + ' - ' + fmt(p.recibido) + '</span></div>' +
+        '<div style="font-size:.75rem;color:#6b7280;margin:3px 0 6px">' + (p.filas || []).length + ' servicio(s) de Dolores Parra</div>' +
+        '<div data-ps-props style="font-size:.8rem;color:#6b7280">Armando viajes...</div>' +
+        '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ps-descartar="' + p._id + '">Descartar pedido</button><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ps-listo="' + p._id + '">Marcar como procesado</button></div>' +
+        '</div>';
+    }).join('');
+    gPedidosSLB.forEach(function(p){ armar(p); });
+  }
+  function armar(p){
+    var cont = cuerpo.querySelector('[data-ps-pedido="' + p._id + '"] [data-ps-props]'); if(!cont) return;
+    gvSlbArmarPropuestas(p).then(function(props){
+      p.__props = props;
+      cont.innerHTML = props.map(function(prop, k){
+        var prob = gvSlbProblemas(prop);
+        var org = gvSlbOrigen(prop);
+        var bloqueado = !prop.vehiculo || !prop.chofer || prop.paradas.some(function(x){ return !x.sitio; });
+        var ruta = '<span style="color:#059669;font-weight:600">' + GV.escapeHtml(org ? (GV.siteNameFor(org) || org.direccion) : 'Sin origen') + '</span>' +
+          prop.paradas.map(function(x, i){
+            return ' &rarr; <b>' + (i + 1) + '.</b> ' + (x.sitio ? GV.escapeHtml(x.sitio.nombre) : ('<span style="color:#b91c1c;font-weight:700">' + GV.escapeHtml(x.txt) + ' (sin ubicacion)</span> <button type="button" class="gv-btn gv-btn-sec gv-btn-sm" style="padding:1px 6px;font-size:.7rem" data-ps-ubicar="' + k + '|' + i + '">Elegir ubicacion</button>')) + ' <span style="color:#6b7280">(' + TIPO[x.tipo] + ')</span>';
+          }).join('');
+        return '<div style="border-top:1px dashed #e5e7eb;padding:8px 0">' +
+          '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;color:#111827"><b>' + GV.escapeHtml(prop.vehiculo ? prop.vehiculo.text : prop.patente) + '</b> - ' + GV.escapeHtml(prop.chofer ? prop.chofer.text : (prop.filas[0].chofer || '?')) +
+          (prop.solicitud ? ' <span style="font-size:.72rem;color:#3730a3;background:#eef2ff;border-radius:4px;padding:1px 5px">Sol. ' + GV.escapeHtml(prop.solicitud) + '</span>' : '') +
+          '<span style="margin-left:auto;font-size:.78rem">Salida ' + GV.escapeHtml(prop.fechaSalida.slice(8, 10) + '/' + prop.fechaSalida.slice(5, 7) + ' ' + prop.fechaSalida.slice(11, 16)) + '</span></div>' +
+          '<div style="font-size:.78rem;color:#374151;margin:4px 0">' + ruta + '</div>' +
+          (prob.length ? '<div style="font-size:.74rem;color:#b45309">' + prob.map(GV.escapeHtml).join('<br>') + '</div>' : '') +
+          '<div style="text-align:right;margin-top:4px">' + (prop.existente ? '<span style="font-size:.78rem;color:#047857;font-weight:600">Ya cargado: ' + GV.escapeHtml(prop.existente.vehiculo + ' ' + (prop.existente.solicitud || '')) + '</span>' :
+            (prop.creado ? '<span style="font-size:.78rem;color:#047857;font-weight:600">Viaje creado</span>' : '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" data-ps-crear="' + k + '"' + (bloqueado ? ' disabled title="Completa los datos que faltan"' : '') + '>Crear viaje</button>')) + '</div>' +
+          '</div>';
+      }).join('') || '<div>No se encontraron unidades de Dolores Parra en este mail.</div>';
+      cont.querySelectorAll('[data-ps-crear]').forEach(function(b){ b.addEventListener('click', function(){
+        var prop = props[+b.getAttribute('data-ps-crear')]; b.disabled = true; b.textContent = 'Creando...';
+        gvSlbCrearViaje(prop).then(function(){
+          prop.creado = true;
+          renderStats(); if(gPanelView === 'calendario') renderCalendar();
+          try{ gvSlbRecalcularPropuestas(); }catch(__eRc){}
+          var faltan = props.filter(function(x){ return !x.creado && !x.existente; }).length;
+          if(!faltan){ gvSlbActualizarPedido(p._id, { estado: 'procesado', procesadoEn: new Date().toISOString() }); }
+          armar(p);
+        });
+      }); });
+      cont.querySelectorAll('[data-ps-ubicar]').forEach(function(b){ b.addEventListener('click', function(){
+        var ij = b.getAttribute('data-ps-ubicar').split('|'); var x = props[+ij[0]].paradas[+ij[1]];
+        GV.pickLocation({ title: 'Ubicacion de "' + x.txt + '"', withStopFields: false, otros: [] }).then(function(res){
+          if(!res) return;
+          var nuevo = { id: GV.genId('s'), nombre: gvSlbNombreSugerido(x.txt), lat: res.lat, lng: res.lng, direccion: res.direccion || gvSlbNombreSugerido(x.txt), poligono: res.poligono || null, tipo: 'descarga', duracionMin: 60, aliasMail: [gvSlbCompact(x.txt)] };
+          GV.Storage.addSitio(nuevo).then(function(){ armar(p); });
+        });
+      }); });
+    })['catch'](function(err){ cont.textContent = 'No se pudo armar: ' + (err && err.message); });
+  }
+  cuerpo.addEventListener('click', function(e){
+    var d = e.target.closest('[data-ps-descartar]'), l = e.target.closest('[data-ps-listo]');
+    if(d){ if(!confirm('¿Descartar este pedido? No se crea ningun viaje.')) return; gvSlbActualizarPedido(d.getAttribute('data-ps-descartar'), { estado: 'descartado', procesadoEn: new Date().toISOString() }).then(function(){ setTimeout(pintarLista, 600); }); }
+    if(l){ gvSlbActualizarPedido(l.getAttribute('data-ps-listo'), { estado: 'procesado', procesadoEn: new Date().toISOString() }).then(function(){ setTimeout(pintarLista, 600); }); }
+  });
+  pintarLista();
+}
+
+/* 19/10: permanencia PROGRAMADA de un sitio (sin la espera acordada). Con espera acordada, duracionMin guarda el
+   total hasta el horario acordado; la programada original queda en esperaAcordada.duracionProgramadaMin. */
+function gvDurProgMin(p){
+  if(!p) return 0;
+  var ea = p.esperaAcordada;
+  if(ea && ea.hasta && typeof ea.duracionProgramadaMin === 'number') return ea.duracionProgramadaMin;
+  return (typeof p.dur === 'number') ? p.dur : (p.duracionMin || 0);
+}
+/* ---------------- 19/10: ventanas del calendario ---------------- */
+function gvIrASeguimientoHoy(){
+  showTab('seguimiento');
+  var b = document.getElementById('gv-mas-hoy'), t = document.getElementById('gv-btn-toggle-mas-hoy');
+  if(b && t && b.style.display === 'none'){ t.click(); }
+}
+var GV_ESTADO_TXT = { planificado: ['Planificado', '#6b7280', '#f3f4f6'], en_curso: ['En curso', '#1d4ed8', '#dbeafe'], demorado: ['Demorado', '#b91c1c', '#fee2e2'], completado: ['Completado', '#047857', '#d1fae5'], cancelado: ['Cancelado', '#6b7280', '#e5e7eb'] };
+/* Misma tarjeta que "Viajes finalizados hoy" de Seguimiento. refDia: fecha (YYYY-MM-DD) que no hace falta repetir en los horarios. */
+function gvViajeCardHtml(v, refDia, conEstado){
+  var cli = gvClientesDeViaje(v);
+  var ini = v.iniciadoEn || (v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso) || v.fechaSalida;
+  var fin = v.estado === 'completado' ? v.completadoEn : null;
+  function fh(iso){ if(!iso) return '-'; var d = new Date(iso); if(isNaN(d)) return '-'; return (GV.dateStr(d) !== refDia ? d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' : '') + gvHoraCorta(iso); }
+  var horario = (v.estado === 'planificado' || v.estado === 'cancelado') ? ('Salida ' + fh(v.fechaSalida)) : (fh(ini) + (fin ? (' → ' + fh(fin) + ' (' + GV.fmtDurMin(new Date(fin) - new Date(ini)) + ')') : ' → en curso'));
+  var col = v.estado === 'completado' ? '#059669' : (v.estado === 'demorado' ? '#b91c1c' : '#1d4ed8');
+  var est = GV_ESTADO_TXT[v.estado] || [v.estado || '', '#6b7280', '#f3f4f6'];
+  var ruta = [v.origen ? GV.siteNameFor(v.origen) : ''].concat((v.paradas || []).map(function(p){ return GV.siteNameFor(p); })).concat(v.destino ? [GV.siteNameFor(v.destino)] : []).filter(Boolean).join(' → ');
+  return '<div data-pop-viaje="' + v.id + '" title="Ver el detalle del viaje" style="cursor:pointer;padding:7px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px" onmouseover="this.style.background=\'#f0fdf4\'" onmouseout="this.style.background=\'\'">' +
+    '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' +
+    (cli.length ? cli.map(GV.clienteBadgeHtml).join(' ') : '') +
+    (v.solicitud ? '<span style="font-size:.7rem;color:#3730a3;background:#eef2ff;border-radius:4px;padding:1px 5px">Sol. ' + GV.escapeHtml(String(v.solicitud)) + '</span>' : '') +
+    (conEstado ? '<span style="font-size:.7rem;font-weight:600;color:' + est[1] + ';background:' + est[2] + ';border-radius:4px;padding:1px 6px">' + est[0] + '</span>' : '') +
+    '<span style="margin-left:auto;color:' + col + ';font-weight:600;white-space:nowrap">' + horario + '</span></div>' +
+    '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + GV.escapeHtml(ruta) + '</div></div>';
+}
+/* 19/10: ventana con una sola lista de viajes y su propio buscador (misma busqueda que el buscador del panel:
+   solicitud, chofer, unidad, patente, cliente, sitios...). Arranca con lo que este escrito en el buscador del panel. */
+function gvAbrirPopupViajes(titulo, viajes, refDia, vacio){
+  var ov = document.createElement('div');
+  ov.className = 'gv-modal-overlay';
+  ov.style.zIndex = '99990'; /* debajo del detalle del viaje (100000), asi al cerrar el detalle se vuelve a esta ventana */
+  ov.innerHTML = '<div class="gv-modal" style="max-width:760px;width:100%;max-height:85vh;display:flex;flex-direction:column">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">' + GV.escapeHtml(titulo) + ' <span data-pop-n style="color:#6b7280;font-weight:500"></span></h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-pop-cerrar>Cerrar</button></div>' +
+    '<input type="search" data-pop-buscar placeholder="Buscar solicitud, chofer, unidad, patente, cliente..." autocomplete="off" style="width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem;margin-bottom:8px">' +
+    '<div data-pop-lista style="overflow:auto;min-height:0"></div></div>';
+  document.body.appendChild(ov);
+  var inp = ov.querySelector('[data-pop-buscar]'), lista = ov.querySelector('[data-pop-lista]'), nEl = ov.querySelector('[data-pop-n]');
+  function pintar(){
+    var q = inp.value.trim();
+    var vs = q ? viajes.filter(function(v){ return gvViajeCoincideBusqueda(v, q); }) : viajes;
+    nEl.textContent = '(' + vs.length + (q ? ' de ' + viajes.length : '') + ')';
+    lista.innerHTML = vs.length ? vs.map(function(v){ return gvViajeCardHtml(v, refDia || null, v.estado !== 'completado'); }).join('')
+      : '<div style="font-size:.8rem;color:#9ca3af;padding:6px 8px">' + GV.escapeHtml(q ? 'Ningun viaje coincide con la busqueda.' : (vacio || 'No hay viajes.')) + '</div>';
+  }
+  inp.value = gSolQuery || '';
+  inp.addEventListener('input', pintar);
+  pintar();
+  try{ inp.focus(); }catch(e){}
+  function cerrar(){ ov.remove(); document.removeEventListener('keydown', esc); }
+  function esc(e){ if(e.key !== 'Escape') return; var ovs = document.querySelectorAll('.gv-modal-overlay'); if(ovs.length && ovs[ovs.length - 1] === ov) cerrar(); }
+  document.addEventListener('keydown', esc);
+  ov.addEventListener('click', function(e){
+    if(e.target === ov || e.target.closest('[data-pop-cerrar]')){ cerrar(); return; }
+    var el = e.target.closest('[data-pop-viaje]');
+    if(el) abrirDetalleViaje(el.getAttribute('data-pop-viaje'));
+  });
+}
+function gvAbrirListaViajesPopup(titulo, viajes, refDia){
+  gvAbrirPopupViajes(titulo, viajes, refDia, 'No se encontraron viajes.');
+}
+/* 19/10: viajes de un dia = los que estuvieron ACTIVOS ese dia: desde el dia de salida hasta el dia en que se
+   cerraron (o hasta hoy si siguen en curso). Un viaje del 15 al 17 aparece el 15, el 16 y el 17. Los cancelados
+   y los planificados solo cuentan el dia de salida. Es el mismo total que muestra el recuadro del calendario. */
+function gvViajesDelDia(todos, dia){
+  var hoy = GV.dateStr(new Date());
+  return todos.filter(function(v){
+    var ini = GV.dateStr(v.iniciadoEn || v.fechaSalida), sal = GV.dateStr(v.fechaSalida);
+    if(sal && sal < ini) ini = sal;
+    if(!ini) return false;
+    var fin = ini;
+    if(v.estado === 'completado' && v.completadoEn) fin = GV.dateStr(v.completadoEn);
+    else if(v.estado === 'en_curso' || v.estado === 'demorado') fin = hoy;
+    if(fin < ini) fin = ini;
+    return dia >= ini && dia <= fin;
+  });
+}
+function gvAbrirDiaPopup(dia){
+  var vs = gvViajesDelDia(GV.Storage.getViajes(), dia).sort(function(a, b){
+    var ta = new Date(a.iniciadoEn || a.fechaSalida).getTime(), tb = new Date(b.iniciadoEn || b.fechaSalida).getTime();
+    return ta - tb;
+  });
+  var p = dia.split('-');
+  gvAbrirPopupViajes('Viajes del ' + p[2] + '/' + p[1] + '/' + p[0].slice(2), vs, dia, 'No hay viajes este dia.');
+}
 function renderCalendar(){
 var grid = document.getElementById('gv-cal-grid');
 var title = document.getElementById('gv-cal-title');
@@ -3202,7 +3818,10 @@ for(i=0;i<firstDow;i++){ html += '<div class="gv-cal-day gv-cal-empty"></div>'; 
 for(var day=1; day<=daysInMonth; day++){
 var dateObj = new Date(year, month, day);
 var dateStr = GV.dateStr(dateObj);
-var dayTrips = viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
+var dayTrips = gSolQuery ? gvViajesDelDia(viajes, dateStr) : viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
+/* 19/10: en los dias anteriores a hoy se cuentan los viajes de ese dia (salieron o terminaron ese dia), lo mismo que muestra la ventana del dia. */
+var __esPasado = dateStr < todayStr;
+var __finDia = __esPasado ? gvViajesDelDia(viajes, dateStr) : [];
 var cls = 'gv-cal-day';
 if(dateStr === todayStr) cls += ' gv-cal-today';
 if(dateStr === gCalSelectedDay) cls += ' gv-cal-sel';
@@ -3211,17 +3830,19 @@ var plan = dayTrips.filter(function(v){ return v.estado === 'planificado'; }).le
 var comp = dayTrips.filter(function(v){ return v.estado === 'completado'; }).length;
 html += '<div class="' + cls + '" data-date="' + dateStr + '">' +
 '<div class="gv-cal-daynum">' + day + '</div>' +
-(dayTrips.length ? '<div class="gv-cal-count">' + dayTrips.length + '</div>' : '') +
-(dayTrips.length ? '<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>' : '') +
+(__esPasado
+  ? ((__finDia.length ? '<div class="gv-cal-count">' + __finDia.length + '</div><div class="gv-cal-sub">viaje' + (__finDia.length === 1 ? '' : 's') + '</div>' : ''))
+  : ((dayTrips.length ? '<div class="gv-cal-count">' + dayTrips.length + '</div>' : '') +
+     (dayTrips.length ? '<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>' : ''))) +
 '</div>';
 }
 grid.innerHTML = html;
 grid.querySelectorAll('.gv-cal-day[data-date]').forEach(function(cell){
 cell.addEventListener('click', function(){
-gCalSelectedDay = cell.getAttribute('data-date');
-gStatFilter = null;
-updateStatCardHighlight();
-switchPanelView('lista');
+/* 19/10: hoy -> Seguimiento (viajes en curso y finalizados del dia); otro dia -> ventana con los viajes de ese dia. */
+var __d = cell.getAttribute('data-date');
+if(__d === GV.dateStr(new Date())){ gvIrASeguimientoHoy(); return; }
+gvAbrirDiaPopup(__d);
 });
 });
 }
@@ -3703,7 +4324,7 @@ document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
         GV.Storage.updateViaje(v.id, { solicitud: valS }).then(function(){ clS(); renderTrips(); renderTracking(); closeDetalle(); abrirDetalleViaje(v.id); });
       });
     }); }
-    var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = new Date().toISOString(); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
+    var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = gvHoraCierreManual(v); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, completadoEnPrevio: v.completadoEn || v.completadoEnPrevio || null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 var __detJornadaEditarBtn = document.getElementById('gv-det-jornada-editar');
 if(__detJornadaEditarBtn){
   __detJornadaEditarBtn.addEventListener('click', function(){
@@ -4053,7 +4674,7 @@ var __detCompartirBtn = document.getElementById('gv-det-compartir'); if(__detCom
   if(v.compartirToken){ closeDetalle(); abrirDetalleViaje(v.id); return; }
   var __tok = GV.genId('sh');
   GV.Storage.updateViaje(v.id, { compartirToken: __tok }).then(function(){
-    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), sitios: gvSitiosCompartir(v), creadoEn: new Date().toISOString() });
+    return GV.Storage.pushCompartido(__tok, { viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '', estado: v.estado || 'planificado', activo: true, origen: (v.origen ? (GV.siteNameFor(v.origen) || '') : ''), destino: (v.destino ? (GV.siteNameFor(v.destino) || '') : ''), sitios: gvSitiosCompartir(v), horarios: gvHorariosCompartir(v), creadoEn: new Date().toISOString() });
   }).then(function(){ closeDetalle(); abrirDetalleViaje(v.id); });
 }); }
 var __detCompartirCopiarBtn = document.getElementById('gv-det-compartir-copiar'); if(__detCompartirCopiarBtn){ __detCompartirCopiarBtn.addEventListener('click', function(){
@@ -4188,7 +4809,7 @@ ov2.innerHTML =
 '<button type="button" id="gv-es-opera">Opera</button>' +
 '</div>' +
 '<label style="display:block;font-size:.85rem;margin-bottom:6px">Tiempo estimado en el sitio</label>' +
-'<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px"><input type="number" id="gv-es-h" min="0" step="1" value="' + Math.floor((p.dur||0)/60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">horas</span> <input type="number" id="gv-es-m" min="0" max="59" step="5" value="' + ((p.dur||0)%60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">minutos</span></div>' +
+'<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px"><input type="number" id="gv-es-h" min="0" step="1" value="' + Math.floor(gvDurProgMin(p)/60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">horas</span> <input type="number" id="gv-es-m" min="0" max="59" step="5" value="' + (gvDurProgMin(p)%60) + '" style="width:90px;padding:8px;border:1px solid #d1d5db;border-radius:6px"> <span style="font-size:.8rem;color:#6b7280">minutos</span></div>' +
 ' <div id="gv-es-ing-box" style="margin-bottom:14px"><div style="font-size:.8rem;font-weight:600;margin-bottom:4px">Ingreso real al sitio</div><input type="datetime-local" id="gv-es-ing" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><div style="font-size:.72rem;color:#9ca3af;margin-top:4px">Si el horario que detecto el GPS no es el correcto, cambialo aca. Si lo dejas igual no se modifica.</div></div>' +
 ' <div id="gv-es-acord-box" style="border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:10px;margin-bottom:14px">' +
 ' <label style="display:flex;gap:6px;align-items:center;font-size:.85rem;font-weight:600;color:#92400e;cursor:pointer"><input type="checkbox" id="gv-es-acord"> Espera acordada con el cliente</label>' +
@@ -4228,6 +4849,7 @@ document.getElementById('gv-es-cancel').addEventListener('click', closeEs);
 ov2.addEventListener('click', function(e){ if(e.target === ov2) closeEs(); });
 document.getElementById('gv-es-save').addEventListener('click', function(){
 var newMin = (Math.max(0, parseInt(document.getElementById('gv-es-h').value, 10) || 0) * 60) + Math.max(0, parseInt(document.getElementById('gv-es-m').value, 10) || 0);
+var __minProgramados = newMin; /* 19/10: permanencia programada (la que escribio el coordinador), aparte de la espera acordada */
 var __ingNew = null;
 (function(){ var el = document.getElementById('gv-es-ing'); if(!el || !el.value) return; var d = new Date(el.value); if(isNaN(d.getTime())) return; var rw = (__itinRows || []).filter(function(r){ return r.id === siteId; })[0]; var cur = (rw && rw.realIn) ? new Date(rw.realIn).getTime() : null; if(cur !== null && Math.abs(d.getTime() - cur) < 60000) return; __ingNew = d.toISOString(); })();
 var __eaNew = null;
@@ -4242,14 +4864,15 @@ if(document.getElementById('gv-es-acord').checked){
     if(__mins <= 0){ alert('El horario tiene que ser posterior a la llegada de la unidad a este sitio.'); return; }
     if(__mins > newMin) newMin = __mins;
   }
-  __eaNew = { hasta: __hd.toISOString(), motivo: (document.getElementById('gv-es-acord-motivo').value || '').trim(), registradoEn: new Date().toISOString() };
+  __eaNew = { hasta: __hd.toISOString(), motivo: (document.getElementById('gv-es-acord-motivo').value || '').trim(), registradoEn: new Date().toISOString(), duracionProgramadaMin: __minProgramados };
 }
 var patch = {};
-if(siteId === 'origen'){ patch.origen = cloneSet(v.origen, tipoSel, newMin, __eaNew); }
-else if(siteId === 'destino'){ patch.destino = cloneSet(v.destino, tipoSel, newMin, __eaNew); }
+var vF2 = GV.Storage.getViaje(v.id) || v; /* 20/10: version fresca (ver buildSitePatch) */
+if(siteId === 'origen'){ patch.origen = cloneSet(vF2.origen, tipoSel, newMin, __eaNew); }
+else if(siteId === 'destino'){ patch.destino = cloneSet(vF2.destino, tipoSel, newMin, __eaNew); }
 else if(siteId.indexOf('parada') === 0){
 var idx = parseInt(siteId.replace('parada',''), 10);
-patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? cloneSet(pp, tipoSel, newMin, __eaNew) : pp; });
+patch.paradas = (vF2.paradas||[]).map(function(pp, i){ return i === idx ? cloneSet(pp, tipoSel, newMin, __eaNew) : pp; });
 }
 if(__ingNew){ var __srM = Object.assign({}, v.sitiosReal || {}); __srM[siteId] = Object.assign({}, __srM[siteId] || {}, { ingreso: __ingNew, ingresoGps: true, ingresoManual: true }); patch.sitiosReal = __srM; if(v.dwellState && v.dwellState.siteId === siteId){ patch.dwellState = Object.assign({}, v.dwellState, { arrivedAt: __ingNew }); } }
 GV.Storage.updateViaje(v.id, patch).then(function(){
@@ -4265,12 +4888,16 @@ gvReevaluarViajeAhora(v.id);
 }
 
 function buildSitePatch(siteId, mergeObj){
+/* 20/10: se arma sobre la version FRESCA del viaje, no sobre la copia del detalle abierto: si el viaje se modifico
+   mientras el detalle estaba abierto (otro usuario u otra pestana), editar un sitio reescribia las demas paradas con
+   los datos viejos (ej.: volvia una espera acordada que ya se habia sacado). */
+var vF = GV.Storage.getViaje(v.id) || v;
 var patch = {};
-if(siteId === 'origen'){ patch.origen = Object.assign({}, v.origen, mergeObj); }
-else if(siteId === 'destino'){ patch.destino = Object.assign({}, v.destino, mergeObj); }
+if(siteId === 'origen'){ patch.origen = Object.assign({}, vF.origen, mergeObj); }
+else if(siteId === 'destino'){ patch.destino = Object.assign({}, vF.destino, mergeObj); }
 else if(siteId.indexOf('parada') === 0){
 var idx = parseInt(siteId.replace('parada',''), 10);
-patch.paradas = (v.paradas||[]).map(function(pp, i){ return i === idx ? Object.assign({}, pp, mergeObj) : pp; });
+patch.paradas = (vF.paradas||[]).map(function(pp, i){ return i === idx ? Object.assign({}, pp, mergeObj) : pp; });
 }
 return patch;
 }
@@ -4284,7 +4911,9 @@ GV.pickLocation({
 title: 'Editar ubicacion: ' + (p ? (p.dir || p.label) : siteId),
 initial: { lat: cur.lat, lng: cur.lng, direccion: cur.direccion || (p && p.dir) || '', tipo: cur.tipo, duracionMin: cur.duracionMin, poligono: cur.poligono || null },
 withStopFields: isParada,
-otros: pts.filter(function(pp){ return pp.id !== siteId; })
+otros: pts.filter(function(pp){ return pp.id !== siteId; }),
+mantenerNombre: true, nombreSitio: GV.siteNameFor(cur) || cur.direccion || (p && (p.dir || p.label)) || '',
+mostrarCamion: true, vehiculoId: v.vehiculoId, api: gApi
 }).then(function(res){
 if(!res) return;
 var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null };
@@ -4657,8 +5286,23 @@ if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigen
    pisar ni confundirse con el ingreso/egreso real de arriba. */
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
-rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
+rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, durProg: p.tipo ? gvDurProgMin(p) : null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
+
+/* 20/10: sitio repetido en el recorrido (carga en Solalique ... descarga final en Solalique). La segunda aparicion
+   queda pendiente mientras alguno de los puntos intermedios siga pendiente: si no, figuraba "en sitio" en los dos. */
+(function(){
+function __mismo(a, b){ if(a.label && b.label && a.label === b.label) return true; var d = GV.distKm(a, b); return d != null && d * 1000 <= 300; }
+rows.forEach(function(r, k){
+if(!r.id || String(r.id).indexOf('parada') !== 0 || (!r.realIn && !r.realOut)) return;
+for(var j = 0; j < k; j++){
+if(typeof rows[j].lat !== 'number' || !__mismo(rows[j], r)) continue;
+for(var m = j + 1; m < k; m++){
+if(!rows[m].realIn && !rows[m].realOut){ r.realIn = null; r.realOut = null; r.realInAuto = null; r.realOutAuto = null; r.choferMarcoIngreso = null; r.choferMarcoEgreso = null; return; }
+}
+}
+});
+})();
 
 /* Control de coherencia cronologica de los horarios reales. Los valores guardados en sitiosReal se
    sellan en vivo con la hora en que el panel detecta el cambio, asi que si el panel estuvo cerrado,
@@ -4689,6 +5333,7 @@ r.realOutDudoso = true;
 });
 })();
 
+try{ window.__gvItinFilas = { viajeId: v.id, rows: rows }; }catch(__eIF){}
 /* 19/10: los horarios ESTIMADOS se recalculan sobre lo que realmente paso. Antes se encadenaban desde la hora de
    salida programada sumando tramos y permanencias, asi que si la unidad pernoctaba en un sitio (o se demoraba
    horas), los sitios siguientes quedaban con estimados imposibles (ej.: ingreso est. 05:14 de la manana despues de
@@ -4710,7 +5355,10 @@ r.realOutDudoso = true;
   }
   for(var i = 1; i < rows.length; i++){
     var prev = rows[i - 1], r = rows[i];
-    var __salidaPrev = prev.realOut || prev.egreso;
+    /* La salida del sitio anterior que se toma es la MAS TARDIA entre la real y la estimada: si la unidad
+       salio despues de lo previsto (pernocte, demora) manda la real; si hay una espera acordada o una
+       permanencia programada mas larga, manda la estimada, y al cambiarla se corre tambien el sitio siguiente. */
+    var __salidaPrev = (prev.realOut && prev.egreso) ? new Date(Math.max(prev.realOut.getTime(), prev.egreso.getTime())) : (prev.realOut || prev.egreso);
     if(!prev.realOut && prev.realIn && __enCursoV && prev.egreso && prev.egreso.getTime() < __ahora){ __salidaPrev = new Date(__ahora); }
     if(!__salidaPrev || isNaN(__salidaPrev.getTime())) continue;
     var __legSeg = (__legs[i - 1] && typeof __legs[i - 1].duration === 'number') ? __legs[i - 1].duration : null;
@@ -4848,6 +5496,7 @@ progresoHtml = '<div style="font-size:.85rem;margin-bottom:10px;padding:8px 12px
 
 var __hoyStr = GV.dateStr(new Date());
 var __salidaStr = GV.dateStr(v.fechaSalida);
+var __salD0 = new Date(v.fechaSalida); if(isNaN(__salD0.getTime())) __salD0 = new Date();
 /* Los horarios se muestran pelados (solo HH:MM) unicamente cuando no puede haber
    ninguna ambiguedad: el horario cae en el dia de salida del viaje Y ese dia es hoy.
    Si el viaje arranco otro dia (por ejemplo se lo esta mirando hoy pero salio ayer) se
@@ -4860,7 +5509,11 @@ if(!d) return '-';
 var t = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
 var ds = GV.dateStr(d);
 var fecha = d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
-var fechaHtml = (ds === __salidaStr) ? '<span class="gv-dt-f">' + fecha + '</span>' : '<b class="gv-dt-f gv-dt-f-sig">' + fecha + '</b>';
+/* 19/10: un color por dia del viaje (1er dia gris, 2do azul, 3ro indigo, 4to violeta, 5to purpura, 6to+ magenta). */
+var __nDia = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(__salD0.getFullYear(), __salD0.getMonth(), __salD0.getDate())) / 86400000);
+var __coloresDia = ['#94a3b8', '#1d4ed8', '#4338ca', '#7c3aed', '#a21caf', '#be185d'];
+var __colDia = __coloresDia[Math.max(0, Math.min(__coloresDia.length - 1, __nDia))];
+var fechaHtml = (__nDia <= 0) ? '<span class="gv-dt-f">' + fecha + '</span>' : '<b class="gv-dt-f gv-dt-f-sig" style="color:' + __colDia + '" title="Dia ' + (__nDia + 1) + ' del viaje">' + fecha + '</b>';
 return '<span class="gv-dt">' + fechaHtml + '<span class="gv-dt-h">' + t + '</span></span>';
 }
 function fmtTimeInline(d){
@@ -4947,6 +5600,7 @@ var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
 var __dudosoTag = '';
 var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagIn + (r.realInDudoso ? __dudosoTag : ''));
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
+/* 19/10: con espera acordada el Egreso est. es solo el horario acordado (r.egreso ya lo tiene en cuenta). */
 var __egresoRealCell = __isDestino ? '-' : ('<span class="gv-er">' + (enSitioNote || fmtTimeCell(r.realOut)) + __salidaNote + '</span>' + __choferTagOut + (r.realOutDudoso ? __dudosoTag : ''));
 return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
@@ -4958,7 +5612,7 @@ return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : ''
 '<td>' + r.dist.toFixed(1) + ' km</td>' +
 '<td>' + __ingresoEstCell + '</td>' +
 '<td>' + __ingresoRealCell + '</td>' +
-'<td>' + (r.tipo === 'espera' ? ('<span title="Permanece cargado en el sitio hasta este horario">Hasta ' + (r.permaneceHasta ? GV.fmtDate(r.permaneceHasta) : '?') + '</span>') : (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar tipo y tiempo en el sitio">' + GV.fmtMin(r.dwell||0) + '</span>' + ((r.esperaAcordada && r.esperaAcordada.hasta) ? ('<div title="' + GV.escapeHtml(r.esperaAcordada.motivo || 'Espera acordada con el cliente') + '" style="font-size:.72rem;color:#92400e;font-weight:600;margin-top:2px">Espera acordada hasta ' + GV.fmtDate(r.esperaAcordada.hasta) + '</div>') : '')) : '-')) + '</td>' +
+'<td>' + (r.tipo === 'espera' ? ('<span title="Permanece cargado en el sitio hasta este horario">Hasta ' + (r.permaneceHasta ? GV.fmtDate(r.permaneceHasta) : '?') + '</span>') : (r.tipo ? ('<span class="gv-dwell-edit" data-site-id="' + r.id + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="Ver/editar tipo y tiempo en el sitio">' + GV.fmtMin((r.durProg != null ? r.durProg : r.dwell) || 0) + '</span>' + ((r.esperaAcordada && r.esperaAcordada.hasta) ? ('<div title="' + GV.escapeHtml(r.esperaAcordada.motivo || 'Espera acordada con el cliente') + '" style="font-size:.7rem;color:#b45309;font-weight:700;margin-top:3px;line-height:1.25">+ espera acordada<br>hasta ' + fmtTimeInline(new Date(r.esperaAcordada.hasta)) + '</div>') : '')) : '-')) + '</td>' +
 '<td>' + __egresoEstCell + '</td>' +
 '<td>' + __egresoRealCell + '</td></tr>';
 }).join('') + '</tbody></table>' +
@@ -5029,7 +5683,8 @@ if(addDestinoBtn) addDestinoBtn.addEventListener('click', agregarDestino);
 }
 
 if(pts.length > 1){
-GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; })).then(function(route){
+GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; }), { excluirViajeId: v.id }).then(function(route){
+try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC2){}
 if(route && route.coords){
 detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
 } else {
@@ -5226,16 +5881,37 @@ return out;
 function paradaLargaTxt(st){
 return 'Detenido ' + GV.fmtDurMin(st.ms) + ' (' + fmtHHMM(st.desde) + ' a ' + (st.sigue ? 'ahora, sigue detenido' : fmtHHMM(st.hasta)) + ')';
 }
+/* 19/10: "microcortes" en la barra de reproduccion en cada cambio de dia (medianoche), con la fecha del dia que
+   empieza, para distinguir a simple vista un viaje que duro mas de un dia. La barra avanza por punto de GPS (no por
+   tiempo), asi que el corte va en el primer punto de cada dia nuevo. */
+function gvCortesDeDiaHtml(maxIdx){
+  if(!maxIdx || !detHistPts || detHistPts.length < 2) return '';
+  var html = '', prev = GV.dateStr(detHistPts[0].dateTime);
+  for(var i = 1; i < detHistPts.length; i++){
+    var d = GV.dateStr(detHistPts[i].dateTime);
+    if(d && d !== prev){
+      var pct = (i / maxIdx) * 100;
+      var f = d.split('-'); var lbl = f[2] + '/' + f[1];
+      html += /* Corte angosto (2 px) con las puntas de la barra redondeadas a cada lado: un recuadro del color del fondo con
+   dos medios circulos transparentes que dejan ver la punta redonda de cada tramo. */
+'<span title="Comienza el ' + lbl + '" style="position:absolute;left:' + pct.toFixed(2) + '%;top:-14px;width:9px;height:8px;margin-left:-4.5px;pointer-events:none;z-index:2;background:radial-gradient(circle at 0 50%, transparent 3.5px, #0f172a 4px) left / 50% 100% no-repeat, radial-gradient(circle at 100% 50%, transparent 3.5px, #0f172a 4px) right / 50% 100% no-repeat"></span>' +
+        '<span style="position:absolute;left:' + pct.toFixed(2) + '%;top:13px;transform:translateX(-50%);color:#cbd5e1;font-size:.58rem;font-weight:600;white-space:nowrap;pointer-events:none;z-index:2">' + lbl + '</span>';
+      prev = d;
+    }
+  }
+  return html;
+}
 function renderSliderMarks(marks, maxIdx, paradas){
 var wrap = document.getElementById('gv-det-slider-marks');
 if(!wrap) return;
 paradas = paradas || [];
-if(!maxIdx || (!marks.length && !paradas.length)){ wrap.innerHTML = ''; return; }
+var __cortesDia = gvCortesDeDiaHtml(maxIdx);
+if(!maxIdx || (!marks.length && !paradas.length && !__cortesDia)){ wrap.innerHTML = ''; return; }
 var __rojos = paradas.map(function(st){
 var pct = (st.idx / maxIdx) * 100;
 return '<span data-gv-parada-idx="' + st.idx + '" title="' + GV.escapeHtml(paradaLargaTxt(st)) + '" style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:#dc2626;border:2px solid #fff;border-radius:50%;width:13px;height:13px;top:1px;cursor:pointer;box-sizing:border-box"></span>';
 }).join('');
-wrap.innerHTML = __rojos + marks.map(function(m){
+wrap.innerHTML = __cortesDia + __rojos + marks.map(function(m){
 var pct = (m.idx / maxIdx) * 100;
 return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:var(--gv-accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
 }).join('');
@@ -5508,7 +6184,8 @@ function doInit(api){
   setupEvents();
 
   GV.Storage.init(api).then(function(){
-    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
+    try{ gvEscucharPedidosSLB(); }catch(__ePS){}
+    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
@@ -5523,7 +6200,7 @@ function doInit(api){
   if(api){
     loadMasterData(api);
     setInterval(function(){
-      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
+      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
       GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
     setTimeout(gvAprenderRutas, 45000);
