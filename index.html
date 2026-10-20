@@ -2530,6 +2530,26 @@ cuentan los hitos de carga/descarga para el % de avance), aca van TODOS los punt
 tengan coordenadas, incluido un origen que sea solo punto de paso, porque en el mapa del
 cliente conviene mostrar el recorrido completo (de donde sale, por donde para, a donde
 llega) y no solo los que suman al avance. */
+/* 19/10: cuando un viaje compartido se FINALIZA o se CANCELA (de cualquier forma: cierre automatico o manual),
+   el link del cliente deja de compartirse solo: se manda el estado final con activo:false (la pagina del cliente
+   muestra "Viaje finalizado el ...") y se borra el token del viaje. Corre en el chequeo de cada minuto del panel. */
+var __gvCerrandoComp = {};
+function gvCerrarCompartidosFinalizados(){
+  try{
+    GV.Storage.getViajes().forEach(function(v){
+      if(!v || !v.compartirToken) return;
+      if(v.estado !== 'completado' && v.estado !== 'cancelado') return;
+      var tok = v.compartirToken;
+      if(__gvCerrandoComp[tok]) return;
+      __gvCerrandoComp[tok] = 1;
+      var fin = v.estado === 'completado' ? (v.completadoEn || new Date().toISOString()) : (v.canceladoEn || new Date().toISOString());
+      GV.Storage.pushCompartido(tok, { estado: v.estado, activo: false, finalizadoEn: fin, viajeId: v.id, unidad: v.vehiculo || '', conductor: v.conductor || '' })
+        .then(function(){ return GV.Storage.stopCompartido(tok); })
+        .then(function(){ return GV.Storage.updateViaje(v.id, { compartirToken: null, compartirCerradoEn: new Date().toISOString() }); })
+        ['catch'](function(){ delete __gvCerrandoComp[tok]; });
+    });
+  }catch(e){}
+}
 /* 19/10: legs de ruta (duracion de cada tramo) calculados por el panel (Seguimiento o detalle), por viaje, para que
    el link del cliente use los mismos tiempos de tramo que se ven en el detalle. */
 var gvRutaLegsCache = {};
@@ -3237,7 +3257,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
             __truckMarker.addListener('mouseout', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaCorta)); });
           }
         }
-        if(v.compartirToken){
+        if(v.compartirToken && v.estado !== 'completado' && v.estado !== 'cancelado'){
           var __navC = null; try{ __navC = gvNavDetalleTexto(v, v.sitiosReal); }catch(navErrC){ }
           var __avC = null; try{ __avC = gvAvanceViaje(v); }catch(avErrC){ }
           GV.Storage.pushCompartido(v.compartirToken, {
@@ -5739,7 +5759,7 @@ function doInit(api){
   setupEvents();
 
   GV.Storage.init(api).then(function(){
-    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
+    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
@@ -5754,7 +5774,7 @@ function doInit(api){
   if(api){
     loadMasterData(api);
     setInterval(function(){
-      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas();
+      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
       GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
     setTimeout(gvAprenderRutas, 45000);

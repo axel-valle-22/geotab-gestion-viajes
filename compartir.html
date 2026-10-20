@@ -248,6 +248,12 @@
       contentEl.innerHTML = '<div class="gv-sh-msg"><b>No encontramos este viaje.</b><br>El link puede haber vencido o el viaje dejo de compartirse.</div>';
       return;
     }
+    if(data.activo === false && (data.estado === 'completado' || data.estado === 'cancelado')){
+      var __finTxt = data.finalizadoEn ? new Date(data.finalizadoEn).toLocaleString('es-AR', { timeZone:'America/Argentina/Buenos_Aires', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false }).replace(',', ' a las') : '';
+      contentEl.innerHTML = '<div class="gv-sh-msg"><b>' + (data.estado === 'completado' ? 'Este viaje ya finalizo' : 'Este viaje fue cancelado') + (__finTxt ? (' el ' + escapeHtml(__finTxt)) : '') + '.</b><br>' + escapeHtml((data.unidad || '') + (data.conductor ? (' - ' + data.conductor) : '')) + '<br>El seguimiento en vivo ya no esta disponible.</div>';
+      lastRenderedEstado = null;
+      return;
+    }
     if(data.activo === false){
       contentEl.innerHTML = '<div class="gv-sh-msg"><b>Este viaje ya no se comparte.</b><br>La empresa desactivo este link. Si necesitas seguir el viaje, pedi uno nuevo.</div>';
       lastRenderedEstado = null;
