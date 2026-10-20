@@ -3453,12 +3453,12 @@ function gvSlbArmarPropuestas(pedido){
     filas.forEach(function(f){
       var k = (f.fecha || '') + '|' + (f.hora || '') + '|' + gvSlbCompact(f.origen);
       var b = bloques.filter(function(x){ return x.k === k; })[0];
-      if(!b){ b = { k: k, origen: f.origen, hora: f.hora, destinos: [] }; bloques.push(b); }
+      if(!b){ b = { k: k, origen: f.origen, hora: f.hora, fecha: f.fecha, destinos: [] }; bloques.push(b); }
       if(b.destinos.map(gvSlbCompact).indexOf(gvSlbCompact(f.destino)) < 0) b.destinos.push(f.destino);
     });
     var ev = [];
     bloques.forEach(function(b){
-      ev.push({ txt: b.origen, tipo: 'carga', hora: b.hora });
+      ev.push({ txt: b.origen, tipo: 'carga', hora: b.hora, fecha: b.fecha });
       b.destinos.map(function(d, i){ return { d: d, i: i, r: posRec(d) }; }).sort(function(x, y){ return (x.r - y.r) || (x.i - y.i); })
         .forEach(function(x){ ev.push({ txt: x.d, tipo: 'descarga' }); });
     });
@@ -3467,8 +3467,8 @@ function gvSlbArmarPropuestas(pedido){
       var s = gvSlbResolverSitio(e.txt);
       var key = s ? ('s:' + s.id) : ('t:' + gvSlbCompact(e.txt));
       var ult = paradas[paradas.length - 1];
-      if(ult && ult.key === key){ if(ult.tipo !== e.tipo) ult.tipo = 'ambos'; if(e.hora && !ult.hora) ult.hora = e.hora; return; }
-      paradas.push({ key: key, txt: e.txt, sitio: s, tipo: e.tipo, hora: e.hora || null });
+      if(ult && ult.key === key){ if(ult.tipo !== e.tipo) ult.tipo = 'ambos'; if(e.hora && !ult.hora){ ult.hora = e.hora; ult.fecha = e.fecha; } return; }
+      paradas.push({ key: key, txt: e.txt, sitio: s, tipo: e.tipo, hora: e.hora || null, fecha: e.fecha || null });
     });
     var h0 = filas[0].hora || '08:00';
     var hm = h0.split(':'); var minTot = (+hm[0]) * 60 + (+hm[1] || 0) - 15; if(minTot < 0) minTot = 0;
@@ -3489,7 +3489,27 @@ function gvSlbArmarPropuestas(pedido){
       return filas.some(function(f){ return f.cvu && (v.observaciones || '').indexOf(f.cvu) >= 0; });
     })[0] || null;
     return gvSlbPosicion0600(veh && veh.id, fecha).then(function(pos){
-      return { patente: pat, fecha: fecha, filas: filas, vehiculo: veh, chofer: cho, paradas: paradas, pos0600: pos, fechaSalida: salLocal, solicitud: trTxt, observaciones: obs, existente: existente };
+      var prop0 = { patente: pat, fecha: fecha, filas: filas, vehiculo: veh, chofer: cho, paradas: paradas, pos0600: pos, fechaSalida: salLocal, solicitud: trTxt, observaciones: obs, existente: existente };
+      /* 20/10: la hora del mail es la hora de CARGA en el primer sitio (a la que el camion tiene que llegar), no la de
+         salida: salida = hora de carga - tiempo de viaje desde el origen hasta ese sitio. Si el origen ya es el sitio
+         de carga, sale a la hora de carga. */
+      try{
+        var org = gvSlbOrigen(prop0), s1 = paradas[0] && paradas[0].sitio;
+        var hmC = (filas[0].hora || '08:00').split(':'), minCarga = (+hmC[0]) * 60 + (+hmC[1] || 0);
+        var legSeg = 0;
+        if(org && s1){
+          var dKm = GV.distKm(org, s1) || 0;
+          if(dKm > 0.3){
+            var ra = GV.buscarRutaAprendida ? GV.buscarRutaAprendida(org, s1) : null;
+            legSeg = (ra && ra.r && ra.r.minProm) ? ra.r.minProm * 60 : GV.duracionCamionSeg(dKm * 1.35 * 1000, 0);
+          }
+        }
+        var minSal = Math.max(0, minCarga - Math.round(legSeg / 60));
+        minSal = Math.floor(minSal / 5) * 5; /* redondeado a 5 minutos para abajo */
+        prop0.fechaSalida = fecha + 'T' + pad(Math.floor(minSal / 60)) + ':' + pad(minSal % 60) + ':00';
+        prop0.horaCarga = filas[0].hora || null;
+      }catch(eSal){}
+      return prop0;
     });
   }));
 }
@@ -3521,7 +3541,12 @@ function gvSlbCrearViaje(prop){
     vehiculoId: prop.vehiculo.id, vehiculo: prop.vehiculo.text,
     fechaSalida: prop.fechaSalida,
     origen: origen, destino: null,
-    paradas: prop.paradas.map(function(x){ return gvSlbCopiaSitio(x.sitio, x.tipo); }),
+    paradas: prop.paradas.map(function(x){
+      var c = gvSlbCopiaSitio(x.sitio, x.tipo);
+      /* hora de carga del pedido (hora local de Argentina) */
+      if(x.hora && (x.fecha || prop.fecha)){ var d = new Date((x.fecha || prop.fecha) + 'T' + (x.hora.length === 4 ? '0' + x.hora : x.hora) + ':00-03:00'); if(!isNaN(d.getTime())) c.llegadaProgramada = d.toISOString(); }
+      return c;
+    }),
     observaciones: prop.observaciones,
     solicitud: prop.solicitud || '',
     estado: 'planificado', creadoEn: new Date().toISOString(), notificado: false, gerenciamiento: null,
@@ -4754,7 +4779,7 @@ if(v.vehiculoId){
 
 var pts = [];
 if(v.origen) pts.push({ id: 'origen', lat: v.origen.lat, lng: v.origen.lng, poligono: v.origen.poligono || null, label: 'O', color: '#059669', dir: GV.siteNameFor(v.origen), tipo: v.origen.tipo || null, dur: v.origen.duracionMin || null, esperaAcordada: v.origen.esperaAcordada || null });
-(v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, poligono: p.poligono || null, label: String(i+1), color: '#d97706', dir: GV.siteNameFor(p), tipo: p.tipo, dur: p.duracionMin, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null }); });
+(v.paradas||[]).forEach(function(p, i){ pts.push({ id: 'parada'+i, lat: p.lat, lng: p.lng, poligono: p.poligono || null, label: String(i+1), color: '#d97706', dir: GV.siteNameFor(p), tipo: p.tipo, dur: p.duracionMin, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, llegadaProgramada: p.llegadaProgramada || null }); });
 if(v.destino) pts.push({ id: 'destino', lat: v.destino.lat, lng: v.destino.lng, poligono: v.destino.poligono || null, label: 'D', color: '#dc2626', dir: GV.siteNameFor(v.destino), tipo: v.destino.tipo || null, dur: v.destino.duracionMin || null, esperaAcordada: v.destino.esperaAcordada || null });
 
 var bounds = [];
@@ -5292,7 +5317,7 @@ if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigen
    pisar ni confundirse con el ingreso/egreso real de arriba. */
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
-rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, esperaAcordada: p.esperaAcordada || null, durProg: p.tipo ? gvDurProgMin(p) : null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
+rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, llegadaProgramada: p.llegadaProgramada || null, esperaAcordada: p.esperaAcordada || null, durProg: p.tipo ? gvDurProgMin(p) : null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
 });
 
 /* 20/10: sitio repetido en el recorrido (carga en Solalique ... descarga final en Solalique). La segunda aparicion
@@ -5370,6 +5395,8 @@ try{ window.__gvItinFilas = { viajeId: v.id, rows: rows }; }catch(__eIF){}
     var __legSeg = (__legs[i - 1] && typeof __legs[i - 1].duration === 'number') ? __legs[i - 1].duration : null;
     if(__legSeg == null){ __legSeg = Math.max(0, (r.ingreso && prev.egreso) ? (r.ingreso.getTime() - prev.egreso.getTime()) / 1000 : 0); }
     r.ingreso = new Date(__salidaPrev.getTime() + __legSeg * 1000);
+    /* 20/10: hora de carga/descarga pedida por el cliente (pedidos SLB): el ingreso estimado no puede ser antes de esa hora */
+    if(r.llegadaProgramada){ var __lp = new Date(r.llegadaProgramada); if(!isNaN(__lp.getTime()) && __lp > r.ingreso) r.ingreso = __lp; }
     r.egreso = __egresoDesde(r, r.realIn || r.ingreso);
   }
 })();
