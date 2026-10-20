@@ -765,9 +765,20 @@ function gvHoraCierreManual(v){
   var ultimo = null;
   var F = window.__gvItinFilas;
   if(F && F.viajeId === v.id && F.rows && F.rows.length){
-    F.rows.forEach(function(r){
-      [r.realIn, r.realOut].forEach(function(d){ if(d && !isNaN(d.getTime()) && d.getTime() <= Date.now() && (!ultimo || d > ultimo)) ultimo = d; });
-    });
+    /* 20/10: si el viaje tiene destino, el cierre es la LLEGADA al destino (no la salida del destino, que puede ser
+       el arranque del dia siguiente: un viaje del 19 con destino Base TDP Plottier quedaba cerrado el 20 a las 08:47,
+       cuando el camion volvio a salir de la base). Sin destino, es la salida del ultimo sitio. */
+    var __filaDest = F.rows.filter(function(r){ return r.id === 'destino'; })[0];
+    function __ok(d){ return d && !isNaN(d.getTime()) && d.getTime() <= Date.now(); }
+    if(__filaDest){
+      if(__ok(__filaDest.realIn)) ultimo = __filaDest.realIn;
+    }
+    if(!ultimo){
+      F.rows.forEach(function(r){
+        if(r.id === 'destino') return;
+        [r.realIn, r.realOut].forEach(function(d){ if(__ok(d) && (!ultimo || d > ultimo)) ultimo = d; });
+      });
+    }
   }
   if(ultimo) return ultimo.toISOString();
   if(v.completadoEnPrevio) return v.completadoEnPrevio;
