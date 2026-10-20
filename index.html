@@ -3360,12 +3360,19 @@ function gvSlbResolverSitio(txt){
   var ex = sitios.filter(function(s){ return gvSlbCompact(s.nombre) === c; })[0];
   if(ex) return ex;
   /* 4) codigo letras+numero (LCav174, PAD100, RIG219...): el sitio cuyo nombre contenga ese codigo */
-  var codigos = (n.match(/[a-z]{2,6}\s*-?\s*\d{2,5}/g) || []).map(function(x){ return x.replace(/[^a-z0-9]/g, ''); });
+  /* HP 217 / H&P 217 / H & P-217: en el sistema esos equipos estan cargados como "RIG 217" */
+  var nCod = n.replace(/\bh\s*&?\s*(?:and\s*)?p\s*-?\s*(\d{2,5})/g, 'rig $1');
+  var codigos = (nCod.match(/[a-z]{2,6}\s*-?\s*\d{2,5}/g) || []).map(function(x){ return x.replace(/[^a-z0-9]/g, ''); });
   for(var j = 0; j < codigos.length; j++){
     var cod = codigos[j];
     var cands = sitios.filter(function(s){ var k = gvSlbCompact(s.nombre); var m = k.match(new RegExp(cod + '(\\d?)')); return m && !m[1]; });
     if(cands.length === 1) return cands[0];
-    if(cands.length > 1){ var exc = cands.filter(function(s){ return gvSlbCompact(s.nombre) === cod; })[0]; return exc || cands[0]; }
+    if(cands.length > 1){
+      /* si hay varios con el mismo numero (ej. "RIG 217 - NEW" y "RIG 217 - Bajada del Palo"), manda el que dice NEW: es la ubicacion nueva */
+      var nuevo = cands.filter(function(s){ return /\bnew\b|\bnuev[oa]\b/.test(gvSlbNorm(s.nombre)); })[0];
+      if(nuevo) return nuevo;
+      var exc = cands.filter(function(s){ return gvSlbCompact(s.nombre) === cod; })[0]; return exc || cands[0];
+    }
   }
   return null;
 }
