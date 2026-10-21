@@ -1653,7 +1653,12 @@ try{
 if(!points || points.length < 2){ resolve(null); return; }
 var coordStr = points.map(function(p){ return p.lng + ',' + p.lat; }).join(';');
 var url = 'https://router.project-osrm.org/route/v1/driving/' + coordStr + '?overview=full&geometries=geojson&steps=false';
-fetch(url).then(function(r){ return r.json(); }).then(function(data){
+/* 21/10: el servidor publico de OSRM a veces se cuelga sin responder; sin limite de tiempo el detalle del viaje
+   quedaba esperando y no mostraba el itinerario (origen y sitios). A los 8 s se corta y se usa linea recta. */
+var __ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+var __to = setTimeout(function(){ try{ if(__ctl) __ctl.abort(); }catch(_){} resolve(null); }, 8000);
+fetch(url, __ctl ? { signal: __ctl.signal } : undefined).then(function(r){ return r.json(); }).then(function(data){
+clearTimeout(__to);
 if(data && data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].geometry && data.routes[0].geometry.coordinates){
 var route = data.routes[0];
 var coords = route.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
@@ -1661,7 +1666,7 @@ var legs = (route.legs || []).map(function(lg){ return { distance: lg.distance, 
 var durTotal = legs.reduce(function(acc, lg){ return acc + (lg.duration || 0); }, 0);
 resolve({ coords: coords, distance: route.distance, duration: legs.length ? durTotal : GV.duracionCamionSeg(route.distance, route.duration), durationAuto: route.duration, legs: legs });
 } else { resolve(null); }
-}).catch(function(){ resolve(null); });
+}).catch(function(){ clearTimeout(__to); resolve(null); });
 }catch(e){ resolve(null); }
 });
 };
