@@ -104,7 +104,7 @@
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real</h2>
-<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-mas-hoy" aria-expanded="false" aria-controls="gv-mas-hoy">Mostrar mas viajes de hoy</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="search" id="gv-track-buscar" placeholder="Buscar unidad, chofer, patente o solicitud..." autocomplete="off" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:240px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-mas-hoy" aria-expanded="false" aria-controls="gv-mas-hoy">Mostrar mas viajes de hoy</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
 </div>
 <!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
 <div id="gv-track-map" style="display:none;height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
@@ -608,12 +608,22 @@ function renderEventsWidget(){
         }).join('');
 }
   
+/* 21/10: viaje anterior de la MISMA unidad que todavia esta en curso (ej. Wilheim: el de ayer sigue abierto y el de hoy
+   espera). Mientras exista, el viaje siguiente no esta "por salir" ni "demorado": esta esperando que termine ese. */
+function gvViajeAnteriorAbierto(v){
+  if(!v || !v.vehiculoId) return null;
+  var tv = new Date(v.fechaSalida).getTime();
+  return GV.Storage.getViajes().filter(function(o){
+    return o.id !== v.id && o.vehiculoId === v.vehiculoId && (o.estado === 'en_curso' || o.estado === 'demorado') && new Date(o.fechaSalida).getTime() < tv;
+  }).sort(function(a, b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); })[0] || null;
+}
 function checkDelays(){
   var now = new Date(), DELAY = 20*60*1000;
   GV.Storage.getViajes().forEach(function(v){
     /* Ajuste 1/10: la alerta de demora de salida se repite cada 20 min mientras la unidad siga sin
        salir del origen (antes solo se generaba la primera, al pasar de planificado a demorado). */
     if(v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn && !v.demoraJustificada)){
+      if(gvViajeAnteriorAbierto(v)) return; /* 21/10: espera que termine el viaje anterior de la unidad: no esta demorado */
       var elapsedMs = now - new Date(v.fechaSalida);
       if(elapsedMs > DELAY){
         /* Ajuste 2/10: antes esta funcion mutaba v.estado/v.demoradoOrigen/v.demoraSalida directo y
@@ -2414,6 +2424,7 @@ abrirDetalleViaje(id);
 
   document.getElementById('gv-btn-refresh-track').addEventListener('click', function(){ renderTracking(); gvRenderMasHoy(true); });
   /* Desplegar / minimizar el bloque "mas viajes de hoy" (finalizados + sin planificacion). */
+  (function(){ var __bq = document.getElementById('gv-track-buscar'); if(__bq){ var __tq = null; __bq.addEventListener('input', function(){ clearTimeout(__tq); __tq = setTimeout(function(){ try{ gTrackSelectedId = null; renderTracking(); }catch(e){} }, 150); }); } })();
   document.getElementById('gv-btn-toggle-mas-hoy').addEventListener('click', function(){
     var b = document.getElementById('gv-mas-hoy');
     var abrir = b.style.display === 'none';
@@ -2538,6 +2549,8 @@ try{
 var __avanceReal = false;
 try{ Object.keys(sr).forEach(function(k){ if(k === 'origen' || k === 'destino') return; if(sr[k] && (sr[k].ingreso || sr[k].egreso)) __avanceReal = true; }); }catch(__eAR){}
 if(!__avanceReal && v && (v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn))){
+var __ant = gvViajeAnteriorAbierto(v);
+if(__ant){ var __solA = gvSolicitudLabel(__ant); return { kind:'porsalir', texto: 'Aguarda finalizacion de ' + (__solA ? ('Sol. ' + __solA) : ('viaje del ' + new Date(__ant.fechaSalida).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }))) }; }
 var __prox = null;
 for(var k=0; k<hitos.length; k++){ if(hitos[k].id !== 'origen'){ __prox = hitos[k]; break; } }
 if(!__prox) __prox = hitos[0];
@@ -3158,6 +3171,9 @@ function renderTracking(){
     if(gTrackCliente){
       todos = todos.filter(function(v){ var cs = gvClientesDeViaje(v); return gTrackCliente === 'Sin cliente' ? !cs.length : cs.indexOf(gTrackCliente) >= 0; });
     }
+    /* 21/10: buscador de Seguimiento (unidad, chofer, patente, solicitud, cliente, sitio): filtra al instante. */
+    var __qTrack = ((document.getElementById('gv-track-buscar') || {}).value || '').trim();
+    if(__qTrack){ try{ todos = todos.filter(function(v){ return gvViajeCoincideBusqueda(v, __qTrack); }); }catch(__eQT){} }
     /* 21/10: los viajes de una misma unidad van juntos, uno abajo del otro: arriba el que viene del dia anterior
        (el mas viejo) y abajo el mas reciente. El grupo queda en el lugar donde aparecia su primer viaje. */
     (function(){
