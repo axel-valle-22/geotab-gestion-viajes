@@ -103,7 +103,7 @@
 
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-<h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real</h2>
+<h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real <span id="gv-track-total" title="Viajes activos: los de hoy mas los continuados de dias anteriores" style="display:inline-block;margin-left:6px;padding:2px 10px;border-radius:999px;background:var(--gv-accent);color:#fff;font-size:.8rem;vertical-align:middle"></span></h2>
 <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="search" id="gv-track-buscar" placeholder="Buscar unidad, chofer, patente o solicitud..." autocomplete="off" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:240px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-mas-hoy" aria-expanded="false" aria-controls="gv-mas-hoy">Mostrar mas viajes de hoy</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
 </div>
 <!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
@@ -3174,6 +3174,8 @@ function renderTracking(){
     /* 21/10: buscador de Seguimiento (unidad, chofer, patente, solicitud, cliente, sitio): filtra al instante. */
     var __qTrack = ((document.getElementById('gv-track-buscar') || {}).value || '').trim();
     if(__qTrack){ try{ todos = todos.filter(function(v){ return gvViajeCoincideBusqueda(v, __qTrack); }); }catch(__eQT){} }
+    /* 21/10: total de viajes activos (hoy + continuados) al lado del titulo; con filtro/busqueda muestra "X de Y". */
+    try{ var __tot = document.getElementById('gv-track-total'); if(__tot){ var __nT = __todosSinFiltro.length, __nF = todos.length; var __cont = __todosSinFiltro.filter(function(v){ return GV.dateStr(v.fechaSalida) !== hoyStr; }).length; __tot.textContent = (__nF !== __nT ? (__nF + ' de ' + __nT) : __nT) + ' viajes' + (__cont ? ' (' + __cont + ' continuados)' : ''); } }catch(__eTot){}
     /* 21/10: los viajes de una misma unidad van juntos, uno abajo del otro: arriba el que viene del dia anterior
        (el mas viejo) y abajo el mas reciente. El grupo queda en el lugar donde aparecia su primer viaje. */
     (function(){
