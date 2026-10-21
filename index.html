@@ -3125,6 +3125,18 @@ function renderTracking(){
     if(gTrackCliente){
       todos = todos.filter(function(v){ var cs = gvClientesDeViaje(v); return gTrackCliente === 'Sin cliente' ? !cs.length : cs.indexOf(gTrackCliente) >= 0; });
     }
+    /* 21/10: los viajes de una misma unidad van juntos, uno abajo del otro: arriba el que viene del dia anterior
+       (el mas viejo) y abajo el mas reciente. El grupo queda en el lugar donde aparecia su primer viaje. */
+    (function(){
+      var pos = {}, idx = {};
+      todos.forEach(function(v, i){ idx[v.id] = i; var k = v.vehiculoId || v.id; if(pos[k] == null) pos[k] = i; });
+      todos = todos.slice().sort(function(a, b){
+        var ka = a.vehiculoId || a.id, kb = b.vehiculoId || b.id;
+        if(ka !== kb) return pos[ka] - pos[kb];
+        var d = new Date(a.fechaSalida) - new Date(b.fechaSalida);
+        return d || (idx[a.id] - idx[b.id]);
+      });
+    })();
 
     if(!todos.length){
       if(listEl) listEl.innerHTML = '<p style="text-align:center;color:#6b7280;padding:20px">No hay viajes de hoy para mostrar.</p>';
