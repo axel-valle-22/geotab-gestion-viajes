@@ -755,7 +755,11 @@ var sr2 = Object.assign({}, v.sitiosReal || {});
 sr2.destino = Object.assign({}, sr2.destino || {});
 var yaIngreso = !!sr2.destino.ingreso;
 if(!sr2.destino.ingreso) sr2.destino.ingreso = hitISO;
-GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: hitISO, sitiosReal: sr2, dwellState: null });
+/* 21/10: si el ingreso a destino ya estaba registrado ANTES (por ejemplo, se agrego el destino a un viaje continuado y
+   el recalculo encontro que el camion llego ayer), el viaje se cierra con esa hora real y no con la de ahora. Bug real:
+   Wilheim T330 llego a Base TDP Plottier el 20/10 18:50 y quedaba "finalizado hoy" 21/10 11:58. */
+var __cierreReal = (yaIngreso && new Date(sr2.destino.ingreso) < new Date(hitISO)) ? sr2.destino.ingreso : hitISO;
+GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __cierreReal, sitiosReal: sr2, dwellState: null });
 if(!yaIngreso){ GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': el viaje FINALIZO. La unidad ingreso a ' + destinoLabel + ' y el viaje se cerro automaticamente.', fecha: new Date().toISOString(), viajeId: v.id }); }
 renderStats(); renderAlertas(); renderEventsWidget();
 if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
@@ -774,7 +778,8 @@ SOLO si todavia no tenia uno cargado (nunca pisa un horario real ya confirmado p
    que no se reabrio) sigue usando la hora actual. */
 function gvHoraCierreManual(v){
   var ahora = new Date().toISOString();
-  if(!v || !(v.reaperturaExplicita || v.completadoEnPrevio)) return ahora;
+  /* 21/10: tambien para viajes continuados de un dia anterior: se cierran con la hora real de llegada, no con la de hoy. */
+  if(!v || !(v.reaperturaExplicita || v.completadoEnPrevio || (v.fechaSalida && GV.dateStr(v.fechaSalida) !== GV.dateStr(new Date())))) return ahora;
   var ultimo = null;
   var F = window.__gvItinFilas;
   if(F && F.viajeId === v.id && F.rows && F.rows.length){
