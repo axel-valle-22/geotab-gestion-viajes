@@ -1741,7 +1741,15 @@ try{
            dejo el origen, el viaje pasa a "en curso" para que el coordinador lo vea en tiempo real. Se
            admite hasta 30 minutos antes de lo programado, para no auto-iniciar viajes cuya unidad
            todavia esta afectada a otra tarea lejos del origen. */
-        if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > -30*60*1000){
+        /* 21/10: viajes armados desde los mails de SLB: el origen es donde estaba la unidad a las 06:00, asi que si la unidad
+           ya dejo ese origen y no tiene otro viaje en curso, esta yendo a este viaje (ej. sale de Añelo a las 07:30 para
+           cargar a las 11:00 en Neuquen): se admite el inicio hasta 4 h antes de lo programado, no solo 30 min. */
+        var __margenInicioMs = 30*60*1000;
+        if(v.origenPedidoSLB){
+          var __otroActivo = GV.Storage.getViajes().some(function(o){ return o.id !== v.id && o.vehiculoId === v.vehiculoId && (o.estado === 'en_curso' || o.estado === 'demorado'); });
+          if(!__otroActivo) __margenInicioMs = 4*3600*1000;
+        }
+        if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > -__margenInicioMs){
           /* Si el viaje arranca por estar en sitio (origen = primera carga), la referencia no es "ahora" sino
              la hora de ingreso a ese sitio. */
           var __refMsAuto = __iniciaEnSitio ? new Date(__iniciaEnSitio.ingreso).getTime() : Date.now();
