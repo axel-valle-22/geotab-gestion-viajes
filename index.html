@@ -3373,6 +3373,11 @@ function gvSlbResolverSitio(txt){
   /* 3) nombre exacto */
   var ex = sitios.filter(function(s){ return gvSlbCompact(s.nombre) === c; })[0];
   if(ex) return ex;
+  /* 3a) 21/10: una de las partes del texto (separadas por "/") es exactamente el nombre de un sitio guardado
+     (nombres cortos como "WIS / Neuquen" o "TIPSA / Plottier") */
+  var partes = String(txt || '').split('/').map(gvSlbCompact).filter(function(x){ return x.length >= 3; });
+  var porParte = sitios.filter(function(s){ return partes.indexOf(gvSlbCompact(s.nombre)) >= 0; })[0];
+  if(porParte) return porParte;
   /* 3b) 20/10: el texto del mail CONTIENE el nombre completo de un sitio guardado (ej. "Solalique / Base Neuquen" -> Solalique).
      Se toma el nombre mas largo que coincida; nombres de menos de 6 letras no cuentan (muy genericos). */
   var contiene = sitios.filter(function(s){ var k = gvSlbCompact(s.nombre); return k.length >= 6 && c.indexOf(k) >= 0; })
