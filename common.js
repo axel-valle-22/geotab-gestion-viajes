@@ -1353,6 +1353,8 @@ GV.pickLocation = function(opts){
               setShapeMode('circulo');
               onPoint(res[0].latitude, res[0].longitude);
               __ultimaPos = { lat: res[0].latitude, lng: res[0].longitude, vel: (res[0].speed > 0 ? res[0].speed : (res[0].isDriving === true ? 5 : 0)) };
+              if(current){ delete current.nombreSitio; delete current.poligono; current.direccion = 'Posicion actual del camion'; }
+              var __adU = document.getElementById('gv-map-addr'); if(__adU) __adU.textContent = 'Posicion actual del camion (se guarda como origen con la hora)';
             } else {
               alert('No se pudo obtener la ultima posicion del vehiculo.');
             }
@@ -1389,8 +1391,12 @@ GV.pickLocation = function(opts){
         if(!current) return;
         var __nmEl = document.getElementById('gv-site-name');
         var __nm = current.nombreSitio || (__nmEl && __nmEl.value.trim()) || '';
+        /* 21/10: si el punto salio de "Usar ultima posicion del camion", NO se conserva el nombre del sitio anterior
+           (antes quedaba "HASA CANAL V" con las coordenadas del camion y parecia que no lo tomaba). */
+        var __ultPosAhora = !!(__ultimaPos && __ultimaPos.lat === current.lat && __ultimaPos.lng === current.lng);
+        if(__ultPosAhora){ var __hn = new Date(); __nm = 'Posicion del camion a las ' + ('0' + __hn.getHours()).slice(-2) + ':' + ('0' + __hn.getMinutes()).slice(-2); }
         var result = { lat: current.lat, lng: current.lng, direccion: __nm || current.direccion };
-        if(current.poligono) result.poligono = current.poligono;
+        if(current.poligono && !__ultPosAhora) result.poligono = current.poligono;
         /* Origen = ultima posicion del camion: se deja marcado para que el viaje nazca "en curso" (ver Guardar Viaje). */
         if(opts.vehiculoId){
           var __esUltPos = (__ultimaPos && __ultimaPos.lat === current.lat && __ultimaPos.lng === current.lng) ||
