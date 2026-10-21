@@ -6310,8 +6310,24 @@ var line = recs.map(function(r){ return { lat: r.latitude, lng: r.longitude }; }
    zIndex mayor aca, esa ruta teorica queda por encima y tapa las flechitas del recorrido real
    (bug real: las flechitas nunca se veian en el detalle del viaje porque la linea celeste de la
    ruta planificada, mas gruesa, quedaba dibujada arriba). */
+/* 21/10: el recorrido se corta en tramos cuando cambia el camion (viaje con "Cambiar chofer/camion": cada unidad
+   tiene su propio GPS) o cuando hay un salto de GPS de mas de 5 km entre dos puntos seguidos. Antes se unia todo
+   en una sola linea y aparecia una recta falsa entre la ultima posicion del camion anterior y la primera del nuevo
+   (bug real: C353 Gramajo, recta de DLS 170 a Plottier cruzando Los Barreales). */
+var __segs = [], __cur = [];
+recs.forEach(function(r, i){
+  if(i > 0){
+    var a = recs[i - 1];
+    var __devA = a.device && a.device.id, __devB = r.device && r.device.id;
+    var __dk = GV.distKm({ lat: a.latitude, lng: a.longitude }, { lat: r.latitude, lng: r.longitude }) || 0;
+    if((__devA && __devB && __devA !== __devB) || __dk > 5){ if(__cur.length) __segs.push(__cur); __cur = []; }
+  }
+  __cur.push({ lat: r.latitude, lng: r.longitude });
+});
+if(__cur.length) __segs.push(__cur);
+__segs.forEach(function(seg){
 var histPolyline = new google.maps.Polyline({
-  path: line, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3, zIndex: 10,
+  path: seg, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3, zIndex: 10,
   icons: [{
     icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.6, strokeColor: '#ffffff', strokeWeight: 1, fillColor: '#005674', fillOpacity: 1 },
     offset: '0', repeat: '32px'
@@ -6319,9 +6335,10 @@ var histPolyline = new google.maps.Polyline({
 });
 /* Franja transparente mas ancha encima de la linea real: hace mucho mas facil "engancharla"
    con el mouse (la linea fina de 3px es un blanco muy chico para el hover). */
-var histPolylineHitArea = new google.maps.Polyline({ path: line, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 11 });
+var histPolylineHitArea = new google.maps.Polyline({ path: seg, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 11 });
 detHistLayer.add(histPolyline);
 detHistLayer.add(histPolylineHitArea);
+});
 renderCamEventMarkers();
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;
