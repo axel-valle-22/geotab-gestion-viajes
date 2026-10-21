@@ -1694,6 +1694,38 @@ function gvRefinarSalidaOrigenGps(v){
   }catch(e){ console.error('gvRefinarSalidaOrigenGps', e); }
 }
 
+/* 21/10: si una unidad arranca un viaje nuevo y todavia tiene abierto uno ANTERIOR (en curso / demorado), el anterior
+   se cierra solo con la hora del ultimo evento real que tuvo (salida del ultimo sitio, o llegada a destino). Asi un viaje
+   viejo no queda abierto pisando horarios del dia siguiente (caso Gramajo C348, 20-21/10). No se tocan los viajes que un
+   coordinador reabrio a mano (reaperturaExplicita): esos los cierra el coordinador. */
+function gvCerrarViajesAnterioresAbiertos(){
+  var vs = GV.Storage.getViajes();
+  var abiertos = vs.filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId; });
+  abiertos.forEach(function(nuevo){
+    var iniNuevo = nuevo.iniciadoEn || (nuevo.sitiosReal && nuevo.sitiosReal.origen && nuevo.sitiosReal.origen.egreso);
+    if(!iniNuevo) return;
+    var tIni = new Date(iniNuevo).getTime(); if(isNaN(tIni)) return;
+    abiertos.forEach(function(viejo){
+      if(viejo.id === nuevo.id || viejo.vehiculoId !== nuevo.vehiculoId || viejo.reaperturaExplicita) return;
+      if(new Date(viejo.fechaSalida).getTime() >= new Date(nuevo.fechaSalida).getTime()) return;
+      var sr = viejo.sitiosReal || {}, ult = null;
+      Object.keys(sr).forEach(function(k){
+        var x = sr[k]; if(!x) return;
+        [k === 'destino' ? x.ingreso : (x.egreso || x.ingreso)].forEach(function(t){
+          var ms = t ? new Date(t).getTime() : NaN;
+          if(!isNaN(ms) && ms <= tIni && (ult == null || ms > ult)) ult = ms;
+        });
+      });
+      if(ult == null) ult = tIni;
+      var cierre = new Date(ult).toISOString();
+      viejo.estado = 'completado'; /* para no repetirlo en esta misma pasada */
+      GV.Storage.updateViaje(viejo.id, { estado: 'completado', completadoEn: cierre, dwellState: null, llegadaDestinoPendienteEn: null, cerradoAutoPorViajeNuevo: nuevo.id }).then(function(){
+        try{ GV.Storage.addAlerta({ id: 'al_' + viejo.id + '_cierre_auto', tipo: 'info', mensaje: (viejo.conductor || '') + ' - ' + (viejo.vehiculo || '') + ': el viaje del ' + new Date(viejo.fechaSalida).toLocaleDateString('es-AR') + ' seguia abierto y la unidad ya arranco otro viaje. Se cerro solo con su ultimo horario registrado (' + new Date(cierre).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) + ').', fecha: new Date().toISOString(), viajeId: viejo.id }); }catch(__eA){}
+        try{ renderTrips(); renderTracking(); renderStats(); }catch(__eR){}
+      });
+    });
+  });
+}
 function checkDwellAlerts(){
   if(!gApi) return;
 /* Ajuste 7/10: viaje abierto, sin aviso de llegada pendiente, pero con ingreso al destino sin egreso guardado (queda de un aviso
@@ -1709,6 +1741,7 @@ try{
   });
 }catch(__eO){}
 
+  try{ gvCerrarViajesAnterioresAbiertos(); }catch(__eCVA){}
   var activos = GV.Storage.getViajes().filter(function(v){ return (v.estado === 'en_curso' || v.estado === 'demorado' || v.estado === 'planificado') && v.vehiculoId && !v.llegadaDestinoPendienteEn; });
   activos.forEach(function(v){
     gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
