@@ -2829,7 +2829,10 @@ function fetchHistoryForViaje(v, fromOverride, toOverride){
     var segTo = tr.hasta ? new Date(tr.hasta) : new Date(globalTo);
     if(segTo > globalTo) segTo = new Date(globalTo);
     if(segTo <= segFrom) return Promise.resolve([]);
-    return GV.getHistory(gApi, tr.vehiculoId, segFrom.toISOString(), segTo.toISOString());
+    /* 21/10: si Geotab rechaza la consulta ("An undefined exception has occurred"), se reintenta una vez y si vuelve a
+       fallar se sigue sin historial: el itinerario (origen y sitios) se muestra igual, con los horarios ya guardados. */
+    var __q = function(){ return GV.getHistory(gApi, tr.vehiculoId, segFrom.toISOString(), segTo.toISOString()); };
+    return Promise.resolve().then(__q)['catch'](function(){ return new Promise(function(r){ setTimeout(r, 1500); }).then(__q); })['catch'](function(e){ try{ console.warn('Historial GPS no disponible', e); }catch(_){} return []; });
   });
   return Promise.all(proms).then(function(results){
     var merged = [];
@@ -5960,7 +5963,7 @@ detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ retu
 } else {
 detLayer.add(new google.maps.Polyline({ path: pts.map(function(p){ return { lat: p.lat, lng: p.lng }; }), strokeColor: '#00A6E0', strokeOpacity: .6, strokeWeight: 3 }));
 }
-(function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? fetchHistoryForViaje(v, __dayStart, new Date(v.completadoEn || Date.now())) : Promise.resolve([]); __histP.then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
+(function(){ var __dayStart = new Date(v.fechaSalida); __dayStart.setHours(0,0,0,0); var __histP = (gApi && v.vehiculoId) ? fetchHistoryForViaje(v, __dayStart, new Date(v.completadoEn || Date.now())) : Promise.resolve([]); __histP['catch'](function(){ return []; }).then(function(fullHist){ cachedRoute = route; cachedFullHist = fullHist; renderItinerario(route, fullHist); }); })();
 });
 } else if(itinEl) {
 itinEl.innerHTML = '<p style="color:#6b7280;font-size:.85rem">Faltan datos de origen/destino para el itinerario.</p>';
