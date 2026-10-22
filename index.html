@@ -2066,7 +2066,16 @@ try{
     /* Sincroniza el directorio de conductores hacia el storage compartido (Firebase), para que
        chofer.html pueda identificar/seleccionar choferes sin llamar a Get/User (bloqueado dentro
        de Geotab Drive con "Bad request"). */
-    if(gState.conductores.length){ GV.Storage.setConductores(gState.conductores); }
+    /* 22/10: se reintenta a los 5 s y a los 20 s. Si el panel lee Geotab antes de terminar de cargar Firebase, la
+       carga inicial de Firebase pisaba la lista recien sincronizada con la vieja y un chofer nuevo (bug real:
+       Eliana Kann) no aparecia en la app del chofer ("no esta en la lista de conductores sincronizada"). */
+    var __syncCond = function(){
+      if(!gState.conductores.length) return;
+      var st = GV.Storage.getConductores() || []; if(!Array.isArray(st)) st = Object.values(st);
+      var clave = function(l){ return l.map(function(c){ return c.id + '|' + (c.name || '') + '|' + (c.nombre || ''); }).sort().join(';'); };
+      if(clave(st) !== clave(gState.conductores)) GV.Storage.setConductores(gState.conductores);
+    };
+    if(gState.conductores.length){ GV.Storage.setConductores(gState.conductores); setTimeout(__syncCond, 5000); setTimeout(__syncCond, 20000); }
     onDone();
   }, function(){ onDone(); });
 
