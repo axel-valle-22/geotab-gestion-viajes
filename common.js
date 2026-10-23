@@ -2054,6 +2054,52 @@ GV.playAlertSound = (function(){
   };
 })();
 
+/* ---------------- 23/10: PROTECCION DE HORARIOS REGISTRADOS ----------------
+   Pedido de Logistica ("el sistema tiene que ser fiable"): un ingreso/egreso ya registrado (por GPS, por el chofer o
+   a mano) NUNCA se pierde por editar el viaje, corregir la ubicacion de un sitio, cambiar la permanencia, o por una
+   pantalla con datos viejos que guarda encima. Caso real: T293 Pino (viaje de varios dias): al editar se borraron
+   los horarios de los dias anteriores.
+   Regla, aplicada en el UNICO lugar por el que pasan todas las escrituras (updateViaje local y el merge contra el
+   servidor en persist): un cambio puede PONER o CORREGIR un horario, pero no BORRARLO. Las unicas excepciones:
+   - se cambio la estructura de las paradas (se agrego/quito una parada o se reordenaron): ahi quien hace el cambio
+     ya reubica los horarios de cada parada fisica (remapSitiosRealParaParadas);
+   - se quito el destino (sus horarios ya no corresponden a nada);
+   - un borrado pedido explicitamente por un usuario (patch.__borrarHorarios = ['parada2', ...]). */
+GV.__HOR_CAMPOS = { ingreso: ['ingresoGps', 'ingresoManual'], egreso: ['egresoGps', 'egresoManual'], choferMarcoIngreso: [], choferMarcoEgreso: [] };
+GV.__paradasReestructuradas = function(prevP, nextP){
+  prevP = prevP || []; nextP = nextP || [];
+  if(prevP.length !== nextP.length) return true;
+  var dif = 0;
+  for(var i = 0; i < prevP.length; i++){
+    var a = prevP[i] || {}, b = nextP[i] || {};
+    if(typeof a.lat !== 'number' || typeof b.lat !== 'number' || Math.abs(a.lat - b.lat) > 1e-5 || Math.abs(a.lng - b.lng) > 1e-5) dif++;
+  }
+  return dif >= 2; /* una sola parada movida = correccion de ubicacion (se conservan sus horarios) */
+};
+GV.protegerHorarios = function(prevV, nextView, nextSr, permitir){
+  var prevSr = (prevV && prevV.sitiosReal) || {};
+  var out = Object.assign({}, nextSr || {});
+  var libresParadas = GV.__paradasReestructuradas(prevV && prevV.paradas, nextView && nextView.paradas);
+  var sinDestino = !(nextView && nextView.destino);
+  var restaurados = [];
+  Object.keys(prevSr).forEach(function(k){
+    var a = prevSr[k]; if(!a) return;
+    if(permitir && permitir.indexOf(k) >= 0) return;
+    if(libresParadas && /^parada\d+$/.test(k)) return;
+    if(sinDestino && k === 'destino') return;
+    var b = out[k], nb = null;
+    Object.keys(GV.__HOR_CAMPOS).forEach(function(c){
+      if(!a[c] || (b && b[c])) return;
+      nb = nb || Object.assign({}, b || {});
+      nb[c] = a[c];
+      GV.__HOR_CAMPOS[c].forEach(function(f){ if(a[f] != null && nb[f] == null) nb[f] = a[f]; });
+      restaurados.push(k + '.' + c);
+    });
+    if(nb) out[k] = nb;
+  });
+  if(restaurados.length){ try{ console.warn('[GV] horarios protegidos (se intento borrarlos):', (prevV && (prevV.vehiculo || prevV.id)) || '', restaurados.join(', ')); }catch(e){} }
+  return out;
+};
 GV.Storage = (function(){
   var _api = null;
   var _addInId = null;
@@ -2416,6 +2462,10 @@ GV.Storage = (function(){
                  antes de aplicar el patch. */
               if(!serverViaje || !entry || entry === 'full'){
                 finalViaje = _localFullById[id] || serverViaje;
+                /* 23/10: una escritura completa (pantalla con copia vieja) tampoco puede borrar horarios ya guardados */
+                if(serverViaje && finalViaje && finalViaje !== serverViaje){
+                  finalViaje = Object.assign({}, finalViaje, { sitiosReal: GV.protegerHorarios(serverViaje, finalViaje, finalViaje.sitiosReal || {}, null) });
+                }
               } else {
                 var _entryAplicado = entry;
                 var _esTerminalEnServidor = serverViaje.estado === 'completado' || serverViaje.estado === 'cancelado';
@@ -2436,7 +2486,10 @@ GV.Storage = (function(){
                      merge sitio por sitio no podia borrar nada: al reordenar las paradas, el horario de una parada quedaba
                      tambien en su posicion vieja (que ahora era otra parada) y figuraban dos "en sitio". */
                   Object.keys(finalViaje.sitiosReal).forEach(function(k){ if(finalViaje.sitiosReal[k] === null) delete finalViaje.sitiosReal[k]; });
+                  /* 23/10: lo que ya estaba registrado en el SERVIDOR no se borra (aunque esta pantalla tuviera una copia vieja) */
+                  finalViaje.sitiosReal = GV.protegerHorarios(serverViaje, finalViaje, finalViaje.sitiosReal, entry.__borrarHorarios || null);
                 }
+                delete finalViaje.__borrarHorarios;
               }
               if(finalViaje){
                 if(idx >= 0){ serverViajes[idx] = finalViaje; } else { serverViajes.push(finalViaje); }
@@ -2481,6 +2534,13 @@ GV.Storage = (function(){
     addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = 'full'; return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
+      var __permitir = patch && patch.__borrarHorarios;
+      if(patch && '__borrarHorarios' in patch){ patch = Object.assign({}, patch); delete patch.__borrarHorarios; }
+      if(v && patch && patch.sitiosReal){
+        patch = Object.assign({}, patch);
+        patch.sitiosReal = GV.protegerHorarios(v, { paradas: ('paradas' in patch) ? patch.paradas : v.paradas, destino: ('destino' in patch) ? patch.destino : v.destino }, patch.sitiosReal, __permitir);
+        /* las claves en null del patch (borrado) que se restauraron ya no van en null */
+      }
       if(v){ Object.keys(patch).forEach(function(k){
         if(k === 'sitiosReal' && patch.sitiosReal){ var __srL = {}; Object.keys(patch.sitiosReal).forEach(function(s){ if(patch.sitiosReal[s] !== null) __srL[s] = patch.sitiosReal[s]; }); v.sitiosReal = __srL; }
         else v[k] = patch[k];
@@ -2488,6 +2548,7 @@ GV.Storage = (function(){
       if(id){
         var _prevEntry = _dirtyViajeIds[id];
         _dirtyViajeIds[id] = (_prevEntry === 'full') ? 'full' : Object.assign({}, (_prevEntry && typeof _prevEntry === 'object') ? _prevEntry : {}, patch);
+        if(__permitir && _dirtyViajeIds[id] !== 'full') _dirtyViajeIds[id].__borrarHorarios = __permitir;
       }
       return persist();
     },
