@@ -5089,6 +5089,9 @@ if(v.vehiculoId){
       if(!urls || !urls.length) return;
       detThumbFinder = GV.createThumbFinder(urls);
       refreshCamPipNow();
+      /* 23/10: precarga de ~8 paquetes repartidos para que se vean puntos violetas en todo el recorrido */
+      var __fnd = detThumbFinder, __pt = null;
+      __fnd.preload(8, function(){ if(detThumbFinder !== __fnd) return; clearTimeout(__pt); __pt = setTimeout(function(){ detCamThumbs = __fnd.conocidas(); renderThumbMarkers(); }, 300); });
     });
     GV.getCameraEventsForDevice(gApi, v.vehiculoId, __camDayStart.toISOString(), __camTo.toISOString()).then(function(evs){
       detCamEvents = evs || [];

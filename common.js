@@ -1597,20 +1597,23 @@ GV.getCameraThumbPacks = function(api, deviceId, fromISO, toISO){
     var desde = new Date(fromISO).getTime(), hasta = new Date(toISO).getTime(), VENT = 6 * 3600 * 1000 - 60000;
     var tramos = []; for(var t0 = desde; t0 < hasta; t0 += VENT) tramos.push([t0, Math.min(hasta, t0 + VENT)]);
     if(tramos.length > 12) tramos = tramos.slice(-12); /* tope: ultimas 72 h */
-    var urls = [];
-    function pedir(i){
-      if(i >= tramos.length || GV._thumbAuthFail) return Promise.resolve(urls);
+    /* 23/10: los tramos se piden de a 4 en paralelo (antes de a uno: en un viaje de 3 dias tardaba 10-15 s). */
+    var porTramo = [], sig = 0;
+    function trabajador(){
+      if(sig >= tramos.length || GV._thumbAuthFail) return Promise.resolve();
+      var i = sig++;
       var url = base + '?fromTime=' + tramos[i][0] + '&toTime=' + tramos[i][1];
       return fetch(url, { headers: headers }).then(function(resp){
         if(resp.status === 401 || resp.status === 403){ GV._thumbAuthFail = true; try{ console.info('Fotos de camara: el servicio de video no acepta la sesion del add-in (' + resp.status + ')'); }catch(_){} return null; }
         if(!resp.ok) return null;
         return resp.json();
       }).then(function(j){
-        ((j && j.thumbnailPacks) || []).forEach(function(p){ if(p && p.url) urls.push(p.url); });
-        return pedir(i + 1);
-      })['catch'](function(){ return pedir(i + 1); });
+        porTramo[i] = ((j && j.thumbnailPacks) || []).map(function(p){ return p && p.url; }).filter(Boolean);
+      })['catch'](function(){}).then(trabajador);
     }
-    return pedir(0);
+    return Promise.all([trabajador(), trabajador(), trabajador(), trabajador()]).then(function(){
+      var urls = []; porTramo.forEach(function(l){ if(l) urls = urls.concat(l); }); return urls;
+    });
   })['catch'](function(){ return []; });
 };
 /* Abre un paquete .thm (TAR) y devuelve [{ms, url(blob)}] */
@@ -1687,6 +1690,16 @@ GV.createThumbFinder = function(urls){
   var ocupado = false, pendiente = null;
   return {
     total: packs.length,
+    /* 23/10: precarga liviana de n paquetes repartidos a lo largo del viaje (de a 2), para que haya puntos
+       violetas en todo el recorrido desde el principio. onCarga se llama despues de cada paquete. */
+    preload: function(n, onCarga){
+      if(!packs.length) return;
+      var idx = [], k;
+      for(k = 0; k < n; k++){ var i = Math.round(k * (packs.length - 1) / Math.max(1, n - 1)); if(idx.indexOf(i) < 0) idx.push(i); }
+      var pos = 0;
+      function sigue(){ if(pos >= idx.length) return Promise.resolve(); var i = idx[pos++]; return cargar(i).then(function(){ try{ if(onCarga) onCarga(); }catch(_){} }).then(sigue); }
+      sigue(); sigue();
+    },
     conocidas: function(){ var out = []; packs.forEach(function(pk){ out = out.concat(pk.fotos || []); }); return out.sort(function(a, b){ return a.ms - b.ms; }); },
     /* devuelve la foto mas cercana a t; si llega un pedido nuevo mientras busca, solo se atiende el ultimo */
     near: function(t){
