@@ -4220,6 +4220,7 @@ document.body.appendChild(overlay);
 
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detRefreshInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
+var detCamThumbs = [], detThumbMarkers = [], detThumbShownMs = null; /* 23/10: fotos periodicas de la camara (GV.loadCameraThumbs) */
 var detCamLiveMode = false, detCamLiveToken = 0;
 
 /* ---------------- Ventana PIP de camara, fija arriba a la IZQUIERDA del mapa (a pedido: arriba a
@@ -4378,8 +4379,33 @@ function detCamUpdateLiveBtnVisibility(){
    activa en este viaje) pero con un cartel neutro en vez de la imagen. detCamLastTs se limpia
    para que, en cuanto vuelva a haber un evento real cerca, detCamShow no lo de por "ya mostrado"
    y pida la imagen de nuevo. */
+function detCamThumbOff(){
+  if(!detCamBox) return;
+  var im = detCamBox.querySelector('.gv-cam-thumb'); if(im) im.style.display = 'none';
+  if(detCamEl) detCamEl.style.display = 'block';
+  detThumbShownMs = null;
+  detCamUpdateLiveBtnVisibility();
+}
+/* 23/10: muestra una foto periodica de la camara (blob ya descargado, sin espera) en la ventana CAMARA. */
+function detCamShowThumb(th){
+  if(!ensureCamBox()) return;
+  detCamBox.style.display = 'flex';
+  detCamLastTs = null;
+  if(detThumbShownMs === th.ms) return;
+  detThumbShownMs = th.ms;
+  var wrap = detCamBox.querySelector('.gv-cam-vidwrap');
+  var im = detCamBox.querySelector('.gv-cam-thumb');
+  if(!im && wrap){ im = document.createElement('img'); im.className = 'gv-cam-thumb'; im.alt = 'Foto de la camara'; im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:2;background:#0b0f14'; wrap.appendChild(im); }
+  if(im){ im.src = th.url; im.style.display = 'block'; }
+  if(detCamEl) detCamEl.style.display = 'none';
+  var l = detCamBox.querySelector('.gv-cam-loading'); if(l) l.style.display = 'none';
+  var lb = detCamBox.querySelector('.gv-cam-livebtn'); if(lb) lb.style.display = 'none';
+  var footEl = detCamBox.querySelector('.gv-cam-foot');
+  if(footEl) footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b><br>' + GV.fmtDate(new Date(th.ms).toISOString());
+}
 function detCamIdle(){
   if(!ensureCamBox()) return;
+  detCamThumbOff();
   detCamBox.style.display = 'flex';
   detCamLastTs = null;
   var loadingEl = detCamBox.querySelector('.gv-cam-loading');
@@ -4392,6 +4418,7 @@ function detCamShow(rec, serialOverride){
   if(!serial || !rec) return;
   var ts = Math.floor(new Date(rec.dateTime).getTime() / 1000);
   if(!ensureCamBox()) return;
+  detCamThumbOff();
   detCamBox.style.display = 'flex';
   var footEl = detCamBox.querySelector('.gv-cam-foot');
   if(footEl){ footEl.innerHTML = '<b>' + GV.escapeHtml(v.vehiculo || '') + '</b>' + (rec.eventLabel ? (' &nbsp;<span style="color:#a78bfa">' + GV.escapeHtml(rec.eventLabel) + '</span>') : '') + '<br>' + GV.fmtDate(rec.dateTime) + (typeof rec.speed === 'number' ? (' &nbsp;-&nbsp; ' + Math.round(rec.speed) + ' km/h') : ''); }
@@ -4529,13 +4556,20 @@ function updateCamPip(whenDate){
      con camara pero sin eventos (o sin ninguno cercano), se muestra el cartel neutro via
      detCamIdle en vez de nada. */
   if(detCamLiveMode) return; // no pisar el video en vivo mientras el boton EN VIVO esta prendido
-  if(!detCamInfo || !detCamInfo.cameraSerialNumber){ detCamHide(); return; }
   var t = whenDate.getTime();
+  /* 23/10: foto periodica de la camara mas cercana (hasta 90 s), como en el Historial de viajes de MyGeotab. */
+  var bestTh = null, bestThDiff = Infinity;
+  for(var __k = 0; __k < detCamThumbs.length; __k++){ var __d = Math.abs(detCamThumbs[__k].ms - t); if(__d < bestThDiff){ bestThDiff = __d; bestTh = detCamThumbs[__k]; } }
+  if(!detCamInfo || !detCamInfo.cameraSerialNumber){
+    if(bestTh && bestThDiff <= 90 * 1000){ detCamShowThumb(bestTh); return; }
+    detCamHide(); return;
+  }
   var bestEv = null, bestDiffMs = Infinity;
   detCamEvents.forEach(function(ev){
     var diff = Math.abs(ev.ts * 1000 - t);
     if(diff < bestDiffMs){ bestDiffMs = diff; bestEv = ev; }
   });
+  if((!bestEv || bestDiffMs > 3 * 60 * 1000 || bestThDiff < bestDiffMs) && bestTh && bestThDiff <= 90 * 1000){ detCamShowThumb(bestTh); return; }
   if(!bestEv || bestDiffMs > 3 * 60 * 1000){ detCamIdle(); return; }
   var rec = { dateTime: new Date(bestEv.ts * 1000).toISOString(), eventLabel: bestEv.ruleName };
   detCamShow(rec, bestEv.serial || detCamInfo.cameraSerialNumber);
@@ -4546,6 +4580,22 @@ function updateCamPip(whenDate){
    disponible. Se llama tanto cuando llega el recorrido (loadHist) como cuando llega la lista de
    eventos (GV.getCameraEventsForDevice), porque las dos cosas se piden en paralelo y puede
    terminar primero cualquiera de las dos -- esta funcion no hace nada hasta tener ambas. */
+/* 23/10: un puntito violeta sobre el recorrido cada ~2 minutos donde hay foto de la camara. */
+function renderThumbMarkers(){
+  if(!detHistLayer || !detHistPts.length) return;
+  detThumbMarkers.forEach(function(m){ try{ detHistLayer.removeLayer(m); }catch(_){} });
+  detThumbMarkers = [];
+  var ultimo = -Infinity, j = 0;
+  detCamThumbs.forEach(function(th){
+    if(th.ms - ultimo < 120000) return;
+    while(j < detHistPts.length - 1 && new Date(detHistPts[j + 1].dateTime).getTime() <= th.ms) j++;
+    var r = detHistPts[j]; if(!r || r.latitude == null) return;
+    if(Math.abs(new Date(r.dateTime).getTime() - th.ms) > 10 * 60 * 1000) return;
+    ultimo = th.ms;
+    var m = detHistLayer.add(new google.maps.Marker({ position: { lat: r.latitude, lng: r.longitude }, zIndex: 930, title: 'Foto de camara - ' + GV.fmtDate(new Date(th.ms).toISOString()), icon: { path: google.maps.SymbolPath.CIRCLE, scale: 4, fillColor: '#7c3aed', fillOpacity: .9, strokeColor: '#ffffff', strokeWeight: 1.5 } }));
+    detThumbMarkers.push(m);
+  });
+}
 function renderCamEventMarkers(){
   if(!detHistLayer || !detHistPts.length || !detCamEvents.length) return;
   detCamMarkers.forEach(function(m){ detHistLayer.removeLayer(m); });
@@ -5004,6 +5054,15 @@ if(v.vehiculoId){
        grabado, aunque el numero de serie sea el correcto). */
     var __camDayStart = new Date(v.fechaSalida); __camDayStart.setHours(0,0,0,0);
     var __camTo = v.completadoEn ? new Date(v.completadoEn) : (v.canceladoEn ? new Date(v.canceladoEn) : new Date());
+    /* 23/10: fotos periodicas de la camara a lo largo del recorrido (como el Historial de viajes de MyGeotab). */
+    var __thumbFrom = new Date(v.fechaSalida); if(isNaN(__thumbFrom.getTime())) __thumbFrom = __camDayStart;
+    __thumbFrom = new Date(Math.max(__camDayStart.getTime(), __thumbFrom.getTime() - 2 * 3600 * 1000));
+    var __thumbTimer = null;
+    GV.loadCameraThumbs(gApi, v.vehiculoId, __thumbFrom.toISOString(), __camTo.toISOString(), function(lista){
+      detCamThumbs = lista.filter(function(x){ return x.lente === '1'; });
+      if(!detCamThumbs.length) detCamThumbs = lista;
+      clearTimeout(__thumbTimer); __thumbTimer = setTimeout(function(){ renderThumbMarkers(); refreshCamPipNow(); }, 400);
+    });
     GV.getCameraEventsForDevice(gApi, v.vehiculoId, __camDayStart.toISOString(), __camTo.toISOString()).then(function(evs){
       detCamEvents = evs || [];
       renderCamEventMarkers();
@@ -6347,7 +6406,15 @@ var histPolyline = new google.maps.Polyline({
 var histPolylineHitArea = new google.maps.Polyline({ path: seg, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 11 });
 detHistLayer.add(histPolyline);
 detHistLayer.add(histPolylineHitArea);
+/* 23/10: al pasar el mouse por el recorrido se mueve el reproductor a ese punto (y la ventana CAMARA muestra la foto mas cercana), como en MyGeotab. */
+histPolylineHitArea.addListener('mousemove', function(e){
+  if(detPlaying || !e || !e.latLng) return;
+  var la = e.latLng.lat(), lo = e.latLng.lng(), best = -1, bd = Infinity;
+  for(var q = 0; q < detHistPts.length; q++){ var rr = detHistPts[q]; if(rr.latitude == null) continue; var dd = (rr.latitude - la) * (rr.latitude - la) + (rr.longitude - lo) * (rr.longitude - lo); if(dd < bd){ bd = dd; best = q; } }
+  if(best >= 0 && String(best) !== String(slider.value)){ slider.value = best; updateHistMarker(best); }
 });
+});
+renderThumbMarkers();
 renderCamEventMarkers();
 slider.max = recs.length - 1;
 slider.value = recs.length - 1;

@@ -1567,6 +1567,83 @@ GV.getCameraEventsForDevice = function(api, deviceId, fromISO, toISO){
   });
 };
 
+/* ---------------- Fotos periodicas de la camara a lo largo del recorrido (23/10) ----------------
+Mismo mecanismo que usa el Historial de viajes "Nuevos" de MyGeotab (relevado en vivo): la lista de
+paquetes de miniaturas se pide a media-services.geotab.com/api/SmarterAi/Thumbnails/serialNumber/<serie
+del equipo GO> con fromTime/toTime, autenticando con la sesion de MyGeotab en encabezados X-MyGeotab-*.
+Cada paquete (.thm, URL firmada de Google Storage que vence) es un TAR con varias fotos JPEG cuyo nombre
+es el instante en milisegundos ("1792753906976.vid_1"). MyGeotab ademas manda un token Bearer propio que
+un add-in no recibe: si el servicio lo exige, esto devuelve [] y el detalle sigue como antes. */
+GV._devSerialCache = {};
+GV.getDeviceSerial = function(api, deviceId){
+  if(!api || !deviceId) return Promise.resolve(null);
+  if(GV._devSerialCache[deviceId] !== undefined) return Promise.resolve(GV._devSerialCache[deviceId]);
+  return new Promise(function(resolve){
+    api.call('Get', { typeName: 'Device', search: { id: deviceId } }, function(res){
+      var s = (res && res[0] && res[0].serialNumber) || null; GV._devSerialCache[deviceId] = s; resolve(s);
+    }, function(){ resolve(null); });
+  });
+};
+GV._thumbAuthFail = false;
+GV.getCameraThumbPacks = function(api, deviceId, fromISO, toISO){
+  if(!api || !deviceId || GV._thumbAuthFail) return Promise.resolve([]);
+  return Promise.all([GV.getDeviceSerial(api, deviceId), GV.getSession(api)]).then(function(r){
+    var serial = r[0], ses = r[1] || {};
+    if(!serial || !ses.sessionId) return [];
+    var headers = { 'X-MyGeotab-Database': ses.database || '', 'X-MyGeotab-Username': ses.userName || '', 'X-MyGeotab-SessionId': ses.sessionId, 'X-MyGeotab-Path': ses.server || 'my.geotab.com' };
+    var base = 'https://media-services.geotab.com/api/SmarterAi/Thumbnails/serialNumber/' + encodeURIComponent(serial);
+    var formatos = [
+      function(d){ return new Date(d).toISOString(); },
+      function(d){ return String(new Date(d).getTime()); }
+    ];
+    function probar(i){
+      if(i >= formatos.length) return Promise.resolve([]);
+      var url = base + '?fromTime=' + encodeURIComponent(formatos[i](fromISO)) + '&toTime=' + encodeURIComponent(formatos[i](toISO));
+      return fetch(url, { headers: headers }).then(function(resp){
+        if(resp.status === 401 || resp.status === 403){ GV._thumbAuthFail = true; try{ console.info('Fotos de camara: el servicio de video no acepta la sesion del add-in (' + resp.status + ')'); }catch(_){} return []; }
+        if(!resp.ok) return probar(i + 1);
+        return resp.json().then(function(j){ return ((j && j.thumbnailPacks) || []).map(function(p){ return p.url; }).filter(Boolean); });
+      })['catch'](function(){ return probar(i + 1); });
+    }
+    return probar(0);
+  })['catch'](function(){ return []; });
+};
+/* Abre un paquete .thm (TAR) y devuelve [{ms, url(blob)}] */
+GV.unpackCameraThumbs = function(packUrl){
+  return fetch(packUrl).then(function(r){ if(!r.ok) throw new Error('pack ' + r.status); return r.arrayBuffer(); }).then(function(buf){
+    var u8 = new Uint8Array(buf), out = [], off = 0;
+    function str(a, b){ var s = ''; for(var i = a; i < b && u8[i]; i++) s += String.fromCharCode(u8[i]); return s; }
+    while(off + 512 <= u8.length){
+      var name = str(off, off + 100);
+      if(!name) break;
+      var size = parseInt(str(off + 124, off + 136).trim() || '0', 8) || 0;
+      var dataStart = off + 512;
+      var m = name.match(/(\d{12,14})/);
+      if(m && size > 0){
+        var blob = new Blob([u8.subarray(dataStart, dataStart + size)], { type: 'image/jpeg' });
+        out.push({ ms: parseInt(m[1], 10), url: URL.createObjectURL(blob), lente: (name.match(/vid_(\d+)/) || [])[1] || '1' });
+      }
+      off = dataStart + Math.ceil(size / 512) * 512;
+    }
+    return out;
+  })['catch'](function(){ return []; });
+};
+/* Todas las fotos de un rango: pide la lista y abre los paquetes de a 3 en paralelo. onProgress(lista parcial) */
+GV.loadCameraThumbs = function(api, deviceId, fromISO, toISO, onProgress){
+  return GV.getCameraThumbPacks(api, deviceId, fromISO, toISO).then(function(urls){
+    var todas = [], i = 0;
+    function worker(){
+      if(i >= urls.length) return Promise.resolve();
+      var u = urls[i++];
+      return GV.unpackCameraThumbs(u).then(function(fotos){
+        todas = todas.concat(fotos).sort(function(a, b){ return a.ms - b.ms; });
+        try{ if(onProgress) onProgress(todas); }catch(_){}
+      }).then(worker);
+    }
+    return Promise.all([worker(), worker(), worker()]).then(function(){ return todas; });
+  });
+};
+
 /* ---------------- Reproductor de video de Geotab (web component <gvp-video-player>) ----------------
 Biblioteca oficial de Geotab Video para insertar imagenes/reproduccion de la camara de un
 vehiculo. Se carga una sola vez (CSS + JS) y despues cada <gvp-video-player> que se cree
