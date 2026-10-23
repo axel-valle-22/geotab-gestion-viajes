@@ -233,6 +233,15 @@ GV.pickSiteAt = function(pt, sites, opts){
      antes se tomaba igual uno terminado y se pisaba su ingreso real (ej. volver a pasar por Solalique a la tarde
      cambiaba el ingreso de la manana). Con sitios repetidos, la segunda pasada tiene su propio punto pendiente. */
   if(!pend.length) return null;
+  /* 23/10: sitio repetido (ej. HASA AÑELO en los puntos 1, 3, 5 y 7). Si ya hay puntos POSTERIORES visitados,
+     la unidad esta en la aparicion que sigue a lo ultimo visitado, no en la primera pendiente (que quedo sin
+     registrar). Bug real: M349 Brandt, el ingreso del 21/10 07:44 se cargo en el punto 1 en vez del 3. */
+  if(opts.sitiosReal && pend.length > 1){
+    var __ultVis = -1;
+    (sites || []).forEach(function(sx, ix){ var x = sx && opts.sitiosReal[sx.id]; if(x && (x.ingreso || x.egreso) && String(sx.id || '').indexOf('parada') === 0) __ultVis = Math.max(__ultVis, ix); });
+    var __despues = pend.filter(function(c){ return c.idx > __ultVis; });
+    if(__despues.length) pend = __despues;
+  }
   var pool = pend;
   pool.sort(function(a, b){
     if(Math.abs(a.norm - b.norm) > 0.05) return a.norm - b.norm;
