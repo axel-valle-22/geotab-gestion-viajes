@@ -3768,8 +3768,61 @@ function gvSlbAvisoAuto(v, tipo, textos){
     var msg = tipo === 'alta'
       ? ('SLB: viaje creado automaticamente desde el mail - ' + (v.conductor || '') + ' - ' + (v.vehiculo || '') + (v.solicitud ? (' (Sol. ' + v.solicitud + ')') : '') + ', salida ' + String(v.fechaSalida || '').slice(8, 10) + '/' + String(v.fechaSalida || '').slice(5, 7) + ' ' + String(v.fechaSalida || '').slice(11, 16) + '.')
       : ('SLB: cambio aplicado automaticamente desde el mail - ' + (v.conductor || '') + ' - ' + (v.vehiculo || '') + ': ' + (textos || []).join(' / '));
+    var vA = GV.Storage.getViaje(v.id) || v;
+    var prov = (vA.paradas || []).filter(gvEsUbicProvisoria).map(function(p){ return GV.siteNameFor(p) || p.direccion; });
+    if(prov.length) msg += ' FALTA CONFIRMAR LA UBICACION de: ' + prov.join(', ') + ' (abri el viaje, toca el sitio y "Editar ubicacion").';
     GV.Storage.addAlerta({ id: id, tipo: 'info', mensaje: msg, fecha: new Date().toISOString(), viajeId: v.id });
   }catch(e){}
+}
+/* 23/10 (2): lugar del mail que no esta en Sitios y la unidad SI tiene Geotab: el viaje se crea igual con un sitio
+   "XXX (ubicacion a confirmar)" que cualquiera corrige desde el detalle del viaje (tocar el sitio > Editar ubicacion).
+   Ubicacion tentativa: la locacion/pozo del SIG de Neuquen con ese codigo, o la direccion que encuentre el mapa, o
+   cerca del punto anterior del viaje. La geocerca queda ANULADA (poligono de tres puntos iguales: nunca "entra"),
+   asi no se registran ingresos/egresos falsos hasta que alguien marque el lugar real. */
+function gvEsUbicProvisoria(p){
+  var g = p && p.poligono;
+  if(!g || g.length !== 3) return false;
+  return g.every(function(q){ return Math.abs(q.lat - g[0].lat) < 1e-9 && Math.abs(q.lng - g[0].lng) < 1e-9; });
+}
+var __gvSlbProvEnCurso = {};
+function gvSlbUbicTentativa(txt, ref){
+  var enZona = function(q){ return q && q.lat < -34 && q.lat > -43 && q.lng < -65 && q.lng > -72.5; };
+  var nCod = gvSlbNorm(txt).replace(/\bh\s*&?\s*(?:and\s*)?p\s*-?\s*(\d{2,5})/g, 'rig $1');
+  var codigos = (nCod.match(/[a-z]{2,6}\s*-?\s*\d{2,5}/g) || []).map(function(x){ return x.replace(/[^a-z0-9]/g, ''); });
+  var porSig = (GV.NQN && GV.NQN_SIG_ENABLED && codigos.length) ? GV.NQN.load().then(function(){
+    for(var i = 0; i < codigos.length; i++){
+      var it = (GV.NQN.search(codigos[i], 5) || []).filter(function(x){ return x.c === codigos[i]; })[0];
+      if(it){ var r = GV.NQN.resolver(it); if(r && enZona(r)) return { lat: r.lat, lng: r.lng, fuente: 'SIG ' + r.etiqueta }; }
+    }
+    return null;
+  })['catch'](function(){ return null; }) : Promise.resolve(null);
+  return porSig.then(function(r){
+    if(r) return r;
+    var q = String(txt || '').split('/').map(function(x){ return x.trim(); }).filter(Boolean).join(', ') + ', Neuquen, Argentina';
+    return (GV.geocodeSearch ? GV.geocodeSearch(q) : Promise.resolve([])).then(function(list){ var g = (list || []).filter(enZona)[0]; return g ? { lat: g.lat, lng: g.lng, fuente: 'mapa' } : null; })['catch'](function(){ return null; });
+  }).then(function(r){
+    if(r) return r;
+    if(ref && typeof ref.lat === 'number') return { lat: ref.lat + 0.03, lng: ref.lng, fuente: 'cerca del punto anterior' };
+    return { lat: -38.9516, lng: -68.0591, fuente: 'sin datos (Neuquen)' };
+  });
+}
+function gvSlbCrearSitiosProvisorios(prop){
+  var org = null; try{ org = gvSlbOrigen(prop); }catch(e){}
+  var tareas = [];
+  (prop.paradas || []).forEach(function(x, i){
+    if(x.sitio) return;
+    var c = gvSlbCompact(x.txt); if(!c || __gvSlbProvEnCurso[c]) return;
+    __gvSlbProvEnCurso[c] = 1;
+    var ref = null; for(var j = i - 1; j >= 0; j--){ if(prop.paradas[j].sitio){ ref = prop.paradas[j].sitio; break; } }
+    ref = ref || org || prop.pos0600;
+    tareas.push(gvSlbUbicTentativa(x.txt, ref).then(function(u){
+      if(gvSlbResolverSitio(x.txt)) return; /* otra pantalla ya lo creo */
+      var nombre = gvSlbNombreSugerido(x.txt) + ' (ubicacion a confirmar)';
+      var pt = { lat: u.lat, lng: u.lng };
+      return GV.Storage.addSitio({ id: GV.genId('s'), nombre: nombre, direccion: nombre, lat: u.lat, lng: u.lng, poligono: [pt, pt, pt], tipo: 'descarga', duracionMin: 60, aliasMail: [c], aConfirmar: true, aConfirmarFuente: u.fuente, textoMail: x.txt });
+    })['catch'](function(){}).then(function(){ setTimeout(function(){ delete __gvSlbProvEnCurso[c]; }, 60000); }));
+  });
+  return Promise.all(tareas);
 }
 function gvSlbAutoListo(){
   /* no se crea nada hasta tener cargados los viajes del servidor (si no, todo pareceria nuevo) */
@@ -3784,7 +3837,8 @@ function gvSlbAutoProcesar(){
   var hubo = false;
   gPropuestasSLB.slice().forEach(function(prop){
     if(prop.creado) return;
-    if(gvSlbProblemas(prop).filter(function(t){ return !/TR/.test(t); }).length) return; /* le falta un dato: queda para "Revisar" */
+    if(!prop.vehiculo || !prop.chofer) return; /* unidad o chofer sin encontrar: queda para "Revisar" */
+    if(prop.paradas.some(function(x){ return !x.sitio; })){ hubo = true; gvSlbCrearSitiosProvisorios(prop); return; } /* se crea en la proxima vuelta, ya con los sitios "a confirmar" */
     var id = gvSlbIdViaje(prop);
     if(__gvSlbAutoHecho[id] || GV.Storage.getViaje(id)) return;
     __gvSlbAutoHecho[id] = 1; hubo = true;
@@ -3936,7 +3990,7 @@ function gvSlbAplicarCambio(k, btn, auto){
       if(x.hora && (x.fecha || prop.fecha)){ var d = new Date((x.fecha || prop.fecha) + 'T' + (x.hora.length === 4 ? '0' + x.hora : x.hora) + ':00-03:00'); if(!isNaN(d.getTime())) cp.llegadaProgramada = d.toISOString(); }
       return cp;
     });
-    if(nuevas.some(function(x){ return !x; })){ if(auto){ c.autoBloqueado = true; try{ gvPintarSinPlan(); }catch(e){} return false; } alert('Hay lugares del mail sin ubicacion cargada. Cargalos con "Revisar" y volve a tocar Aplicar.'); if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return false; }
+    if(nuevas.some(function(x){ return !x; })){ if(auto){ return gvSlbCrearSitiosProvisorios(prop).then(function(){ var kk = c.viaje.id + '|' + c.firma; setTimeout(function(){ delete __gvSlbAutoHecho[kk]; gvSlbRecalcularPropuestas(); }, 3000); return false; }); } alert('Hay lugares del mail sin ubicacion cargada. Cargalos con "Revisar" y volve a tocar Aplicar.'); if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return false; }
     /* lo ya visitado queda igual; de lo nuevo se sacan los primeros puntos que coinciden con lo ya visitado */
     var hechas = (v.paradas || []).slice(0, ultimaVisitada + 1);
     var j = 0;
@@ -5414,7 +5468,7 @@ if(!cur) return;
 var p = pts.filter(function(pp){ return pp.id === siteId; })[0];
 GV.pickLocation({
 title: 'Editar ubicacion: ' + (p ? (p.dir || p.label) : siteId),
-initial: { lat: cur.lat, lng: cur.lng, direccion: cur.direccion || (p && p.dir) || '', tipo: cur.tipo, duracionMin: cur.duracionMin, poligono: cur.poligono || null },
+initial: { lat: cur.lat, lng: cur.lng, direccion: cur.direccion || (p && p.dir) || '', tipo: cur.tipo, duracionMin: cur.duracionMin, poligono: gvEsUbicProvisoria(cur) ? null : (cur.poligono || null) },
 withStopFields: isParada,
 otros: pts.filter(function(pp){ return pp.id !== siteId; }),
 mantenerNombre: true, nombreSitio: GV.siteNameFor(cur) || cur.direccion || (p && (p.dir || p.label)) || '',
@@ -5422,6 +5476,20 @@ mostrarCamion: true, vehiculoId: v.vehiculoId, api: gApi
 }).then(function(res){
 if(!res) return;
 var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null };
+/* 23/10 (2): era un sitio "a confirmar" de un pedido SLB: la ubicacion marcada se aplica tambien al sitio guardado
+   (para los proximos mails) y a los demas viajes abiertos que tengan ese mismo lugar sin confirmar. */
+if(gvEsUbicProvisoria(cur)){
+  try{
+    var __sitProv = gvSlbSitios().filter(function(s){ return gvEsUbicProvisoria(s) && Math.abs(s.lat - cur.lat) < 1e-6 && Math.abs(s.lng - cur.lng) < 1e-6; });
+    __sitProv.forEach(function(s){ GV.Storage.updateSitio(s.id, { nombre: res.direccion || String(s.nombre).replace(/\s*\(ubicacion a confirmar\)/i, ''), direccion: res.direccion || s.direccion, lat: res.lat, lng: res.lng, poligono: res.poligono || null, aConfirmar: false }); });
+    GV.Storage.getViajes().forEach(function(o){
+      if(o.id === v.id || o.estado === 'completado' || o.estado === 'cancelado') return;
+      var cambio = false;
+      var np = (o.paradas || []).map(function(pp){ if(gvEsUbicProvisoria(pp) && Math.abs(pp.lat - cur.lat) < 1e-6 && Math.abs(pp.lng - cur.lng) < 1e-6){ cambio = true; return Object.assign({}, pp, { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null }); } return pp; });
+      if(cambio) GV.Storage.updateViaje(o.id, { paradas: np });
+    });
+  }catch(__eProv){}
+}
 if(isParada){ mergeObj.tipo = res.tipo; mergeObj.duracionMin = res.duracionMin; }
 var patch = buildSitePatch(siteId, mergeObj);
 /* La ubicacion del sitio cambio: el ingreso/egreso real que se haya detectado automaticamente
