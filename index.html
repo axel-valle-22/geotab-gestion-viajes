@@ -4202,12 +4202,14 @@ overlay.innerHTML =
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-compartir-copiar">Copiar</button>' +
 '<button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-compartir-stop">Dejar de compartir</button>' +
 '</div>') : '') +
-'<style>.gv-det-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}.gv-det-col-izq{position:sticky;top:0;min-width:0}.gv-det-col-der{min-width:0;max-height:calc(100vh - 190px);overflow:auto;padding-right:4px}.gv-det-col-izq #gv-det-map{height:460px!important}.gv-det-col-der .gv-det-table{font-size:.78rem}.gv-det-col-der .gv-det-table th{white-space:normal;vertical-align:bottom}@media (max-width:1100px){.gv-det-cols{grid-template-columns:1fr}.gv-det-col-izq{position:static}.gv-det-col-der{max-height:none;overflow:visible}.gv-det-col-izq #gv-det-map{height:360px!important}}</style>' +
+'<style>.gv-det-col-izq:fullscreen{background:#fff;padding:14px;overflow:auto}.gv-det-col-izq.gv-det-fs-fix{position:fixed!important;inset:0;z-index:100000;background:#fff;padding:14px;overflow:auto}.gv-det-col-izq.gv-det-fs-fix #gv-det-map{height:calc(100vh - 170px)!important}.gv-det-col-izq:fullscreen #gv-det-map{height:calc(100vh - 170px)!important}.gv-det-dia{border:1px solid #d1d5db;background:#fff;color:#374151;border-radius:999px;padding:3px 11px;font-size:.74rem;font-weight:600;cursor:pointer}.gv-det-dia.gv-on{background:var(--gv-accent);border-color:var(--gv-accent);color:#fff}.gv-sw{position:relative;display:inline-block;width:26px;height:14px;flex:0 0 auto;cursor:pointer}.gv-sw input{opacity:0;width:0;height:0;position:absolute}.gv-sw span{position:absolute;inset:0;background:#4b5563;border-radius:14px;transition:background .15s}.gv-sw span:before{content:"";position:absolute;width:10px;height:10px;left:2px;top:2px;background:#fff;border-radius:50%;transition:transform .15s}.gv-sw input:checked+span{background:#22c55e}.gv-sw input:checked+span:before{transform:translateX(12px)}.gv-det-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}.gv-det-col-izq{position:sticky;top:0;min-width:0}.gv-det-col-der{min-width:0;max-height:calc(100vh - 190px);overflow:auto;padding-right:4px}.gv-det-col-izq #gv-det-map{height:460px!important}.gv-det-col-der .gv-det-table{font-size:.78rem}.gv-det-col-der .gv-det-table th{white-space:normal;vertical-align:bottom}@media (max-width:1100px){.gv-det-cols{grid-template-columns:1fr}.gv-det-col-izq{position:static}.gv-det-col-der{max-height:none;overflow:visible}.gv-det-col-izq #gv-det-map{height:360px!important}}</style>' +
 /* Ajuste 16/10: detalle en dos columnas: izquierda mapa + reproductor, derecha jornada, avisos y la tabla del itinerario (mismas columnas). */
 '<div class="gv-det-cols"><div class="gv-det-col-izq">' +
 ((v.vehiculoId && (v.estado==='en_curso'||v.estado==='demorado')) ? '<div id="gv-det-live" style="font-size:.85rem;font-weight:600;color:var(--gv-accent);margin-bottom:10px">Obteniendo posicion en vivo...</div>' : '') +
+'<div id="gv-det-dias" style="display:none;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>' +
 '<div id="gv-det-map-wrap" style="position:relative;margin-bottom:6px">' +
 '<div id="gv-det-map" style="height:360px;border-radius:8px;border:1px solid #d1d5db"></div>' +
+'<button type="button" id="gv-det-fs" title="Pantalla completa (mapa + reproductor + camara)" style="position:absolute;left:10px;bottom:26px;z-index:5;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.72rem;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2)">&#x26F6; Pantalla completa</button>' +
 '</div>' +
 (v.vehiculoId ? ('<div id="gv-det-playback" style="background:#0f172a;border-radius:10px;padding:12px 16px 10px;margin-bottom:14px">' +
 '<div style="display:flex;align-items:center;gap:12px">' +
@@ -4241,6 +4243,13 @@ document.body.appendChild(overlay);
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detRefreshInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
 var detCamThumbs = [], detThumbMarkers = [], detThumbShownMs = null, detThumbFinder = null, detThumbReqT = null; /* 23/10: fotos periodicas de la camara (GV.createThumbFinder) */
+/* 23/10 (2): recorrido mas legible y fluido -- detHistMs = horarios en ms precalculados (antes se parseaban fechas en
+   cada cuadro), detHistAll = todo el historial (detHistPts puede ser solo el dia elegido), tramo resaltado alrededor
+   del punto actual (detFocus*), interruptor de fotos (gvFotosCamOn) y carga de fotos diferida (detCargarFotos). */
+var detHistAll = [], detHistMs = [], detSegIdx = [], detDiaSel = null, detFocusLines = [], detFocusCenter = null, detCargarFotos = null, detCamPipTs = 0;
+var DET_FOCUS_MS = 2 * 3600 * 1000;
+function gvFotosCamOn(){ try{ return localStorage.getItem('gv_cam_fotos') !== '0'; }catch(e){ return true; } }
+function gvFotosCamSet(on){ try{ localStorage.setItem('gv_cam_fotos', on ? '1' : '0'); }catch(e){} }
 var detCamLiveMode = false, detCamLiveToken = 0;
 
 /* ---------------- Ventana PIP de camara, fija arriba a la IZQUIERDA del mapa (a pedido: arriba a
@@ -4321,7 +4330,23 @@ function ensureCamBox(){
   headLive.innerHTML = '&#9679; EN VIVO';
   headLive.addEventListener('mousedown', function(e){ e.stopPropagation(); });
   headLive.addEventListener('click', function(e){ e.stopPropagation(); detCamToggleLive(); });
+  /* 23/10: interruptor tipo iOS para mostrar u ocultar las fotos del recorrido (se recuerda por usuario). Apagado no
+     descarga nada: la ventana queda solo para eventos de camara y EN VIVO. */
+  var fotosSw = document.createElement('label');
+  fotosSw.title = 'Mostrar fotos del recorrido';
+  fotosSw.style.cssText = 'display:flex;align-items:center;gap:3px;margin-left:auto;font-size:.52rem;font-weight:600;color:#cbd5e1;cursor:pointer';
+  fotosSw.innerHTML = 'Fotos <span class="gv-sw"><input type="checkbox" class="gv-cam-fotos-sw"' + (gvFotosCamOn() ? ' checked' : '') + '><span></span></span>';
+  fotosSw.addEventListener('mousedown', function(e){ e.stopPropagation(); });
+  fotosSw.querySelector('input').addEventListener('change', function(e){
+    var on = !!e.target.checked; gvFotosCamSet(on);
+    if(on){ if(!detThumbFinder && detCargarFotos) detCargarFotos(); }
+    else { detCamThumbOff(); detThumbMarkers.forEach(function(m){ try{ detHistLayer.removeLayer(m); }catch(_){} }); detThumbMarkers = []; }
+    try{ var __i = parseInt(slider.value, 10) || 0; if(detHistPts[__i]) updateCamPip(new Date(detHistMs[__i] || detHistPts[__i].dateTime)); }catch(_){}
+    renderThumbMarkers();
+  });
+  headLive.style.marginLeft = '4px';
   head.appendChild(headLabel);
+  head.appendChild(fotosSw);
   head.appendChild(headLive);
   head.appendChild(sizeBtn);
   /* Arrastrar la caja: mousedown en el encabezado (pero no en el boton de agrandar) empieza el
@@ -4604,7 +4629,7 @@ function updateCamPip(whenDate){
   });
   var tieneCam = !!(detCamInfo && detCamInfo.cameraSerialNumber);
   if(tieneCam && bestEv && bestDiffMs <= 3 * 60 * 1000 && bestDiffMs <= 45000){ /* evento de camara muy cerca: su video */ }
-  else if(detThumbFinder){
+  else if(detThumbFinder && gvFotosCamOn()){
     /* 23/10: foto periodica de la camara mas cercana (busqueda perezosa, ver GV.createThumbFinder) */
     detThumbReqT = t;
     detThumbFinder.near(t).then(function(f){
@@ -4630,19 +4655,22 @@ function updateCamPip(whenDate){
    terminar primero cualquiera de las dos -- esta funcion no hace nada hasta tener ambas. */
 /* 23/10: un puntito violeta sobre el recorrido cada ~2 minutos donde hay foto de la camara. */
 function renderThumbMarkers(){
-  if(!detHistLayer || !detHistPts.length) return;
+  if(!detHistLayer) return;
   detThumbMarkers.forEach(function(m){ try{ detHistLayer.removeLayer(m); }catch(_){} });
   detThumbMarkers = [];
-  var ultimo = -Infinity, j = 0;
-  detCamThumbs.forEach(function(th){
-    if(th.ms - ultimo < 120000) return;
-    while(j < detHistPts.length - 1 && new Date(detHistPts[j + 1].dateTime).getTime() <= th.ms) j++;
-    var r = detHistPts[j]; if(!r || r.latitude == null) return;
-    if(Math.abs(new Date(r.dateTime).getTime() - th.ms) > 10 * 60 * 1000) return;
+  if(!detHistPts.length || !gvFotosCamOn()) return;
+  /* 23/10 (2): solo dentro del tramo resaltado (+-2 h del punto actual) para no tapar el resto del recorrido, cada ~2 min */
+  var c = detFocusCenter, ultimo = -Infinity, j = 0, n = detHistMs.length;
+  for(var k = 0; k < detCamThumbs.length; k++){
+    var th = detCamThumbs[k];
+    if(c != null && Math.abs(th.ms - c) > DET_FOCUS_MS) continue;
+    if(th.ms - ultimo < 120000) continue;
+    while(j < n - 1 && detHistMs[j + 1] <= th.ms) j++;
+    var r = detHistPts[j]; if(!r || r.latitude == null) continue;
+    if(Math.abs(detHistMs[j] - th.ms) > 10 * 60 * 1000) continue;
     ultimo = th.ms;
-    var m = detHistLayer.add(new google.maps.Marker({ position: { lat: r.latitude, lng: r.longitude }, zIndex: 930, title: 'Foto de camara - ' + GV.fmtDate(new Date(th.ms).toISOString()), icon: { path: google.maps.SymbolPath.CIRCLE, scale: 4, fillColor: '#7c3aed', fillOpacity: .9, strokeColor: '#ffffff', strokeWeight: 1.5 } }));
-    detThumbMarkers.push(m);
-  });
+    detThumbMarkers.push(detHistLayer.add(new google.maps.Marker({ position: { lat: r.latitude, lng: r.longitude }, zIndex: 930, clickable: false, title: 'Foto de camara - ' + GV.fmtDate(new Date(th.ms).toISOString()), icon: { path: google.maps.SymbolPath.CIRCLE, scale: 3.5, fillColor: '#7c3aed', fillOpacity: .9, strokeColor: '#ffffff', strokeWeight: 1.2 } })));
+  }
 }
 function renderCamEventMarkers(){
   if(!detHistLayer || !detHistPts.length || !detCamEvents.length) return;
@@ -4664,7 +4692,7 @@ function renderCamEventMarkers(){
   });
 }
 
-function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } overlay.remove(); }
+function closeDetalle(){ try{ if(detMap) detMap.remove(); }catch(e){} if(detInterval){ clearInterval(detInterval); detInterval = null; } if(detRefreshInterval){ clearInterval(detRefreshInterval); detRefreshInterval = null; } if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; } if(detCamBox){ detCamBox.remove(); detCamBox = null; detCamEl = null; } /* 23/10: se limpia el estado de camara/fotos del viaje cerrado (si no, el proximo detalle mostraba fotos del anterior) */ detThumbFinder = null; detCamThumbs = []; detThumbMarkers = []; detThumbShownMs = null; detCamInfo = null; detCamEvents = []; detCamMarkers = []; detDiaSel = null; detFocusLines = []; detFocusCenter = null; detHistAll = []; detHistMs = []; detSegIdx = []; detCargarFotos = null; try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(_){} overlay.remove(); }
 document.getElementById('gv-det-close').addEventListener('click', closeDetalle); var __detDescBtn = document.getElementById('gv-det-descartar-llegada');
     if(__detDescBtn){ __detDescBtn.addEventListener('click', function(){
       if(!confirm('¿Descartar el aviso de llegada al destino? Usalo si la unidad en realidad todavia no llego (el viaje sigue en curso).')) return;
@@ -5105,14 +5133,16 @@ if(v.vehiculoId){
     /* 23/10: fotos periodicas de la camara a lo largo del recorrido (como el Historial de viajes de MyGeotab). */
     var __thumbFrom = new Date(v.fechaSalida); if(isNaN(__thumbFrom.getTime())) __thumbFrom = __camDayStart;
     __thumbFrom = new Date(Math.max(__camDayStart.getTime(), __thumbFrom.getTime() - 2 * 3600 * 1000));
-    GV.getCameraThumbPacks(gApi, v.vehiculoId, __thumbFrom.toISOString(), __camTo.toISOString()).then(function(urls){
-      if(!urls || !urls.length) return;
+    var __vidFotos = v.id;
+    detCargarFotos = function(){ detCargarFotos = null; GV.getCameraThumbPacks(gApi, v.vehiculoId, __thumbFrom.toISOString(), __camTo.toISOString()).then(function(urls){
+      if(!urls || !urls.length || v.id !== __vidFotos || !document.getElementById('gv-det-map')) return;
       detThumbFinder = GV.createThumbFinder(urls);
       refreshCamPipNow();
       /* 23/10: precarga de ~8 paquetes repartidos para que se vean puntos violetas en todo el recorrido */
       var __fnd = detThumbFinder, __pt = null;
       __fnd.preload(8, function(){ if(detThumbFinder !== __fnd) return; clearTimeout(__pt); __pt = setTimeout(function(){ detCamThumbs = __fnd.conocidas(); renderThumbMarkers(); }, 300); });
-    });
+    }); };
+    if(gvFotosCamOn()) detCargarFotos();
     GV.getCameraEventsForDevice(gApi, v.vehiculoId, __camDayStart.toISOString(), __camTo.toISOString()).then(function(evs){
       detCamEvents = evs || [];
       renderCamEventMarkers();
@@ -6202,8 +6232,10 @@ histLabel = detHistLayer.add(GV.makeLabelOverlay(pos, labelHtml));
 function updateHistMarker(idx){
 var r = detHistPts[idx];
 if(!r) return;
-positionHistMarker(r.latitude, r.longitude, bearingAtIdx(idx), new Date(r.dateTime), r.speed);
-updateCamPip(new Date(r.dateTime));
+var __t = detHistMs[idx] != null ? detHistMs[idx] : new Date(r.dateTime).getTime();
+positionHistMarker(r.latitude, r.longitude, bearingAtIdx(idx), new Date(__t), r.speed);
+detFocusUpdate(__t);
+updateCamPip(new Date(__t));
 }
 function fmtHHMM(d){ return d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function fmtHHMMSS(ms){
@@ -6220,8 +6252,7 @@ var curEl = document.getElementById('gv-det-time-cur');
 var elEl = document.getElementById('gv-det-time-elapsed');
 if(curEl) curEl.textContent = fmtHHMM(t);
 if(elEl){
-var startT = new Date(detHistPts[0].dateTime).getTime();
-var endT = new Date(detHistPts[detHistPts.length - 1].dateTime).getTime();
+var startT = detHistMs[0], endT = detHistMs[detHistMs.length - 1];
 elEl.textContent = fmtHHMMSS(t.getTime() - startT) + ' / ' + fmtHHMMSS(endT - startT);
 }
 }
@@ -6322,10 +6353,12 @@ return '<span data-gv-parada-idx="' + st.idx + '" title="' + GV.escapeHtml(parad
 }).join('');
 wrap.innerHTML = __cortesDia + __rojos + marks.map(function(m){
 var pct = (m.idx / maxIdx) * 100;
-return '<span style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:var(--gv-accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;pointer-events:none">' + GV.escapeHtml(m.label) + '</span>';
+return '<span data-gv-sitio-idx="' + m.idx + '" title="Ir a ' + GV.escapeHtml(m.label) + '" style="position:absolute;left:' + pct.toFixed(2) + '%;transform:translateX(-50%);background:var(--gv-accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;top:0;cursor:pointer">' + GV.escapeHtml(m.label) + '</span>';
 }).join('');
+/* 23/10 (2): clic en la marca de un sitio (O/1/2/.../D) -> el reproductor va a ese momento y el mapa se centra ahi */
+wrap.querySelectorAll('[data-gv-sitio-idx]').forEach(function(el){ el.addEventListener('click', function(){ detIrAIdx(parseInt(el.getAttribute('data-gv-sitio-idx'), 10), 15); }); });
 wrap.querySelectorAll('[data-gv-parada-idx]').forEach(function(el){
-el.addEventListener('click', function(){ var ix = parseInt(el.getAttribute('data-gv-parada-idx'), 10); stopPlayback(); slider.value = ix; updateHistMarker(ix); updateTimeLabels(ix); });
+el.addEventListener('click', function(){ var ix = parseInt(el.getAttribute('data-gv-parada-idx'), 10); detIrAIdx(ix, 15); });
 });
 }
 var playBtn = document.getElementById('gv-det-play');
@@ -6338,9 +6371,13 @@ if(detRafId){ cancelAnimationFrame(detRafId); detRafId = null; }
 detLastFrameTs = null;
 }
 function findIdxForTime(t){
-var idx = parseInt(slider.value, 10) || 0;
-while(idx < detHistPts.length - 1 && new Date(detHistPts[idx+1].dateTime).getTime() <= t){ idx++; }
-return idx;
+/* 23/10 (2): horarios precalculados (detHistMs) + busqueda binaria: antes se parseaban fechas en cada cuadro */
+var n = detHistMs.length; if(!n) return 0;
+var lo = 0, hi = n - 1;
+if(t <= detHistMs[0]) return 0;
+if(t >= detHistMs[hi]) return hi;
+while(hi - lo > 1){ var mid = (lo + hi) >> 1; if(detHistMs[mid] <= t) lo = mid; else hi = mid; }
+return lo;
 }
 /* Interpola la posicion entre los dos puntos reales del historial (LogRecord) mas cercanos al
    instante simulado "t", segun cuanto de ese tramo ya paso. El historial no llega en un flujo
@@ -6355,7 +6392,7 @@ if(idx >= detHistPts.length - 1){
 return { lat: cur.latitude, lng: cur.longitude, bearing: bearingAtIdx(idx), speed: cur.speed, when: new Date(cur.dateTime), idx: idx };
 }
 var nxt = detHistPts[idx + 1];
-var t0 = new Date(cur.dateTime).getTime(), t1 = new Date(nxt.dateTime).getTime();
+var t0 = detHistMs[idx], t1 = detHistMs[idx + 1];
 var frac = (t1 > t0) ? Math.max(0, Math.min(1, (t - t0) / (t1 - t0))) : 0;
 return {
 lat: cur.latitude + (nxt.latitude - cur.latitude) * frac,
@@ -6373,7 +6410,7 @@ var deltaMs = ts - detLastFrameTs;
 detLastFrameTs = ts;
 var speed = parseInt(speedSel.value, 10) || 1;
 detSimTime += deltaMs * speed;
-var endTime = new Date(detHistPts[detHistPts.length - 1].dateTime).getTime();
+var endTime = detHistMs[detHistMs.length - 1];
 if(detSimTime >= endTime){
 slider.value = detHistPts.length - 1;
 updateHistMarker(detHistPts.length - 1);
@@ -6382,9 +6419,11 @@ stopPlayback();
 return;
 }
 var st = interpAtTime(detSimTime);
-slider.value = st.idx;
+if(String(st.idx) !== slider.value) slider.value = st.idx;
 positionHistMarker(st.lat, st.lng, st.bearing, st.when, st.speed);
-updateCamPip(st.when);
+detFocusUpdate(st.when.getTime());
+/* 23/10 (2): la ventana CAMARA se actualiza como mucho cada 250 ms durante el play (antes en cada cuadro) */
+if(ts - detCamPipTs > 250){ detCamPipTs = ts; updateCamPip(st.when); }
 updateTimeLabelsForDate(st.when);
 detRafId = requestAnimationFrame(tick);
 }
@@ -6393,22 +6432,88 @@ if(!detHistPts.length) return;
 if(detPlaying){ stopPlayback(); return; }
 var curIdx = parseInt(slider.value, 10) || 0;
 if(curIdx >= detHistPts.length - 1){ curIdx = 0; slider.value = 0; updateHistMarker(0); }
-detSimTime = new Date(detHistPts[curIdx].dateTime).getTime();
+detSimTime = detHistMs[curIdx];
 updateTimeLabels(curIdx);
 detPlaying = true;
 setPlayIcon(true);
 detLastFrameTs = null;
 detRafId = requestAnimationFrame(tick);
 });
-function loadHist(){
+/* 23/10 (2): tramo resaltado. El recorrido completo se dibuja tenue y sin flechas; solo las +-2 h alrededor del
+   punto que se esta viendo van en azul fuerte con flechas (y los puntos violetas de fotos). Asi, cuando la unidad
+   pasa varias veces por el mismo camino, se distingue la pasada actual. Se recalcula cuando el punto se aleja mas
+   de 20 min del centro anterior (setPath barato, no en cada cuadro). */
+function detFocusUpdate(t, force){
+  if(!detHistLayer || !detHistMs.length || t == null) return;
+  if(!force && detFocusCenter != null && Math.abs(t - detFocusCenter) < 20 * 60000) return;
+  detFocusCenter = t;
+  var desde = t - DET_FOCUS_MS, hasta = t + DET_FOCUS_MS, grupos = {}, orden = [];
+  var i0 = findIdxForTime(desde), i1 = findIdxForTime(hasta);
+  for(var i = i0; i <= i1 && i < detHistPts.length; i++){
+    var r = detHistPts[i]; if(r.latitude == null) continue;
+    var g = detSegIdx[i] || 0; if(!grupos[g]){ grupos[g] = []; orden.push(g); }
+    grupos[g].push({ lat: r.latitude, lng: r.longitude });
+  }
+  var k = 0;
+  orden.forEach(function(g){
+    var path = grupos[g]; if(path.length < 2) return;
+    var ln = detFocusLines[k];
+    if(ln){ ln.setPath(path); }
+    else {
+      ln = detHistLayer.add(new google.maps.Polyline({ path: path, strokeColor: '#005674', strokeOpacity: .95, strokeWeight: 4, zIndex: 12, clickable: false,
+        icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.6, strokeColor: '#ffffff', strokeWeight: 1, fillColor: '#005674', fillOpacity: 1 }, offset: '0', repeat: '40px' }] }));
+      detFocusLines[k] = ln;
+    }
+    k++;
+  });
+  for(var x = k; x < detFocusLines.length; x++){ try{ detHistLayer.removeLayer(detFocusLines[x]); }catch(_){} }
+  detFocusLines.length = k;
+  renderThumbMarkers();
+}
+/* 23/10 (2): al hacer clic en una marca de la barra (sitio o parada de +30 min) o en una parada del mapa, el mapa se
+   centra solo en ese punto. */
+function detIrAIdx(ix, zoom){
+  if(!detHistPts[ix]) return;
+  stopPlayback(); slider.value = ix; updateHistMarker(ix); updateTimeLabels(ix);
+  try{ var r = detHistPts[ix]; detMap.panTo({ lat: r.latitude, lng: r.longitude }); if(zoom && detMap.getZoom() < zoom) detMap.setZoom(zoom); }catch(_){}
+}
+function gvDetRenderDias(){
+  var box = document.getElementById('gv-det-dias'); if(!box) return;
+  var dias = [];
+  for(var i = 0; i < detHistAll.length; i++){ var d = GV.dateStr(detHistAll[i].dateTime); if(d && dias[dias.length - 1] !== d && dias.indexOf(d) < 0) dias.push(d); }
+  if(dias.length < 2){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  var fmt = function(d){ var f = d.split('-'); return f[2] + '/' + f[1]; };
+  box.innerHTML = '<span style="font-size:.72rem;color:#6b7280;align-self:center">Ver:</span>' +
+    ['__todo'].concat(dias).map(function(d){ var on = (d === '__todo' && !detDiaSel) || d === detDiaSel; return '<button type="button" class="gv-det-dia' + (on ? ' gv-on' : '') + '" data-dia="' + d + '">' + (d === '__todo' ? 'Todo el viaje' : fmt(d)) + '</button>'; }).join('');
+  box.querySelectorAll('[data-dia]').forEach(function(b){ b.addEventListener('click', function(){ var d = b.getAttribute('data-dia'); detDiaSel = d === '__todo' ? null : d; loadHist(true); }); });
+}
+function loadHist(soloFiltro){
 stopPlayback();
+/* 23/10 (2): si el usuario estaba mirando un punto anterior (no el final), al refrescar (cada 60 s en viajes en curso)
+   o al cambiar de dia se mantiene ese momento en vez de saltar al final. */
+var __curI = parseInt(slider.value, 10) || 0;
+var __prevT = (detHistMs.length && __curI < detHistMs.length - 1) ? detHistMs[__curI] : null;
+if(soloFiltro){ dibujarHist(detHistAll, __prevT, true); return; }
 var to = v.completadoEn ? new Date(v.completadoEn) : (v.canceladoEn ? new Date(v.canceladoEn) : new Date());
 var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
 var from = __dayStart2;
 fetchHistoryForViaje(v, from, to).then(function(recs){
+  recs = recs || [];
+  /* 23/10 (2): el refresco de cada 60 s no redibuja nada si no llegaron puntos nuevos (antes borraba y redibujaba
+     todo el recorrido, marcadores y fotos aunque no hubiera cambios: se notaba un parpadeo/trabon) */
+  var __ult = function(a){ return a.length ? a[a.length - 1].dateTime : null; };
+  if(detHistAll.length && recs.length === detHistAll.length && __ult(recs) === __ult(detHistAll)) return;
+  detHistAll = recs; dibujarHist(detHistAll, __prevT, false);
+});
+}
+function dibujarHist(todos, prevT, centrar){
+gvDetRenderDias();
+var recs = detDiaSel ? todos.filter(function(r){ return GV.dateStr(r.dateTime) === detDiaSel; }) : todos;
 detHistPts = recs;
+detHistMs = recs.map(function(r){ return new Date(r.dateTime).getTime(); });
 detHistLayer.clearLayers();
-detCamMarkers = [];
+detCamMarkers = []; detThumbMarkers = []; detFocusLines = []; detFocusCenter = null;
 /* clearLayers() ya saco del mapa (setMap(null)) al marcador/etiqueta de posicion viejos -- hay
    que soltar tambien las referencias JS, si no updateHistMarker() los reutilizaria creyendolos
    todavia validos (setPosition/setIcon sobre un marcador que ya no esta en el mapa) y la unidad
@@ -6418,68 +6523,63 @@ histLabel = null;
 var startEl = document.getElementById('gv-det-time-start');
 var endEl = document.getElementById('gv-det-time-end');
 if(recs.length){
-var line = recs.map(function(r){ return { lat: r.latitude, lng: r.longitude }; });
-/* Mismo estilo que el Historial de viajes nativo de Geotab: el recorrido se dibuja con
-   flechitas de sentido repetidas cada cierta distancia sobre la linea (microsecciones), en vez
-   de una linea lisa. google.maps.Polyline lo resuelve solo con la propiedad "icons" + repeat,
-   no hace falta cortar la polilinea en segmentos de verdad. */
-/* zIndex explicito: el mapa del detalle tambien dibuja la ruta TEORICA (origen-paradas-destino
-   por calles, celeste #00A6E0 mas grueso y opaco) en detLayer, sobre el mismo detMap. Sin un
-   zIndex mayor aca, esa ruta teorica queda por encima y tapa las flechitas del recorrido real
-   (bug real: las flechitas nunca se veian en el detalle del viaje porque la linea celeste de la
-   ruta planificada, mas gruesa, quedaba dibujada arriba). */
-/* 21/10: el recorrido se corta en tramos cuando cambia el camion (viaje con "Cambiar chofer/camion": cada unidad
-   tiene su propio GPS) o cuando hay un salto de GPS de mas de 5 km entre dos puntos seguidos. Antes se unia todo
-   en una sola linea y aparecia una recta falsa entre la ultima posicion del camion anterior y la primera del nuevo
-   (bug real: C353 Gramajo, recta de DLS 170 a Plottier cruzando Los Barreales). */
-var __segs = [], __cur = [];
+/* 21/10: el recorrido se corta en tramos cuando cambia el camion (cada unidad tiene su propio GPS) o cuando hay un
+   salto de GPS de mas de 5 km entre dos puntos seguidos (si no aparecian rectas falsas). detSegIdx guarda el tramo de
+   cada punto para que el resaltado (detFocusUpdate) respete los mismos cortes. */
+var __segs = [], __cur = [], __sg = 0;
+detSegIdx = new Array(recs.length);
 recs.forEach(function(r, i){
   if(i > 0){
     var a = recs[i - 1];
     var __devA = a.device && a.device.id, __devB = r.device && r.device.id;
     var __dk = GV.distKm({ lat: a.latitude, lng: a.longitude }, { lat: r.latitude, lng: r.longitude }) || 0;
-    if((__devA && __devB && __devA !== __devB) || __dk > 5){ if(__cur.length) __segs.push(__cur); __cur = []; }
+    if((__devA && __devB && __devA !== __devB) || __dk > 5){ if(__cur.length) __segs.push(__cur); __cur = []; __sg++; }
   }
+  detSegIdx[i] = __sg;
   __cur.push({ lat: r.latitude, lng: r.longitude });
 });
 if(__cur.length) __segs.push(__cur);
+/* Recorrido completo: tenue y sin flechas (las flechas van solo en el tramo resaltado). Franja transparente mas
+   ancha encima para poder "engancharla" con el mouse. */
+var __hoverLL = null, __hoverRaf = null;
+function __hoverRun(){
+  __hoverRaf = null;
+  if(detPlaying || !__hoverLL) return;
+  /* 23/10 (2): con pasadas superpuestas se elige, entre los puntos que caen bajo el mouse (hasta ~100 m del mas
+     cercano), el mas cercano EN EL TIEMPO al punto actual: el mouse sigue la pasada que estas mirando en vez de saltar
+     a otra. Para ir a otra pasada: la barra del reproductor o el filtro por dia. */
+  var la = __hoverLL.lat(), lo = __hoverLL.lng(), n = detHistPts.length, d2 = new Array(n), dmin = Infinity, q;
+  var kx = Math.cos(la * Math.PI / 180);
+  for(q = 0; q < n; q++){ var rr = detHistPts[q]; var dx = (rr.longitude - lo) * kx, dy = rr.latitude - la; var dd = dx * dx + dy * dy; d2[q] = dd; if(dd < dmin) dmin = dd; }
+  var thr = Math.pow(Math.sqrt(dmin) + 0.0009, 2), cur = parseInt(slider.value, 10) || 0, best = -1, bt = Infinity;
+  for(q = 0; q < n; q++){ if(d2[q] <= thr){ var dt = Math.abs(q - cur); if(dt < bt){ bt = dt; best = q; } } }
+  if(best >= 0 && best !== cur){ slider.value = best; updateHistMarker(best); updateTimeLabels(best); }
+}
 __segs.forEach(function(seg){
-var histPolyline = new google.maps.Polyline({
-  path: seg, strokeColor: '#005674', strokeOpacity: .6, strokeWeight: 3, zIndex: 10,
-  icons: [{
-    icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.6, strokeColor: '#ffffff', strokeWeight: 1, fillColor: '#005674', fillOpacity: 1 },
-    offset: '0', repeat: '32px'
-  }]
-});
-/* Franja transparente mas ancha encima de la linea real: hace mucho mas facil "engancharla"
-   con el mouse (la linea fina de 3px es un blanco muy chico para el hover). */
+detHistLayer.add(new google.maps.Polyline({ path: seg, strokeColor: '#64748b', strokeOpacity: .45, strokeWeight: 3, zIndex: 10, clickable: false }));
 var histPolylineHitArea = new google.maps.Polyline({ path: seg, strokeColor: '#005674', strokeOpacity: 0, strokeWeight: 16, zIndex: 11 });
-detHistLayer.add(histPolyline);
 detHistLayer.add(histPolylineHitArea);
-/* 23/10: al pasar el mouse por el recorrido se mueve el reproductor a ese punto (y la ventana CAMARA muestra la foto mas cercana), como en MyGeotab. */
-histPolylineHitArea.addListener('mousemove', function(e){
-  if(detPlaying || !e || !e.latLng) return;
-  var la = e.latLng.lat(), lo = e.latLng.lng(), best = -1, bd = Infinity;
-  for(var q = 0; q < detHistPts.length; q++){ var rr = detHistPts[q]; if(rr.latitude == null) continue; var dd = (rr.latitude - la) * (rr.latitude - la) + (rr.longitude - lo) * (rr.longitude - lo); if(dd < bd){ bd = dd; best = q; } }
-  if(best >= 0 && String(best) !== String(slider.value)){ slider.value = best; updateHistMarker(best); }
+histPolylineHitArea.addListener('mousemove', function(e){ if(detPlaying || !e || !e.latLng) return; __hoverLL = e.latLng; if(!__hoverRaf) __hoverRaf = requestAnimationFrame(__hoverRun); });
 });
-});
-renderThumbMarkers();
 renderCamEventMarkers();
 slider.max = recs.length - 1;
-slider.value = recs.length - 1;
+var __startIdx = (prevT != null) ? findIdxForTime(prevT) : recs.length - 1;
+slider.value = __startIdx;
 slider.disabled = false;
 if(playBtn) playBtn.disabled = false;
-updateHistMarker(recs.length - 1);
-updateTimeLabels(recs.length - 1);
-if(startEl) startEl.textContent = fmtHHMM(new Date(recs[0].dateTime));
-if(endEl) endEl.textContent = fmtHHMM(new Date(recs[recs.length - 1].dateTime));
+updateHistMarker(__startIdx);
+updateTimeLabels(__startIdx);
+if(startEl) startEl.textContent = fmtHHMM(new Date(detHistMs[0]));
+if(endEl) endEl.textContent = fmtHHMM(new Date(detHistMs[recs.length - 1]));
 var __paradasLargas = [];
 try{ __paradasLargas = detectarParadasLargas(recs); }catch(__ePL){ __paradasLargas = []; }
 __paradasLargas.forEach(function(st){
-detHistLayer.add(new google.maps.Marker({ position: { lat: st.lat, lng: st.lng }, icon: GV.stopIcon('!', '#dc2626'), zIndex: 940, title: paradaLargaTxt(st) }));
+var __mk = detHistLayer.add(new google.maps.Marker({ position: { lat: st.lat, lng: st.lng }, icon: GV.stopIcon('!', '#dc2626'), zIndex: 940, title: paradaLargaTxt(st) }));
+/* 23/10 (2): clic en una parada de +30 min del mapa -> el reproductor va a ese momento */
+try{ __mk.addListener('click', function(){ detIrAIdx(st.idx, 15); }); }catch(_){}
 });
 renderSliderMarks(findSiteIndices(pts, recs), recs.length - 1, __paradasLargas);
+if(centrar){ try{ var __bb = new google.maps.LatLngBounds(); recs.forEach(function(r){ __bb.extend({ lat: r.latitude, lng: r.longitude }); }); detMap.fitBounds(__bb, 40); }catch(_){} }
 } else {
 slider.disabled = true;
 if(playBtn) playBtn.disabled = true;
@@ -6487,9 +6587,22 @@ if(startEl) startEl.textContent = '--:--';
 if(endEl) endEl.textContent = '--:--';
 renderSliderMarks([], 0);
 }
-});
 }
 slider.addEventListener('input', function(){ stopPlayback(); var idx = parseInt(slider.value, 10); updateHistMarker(idx); updateTimeLabels(idx); });
+/* 23/10 (2): pantalla completa del mapa + reproductor + ventana CAMARA (pensado para notebooks y pantallas chicas).
+   Usa la pantalla completa del navegador; si no esta permitida, agranda la columna a toda la ventana. */
+(function(){
+  var fsBtn = document.getElementById('gv-det-fs'); if(!fsBtn) return;
+  var col = document.querySelector('.gv-det-col-izq'); if(!col) return;
+  function ajustar(){ var on = document.fullscreenElement === col || col.classList.contains('gv-det-fs-fix'); fsBtn.innerHTML = on ? '&#x2715; Salir de pantalla completa' : '&#x26F6; Pantalla completa'; setTimeout(function(){ try{ GV.fixMapSize(detMap); }catch(_){} }, 200); }
+  fsBtn.addEventListener('click', function(){
+    if(document.fullscreenElement){ document.exitFullscreen(); return; }
+    if(col.classList.contains('gv-det-fs-fix')){ col.classList.remove('gv-det-fs-fix'); ajustar(); return; }
+    var p = col.requestFullscreen ? col.requestFullscreen() : null;
+    if(p && p.then){ p.then(ajustar, function(){ col.classList.add('gv-det-fs-fix'); ajustar(); }); } else { col.classList.add('gv-det-fs-fix'); ajustar(); }
+  });
+  document.addEventListener('fullscreenchange', ajustar);
+})();
 /* Vuelve a leer el viaje fresco de Storage (por si el chequeo de fondo -- checkDwellAlerts, cada
    60s -- ya detecto y guardo un ingreso/egreso real, un cambio de estado, etc. mientras este panel
    seguia abierto) y recalcula con esos datos al dia tanto el itinerario/progreso (barato, sin
