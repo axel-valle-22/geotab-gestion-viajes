@@ -4220,7 +4220,7 @@ document.body.appendChild(overlay);
 
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detRefreshInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
-var detCamThumbs = [], detThumbMarkers = [], detThumbShownMs = null; /* 23/10: fotos periodicas de la camara (GV.loadCameraThumbs) */
+var detCamThumbs = [], detThumbMarkers = [], detThumbShownMs = null, detThumbFinder = null, detThumbReqT = null; /* 23/10: fotos periodicas de la camara (GV.createThumbFinder) */
 var detCamLiveMode = false, detCamLiveToken = 0;
 
 /* ---------------- Ventana PIP de camara, fija arriba a la IZQUIERDA del mapa (a pedido: arriba a
@@ -4557,19 +4557,27 @@ function updateCamPip(whenDate){
      detCamIdle en vez de nada. */
   if(detCamLiveMode) return; // no pisar el video en vivo mientras el boton EN VIVO esta prendido
   var t = whenDate.getTime();
-  /* 23/10: foto periodica de la camara mas cercana (hasta 90 s), como en el Historial de viajes de MyGeotab. */
-  var bestTh = null, bestThDiff = Infinity;
-  for(var __k = 0; __k < detCamThumbs.length; __k++){ var __d = Math.abs(detCamThumbs[__k].ms - t); if(__d < bestThDiff){ bestThDiff = __d; bestTh = detCamThumbs[__k]; } }
-  if(!detCamInfo || !detCamInfo.cameraSerialNumber){
-    if(bestTh && bestThDiff <= 90 * 1000){ detCamShowThumb(bestTh); return; }
-    detCamHide(); return;
-  }
   var bestEv = null, bestDiffMs = Infinity;
   detCamEvents.forEach(function(ev){
     var diff = Math.abs(ev.ts * 1000 - t);
     if(diff < bestDiffMs){ bestDiffMs = diff; bestEv = ev; }
   });
-  if((!bestEv || bestDiffMs > 3 * 60 * 1000 || bestThDiff < bestDiffMs) && bestTh && bestThDiff <= 90 * 1000){ detCamShowThumb(bestTh); return; }
+  var tieneCam = !!(detCamInfo && detCamInfo.cameraSerialNumber);
+  if(tieneCam && bestEv && bestDiffMs <= 3 * 60 * 1000 && bestDiffMs <= 45000){ /* evento de camara muy cerca: su video */ }
+  else if(detThumbFinder){
+    /* 23/10: foto periodica de la camara mas cercana (busqueda perezosa, ver GV.createThumbFinder) */
+    detThumbReqT = t;
+    detThumbFinder.near(t).then(function(f){
+      if(f === undefined || detCamLiveMode || detThumbReqT !== t) return;
+      if(f && Math.abs(f.ms - t) <= 120000){ detCamShowThumb(f); }
+      else if(tieneCam && bestEv && bestDiffMs <= 3 * 60 * 1000){ detCamShow({ dateTime: new Date(bestEv.ts * 1000).toISOString(), eventLabel: bestEv.ruleName }, bestEv.serial || detCamInfo.cameraSerialNumber); }
+      else if(tieneCam){ detCamIdle(); }
+      else { detCamHide(); }
+      detCamThumbs = detThumbFinder.conocidas(); renderThumbMarkers();
+    });
+    return;
+  }
+  if(!tieneCam){ detCamHide(); return; }
   if(!bestEv || bestDiffMs > 3 * 60 * 1000){ detCamIdle(); return; }
   var rec = { dateTime: new Date(bestEv.ts * 1000).toISOString(), eventLabel: bestEv.ruleName };
   detCamShow(rec, bestEv.serial || detCamInfo.cameraSerialNumber);
@@ -5057,11 +5065,10 @@ if(v.vehiculoId){
     /* 23/10: fotos periodicas de la camara a lo largo del recorrido (como el Historial de viajes de MyGeotab). */
     var __thumbFrom = new Date(v.fechaSalida); if(isNaN(__thumbFrom.getTime())) __thumbFrom = __camDayStart;
     __thumbFrom = new Date(Math.max(__camDayStart.getTime(), __thumbFrom.getTime() - 2 * 3600 * 1000));
-    var __thumbTimer = null;
-    GV.loadCameraThumbs(gApi, v.vehiculoId, __thumbFrom.toISOString(), __camTo.toISOString(), function(lista){
-      detCamThumbs = lista.filter(function(x){ return x.lente === '1'; });
-      if(!detCamThumbs.length) detCamThumbs = lista;
-      clearTimeout(__thumbTimer); __thumbTimer = setTimeout(function(){ renderThumbMarkers(); refreshCamPipNow(); }, 400);
+    GV.getCameraThumbPacks(gApi, v.vehiculoId, __thumbFrom.toISOString(), __camTo.toISOString()).then(function(urls){
+      if(!urls || !urls.length) return;
+      detThumbFinder = GV.createThumbFinder(urls);
+      refreshCamPipNow();
     });
     GV.getCameraEventsForDevice(gApi, v.vehiculoId, __camDayStart.toISOString(), __camTo.toISOString()).then(function(evs){
       detCamEvents = evs || [];

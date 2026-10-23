@@ -1592,20 +1592,25 @@ GV.getCameraThumbPacks = function(api, deviceId, fromISO, toISO){
     if(!serial || !ses.sessionId) return [];
     var headers = { 'X-MyGeotab-Database': ses.database || '', 'X-MyGeotab-Username': ses.userName || '', 'X-MyGeotab-SessionId': ses.sessionId, 'X-MyGeotab-Path': ses.server || 'my.geotab.com' };
     var base = 'https://media-services.geotab.com/api/SmarterAi/Thumbnails/serialNumber/' + encodeURIComponent(serial);
-    var formatos = [
-      function(d){ return new Date(d).toISOString(); },
-      function(d){ return String(new Date(d).getTime()); }
-    ];
-    function probar(i){
-      if(i >= formatos.length) return Promise.resolve([]);
-      var url = base + '?fromTime=' + encodeURIComponent(formatos[i](fromISO)) + '&toTime=' + encodeURIComponent(formatos[i](toISO));
+    /* Probado en vivo: fromTime/toTime van en milisegundos (el formato ISO da 400) y la ventana maxima es de 6 h,
+       asi que el rango del viaje se pide en tramos de hasta 6 h. */
+    var desde = new Date(fromISO).getTime(), hasta = new Date(toISO).getTime(), VENT = 6 * 3600 * 1000 - 60000;
+    var tramos = []; for(var t0 = desde; t0 < hasta; t0 += VENT) tramos.push([t0, Math.min(hasta, t0 + VENT)]);
+    if(tramos.length > 12) tramos = tramos.slice(-12); /* tope: ultimas 72 h */
+    var urls = [];
+    function pedir(i){
+      if(i >= tramos.length || GV._thumbAuthFail) return Promise.resolve(urls);
+      var url = base + '?fromTime=' + tramos[i][0] + '&toTime=' + tramos[i][1];
       return fetch(url, { headers: headers }).then(function(resp){
-        if(resp.status === 401 || resp.status === 403){ GV._thumbAuthFail = true; try{ console.info('Fotos de camara: el servicio de video no acepta la sesion del add-in (' + resp.status + ')'); }catch(_){} return []; }
-        if(!resp.ok) return probar(i + 1);
-        return resp.json().then(function(j){ return ((j && j.thumbnailPacks) || []).map(function(p){ return p.url; }).filter(Boolean); });
-      })['catch'](function(){ return probar(i + 1); });
+        if(resp.status === 401 || resp.status === 403){ GV._thumbAuthFail = true; try{ console.info('Fotos de camara: el servicio de video no acepta la sesion del add-in (' + resp.status + ')'); }catch(_){} return null; }
+        if(!resp.ok) return null;
+        return resp.json();
+      }).then(function(j){
+        ((j && j.thumbnailPacks) || []).forEach(function(p){ if(p && p.url) urls.push(p.url); });
+        return pedir(i + 1);
+      })['catch'](function(){ return pedir(i + 1); });
     }
-    return probar(0);
+    return pedir(0);
   })['catch'](function(){ return []; });
 };
 /* Abre un paquete .thm (TAR) y devuelve [{ms, url(blob)}] */
@@ -1628,20 +1633,75 @@ GV.unpackCameraThumbs = function(packUrl){
     return out;
   })['catch'](function(){ return []; });
 };
-/* Todas las fotos de un rango: pide la lista y abre los paquetes de a 3 en paralelo. onProgress(lista parcial) */
-GV.loadCameraThumbs = function(api, deviceId, fromISO, toISO, onProgress){
-  return GV.getCameraThumbPacks(api, deviceId, fromISO, toISO).then(function(urls){
-    var todas = [], i = 0;
-    function worker(){
-      if(i >= urls.length) return Promise.resolve();
-      var u = urls[i++];
-      return GV.unpackCameraThumbs(u).then(function(fotos){
-        todas = todas.concat(fotos).sort(function(a, b){ return a.ms - b.ms; });
-        try{ if(onProgress) onProgress(todas); }catch(_){}
-      }).then(worker);
+/* Buscador "perezoso" de fotos (23/10): un viaje largo trae cientos de paquetes (~110 KB c/u), asi que NO se
+   descargan todos. Los paquetes se ordenan por su ruta (.../<dia del año>/<equipo>/8/CAMERA/<n>-<x>-<orden>.thm,
+   aproximadamente cronologico) y, para un instante pedido, se descargan solo los necesarios con una busqueda
+   por interpolacion (2 a 6 paquetes la primera vez; despues quedan en memoria). */
+GV.createThumbFinder = function(urls){
+  function clave(u){
+    var m = String(u).split('?')[0].match(/\/(\d{4})\/(\d{1,3})\/[^\/]+\/\d+\/CAMERA\/(\d+)-[^-\/]+-(\d+)\.thm$/i);
+    if(!m) return [0, 0, 0, 0];
+    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), parseInt(m[4], 10)];
+  }
+  var packs = urls.map(function(u){ return { url: u, k: clave(u), fotos: null, prom: null }; });
+  packs.sort(function(a, b){ for(var i = 0; i < 4; i++){ if(a.k[i] !== b.k[i]) return a.k[i] - b.k[i]; } return 0; });
+  function cargar(i){
+    var pk = packs[i];
+    if(!pk) return Promise.resolve([]);
+    if(pk.fotos) return Promise.resolve(pk.fotos);
+    if(!pk.prom) pk.prom = GV.unpackCameraThumbs(pk.url).then(function(f){
+      var l1 = f.filter(function(x){ return x.lente === '1'; });
+      pk.fotos = (l1.length ? l1 : f).sort(function(a, b){ return a.ms - b.ms; });
+      return pk.fotos;
+    });
+    return pk.prom;
+  }
+  function rango(i){ var f = packs[i] && packs[i].fotos; return (f && f.length) ? [f[0].ms, f[f.length - 1].ms] : null; }
+  function cercana(t){
+    var best = null, bd = Infinity;
+    packs.forEach(function(pk){ (pk.fotos || []).forEach(function(x){ var d = Math.abs(x.ms - t); if(d < bd){ bd = d; best = x; } }); });
+    return best ? { foto: best, diff: bd } : null;
+  }
+  function buscar(t, iter){
+    var c = cercana(t);
+    if(c && c.diff <= 45000) return Promise.resolve(c.foto);
+    if(!packs.length || iter > 7) return Promise.resolve(c && c.diff <= 120000 ? c.foto : null);
+    var lo = -1, hi = -1, tlo = null, thi = null;
+    for(var i = 0; i < packs.length; i++){
+      var r = rango(i); if(!r) continue;
+      if(r[0] <= t && (tlo === null || r[0] >= tlo)){ lo = i; tlo = r[0]; }
+      if(r[1] >= t && (thi === null || r[1] <= thi)){ hi = i; thi = r[1]; }
     }
-    return Promise.all([worker(), worker(), worker()]).then(function(){ return todas; });
-  });
+    var sig;
+    if(!rango(0) && packs[0].fotos === null) sig = 0;
+    else if(!rango(packs.length - 1) && packs[packs.length - 1].fotos === null) sig = packs.length - 1;
+    else if(lo >= 0 && hi >= 0){
+      if(hi - lo <= 1) return Promise.resolve(c && c.diff <= 120000 ? c.foto : null);
+      var r2 = rango(hi), r1 = rango(lo);
+      var frac = (r2[0] - r1[1]) > 0 ? (t - r1[1]) / (r2[0] - r1[1]) : 0.5;
+      sig = Math.min(hi - 1, Math.max(lo + 1, lo + Math.round(frac * (hi - lo))));
+    } else return Promise.resolve(c && c.diff <= 120000 ? c.foto : null);
+    var tope = 0; while(packs[sig] && packs[sig].fotos !== null && tope++ < packs.length){ sig++; if(sig >= packs.length) return Promise.resolve(c && c.diff <= 120000 ? c.foto : null); }
+    return cargar(sig).then(function(){ return buscar(t, iter + 1); });
+  }
+  var ocupado = false, pendiente = null;
+  return {
+    total: packs.length,
+    conocidas: function(){ var out = []; packs.forEach(function(pk){ out = out.concat(pk.fotos || []); }); return out.sort(function(a, b){ return a.ms - b.ms; }); },
+    /* devuelve la foto mas cercana a t; si llega un pedido nuevo mientras busca, solo se atiende el ultimo */
+    near: function(t){
+      return new Promise(function(resolve){
+        if(ocupado){ if(pendiente) pendiente.resolve(undefined); pendiente = { t: t, resolve: resolve }; return; }
+        ocupado = true;
+        (function correr(tt, res){
+          buscar(tt, 0)['catch'](function(){ return null; }).then(function(f){
+            res(f);
+            if(pendiente){ var p = pendiente; pendiente = null; correr(p.t, p.resolve); } else ocupado = false;
+          });
+        })(t, resolve);
+      });
+    }
+  };
 };
 
 /* ---------------- Reproductor de video de Geotab (web component <gvp-video-player>) ----------------
