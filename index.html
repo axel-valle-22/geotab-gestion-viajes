@@ -5708,15 +5708,9 @@ var __remap = remapSitiosRealParaParadas(v, __mapOldToNew);
    valen (la unidad paso por los sitios en otro orden, y con sitios repetidos o pegados se asignaban mal: ej. T280
    quedo con dos puntos "en sitio" y horarios cruzados). Se borran y el detalle los recalcula del historial GPS en
    el nuevo orden. Los marcados a mano (chofer o coordinador) se respetan. */
+/* 23/10: ya NO se borran los horarios al reordenar (se perdian horarios de dias anteriores en viajes largos, caso
+   T293 Pino). Cada horario queda con su parada fisica (remapSitiosRealParaParadas) y se corrige a mano si hiciera falta. */
 var __desde = Math.min(fromIdx, toIdx);
-Object.keys(__remap.sitiosReal).forEach(function(key){
-  var m = /^parada(\d+)$/.exec(key); var x = __remap.sitiosReal[key];
-  if(!m || !x || +m[1] < __desde) return;
-  var y = Object.assign({}, x);
-  if(!y.ingresoManual && !y.choferMarcoIngreso){ delete y.ingreso; delete y.ingresoGps; }
-  if(!y.egresoManual && !y.choferMarcoEgreso){ delete y.egreso; delete y.egresoGps; }
-  __remap.sitiosReal[key] = y;
-});
 if(__remap.dwellState && /^parada(\d+)$/.test(__remap.dwellState.siteId || '') && +__remap.dwellState.siteId.slice(6) >= __desde) __remap.dwellState = null;
 GV.Storage.updateViaje(v.id, { paradas: paradas, sitiosReal: __remap.sitiosReal, dwellState: __remap.dwellState }).then(function(){
 closeDetalle();
@@ -6393,6 +6387,28 @@ histLabel.setContent(labelHtml);
 } else {
 histLabel = detHistLayer.add(GV.makeLabelOverlay(pos, labelHtml));
 }
+detSeguirUnidad(pos);
+}
+/* 23/10 (3): el mapa SIGUE a la unidad mientras se mueve la barra del reproductor o corre la reproduccion, con el zoom
+   que tenga el usuario: si el camion se acerca al borde (o sale de la vista) el mapa se desplaza para mostrarlo. No se
+   mueve mientras el usuario arrastra el mapa ni cuando el punto lo eligio el mouse sobre el recorrido. */
+var __detSegUlt = 0, __detHoverMov = false;
+function detSeguirUnidad(pos){
+  if(!detMap || __detHoverMov || !pos) return;
+  if(!detMap.__gvSegInit){
+    detMap.__gvSegInit = true;
+    detMap.addListener('dragstart', function(){ detMap.__gvArrastrando = true; });
+    detMap.addListener('dragend', function(){ detMap.__gvArrastrando = false; });
+  }
+  if(detMap.__gvArrastrando) return;
+  var b = detMap.getBounds(); if(!b) return;
+  var ne = b.getNorthEast(), sw = b.getSouthWest();
+  var la = ne.lat() - sw.lat(), lo = ne.lng() - sw.lng(); if(lo < 0) lo += 360;
+  var m = 0.2;
+  if(pos.lat < ne.lat() - la * m && pos.lat > sw.lat() + la * m && pos.lng < ne.lng() - lo * m && pos.lng > sw.lng() + lo * m) return;
+  var ahora = Date.now();
+  if(ahora - __detSegUlt < 150){ detMap.setCenter(pos); } else { detMap.panTo(pos); }
+  __detSegUlt = ahora;
 }
 function updateHistMarker(idx){
 var r = detHistPts[idx];
@@ -6718,7 +6734,7 @@ function __hoverRun(){
   for(q = 0; q < n; q++){ var rr = detHistPts[q]; var dx = (rr.longitude - lo) * kx, dy = rr.latitude - la; var dd = dx * dx + dy * dy; d2[q] = dd; if(dd < dmin) dmin = dd; }
   var thr = Math.pow(Math.sqrt(dmin) + 0.0009, 2), cur = parseInt(slider.value, 10) || 0, best = -1, bt = Infinity;
   for(q = 0; q < n; q++){ if(d2[q] <= thr){ var dt = Math.abs(q - cur); if(dt < bt){ bt = dt; best = q; } } }
-  if(best >= 0 && best !== cur){ slider.value = best; updateHistMarker(best); updateTimeLabels(best); }
+  if(best >= 0 && best !== cur){ slider.value = best; __detHoverMov = true; try{ updateHistMarker(best); }finally{ __detHoverMov = false; } updateTimeLabels(best); }
 }
 __segs.forEach(function(seg){
 detHistLayer.add(new google.maps.Polyline({ path: seg, strokeColor: '#64748b', strokeOpacity: .45, strokeWeight: 3, zIndex: 10, clickable: false }));
