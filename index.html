@@ -200,16 +200,24 @@ function showTab(name){
 
 function renderStats(){
   var viajes = GV.Storage.getViajes();
-  var hoy=0, curso=0, comp=0, dem=0;
+  var hoy=0, curso=0, comp=0, dem=0, __hoyProg=0, __hoyCont=0;
   var today = new Date().toDateString();
   viajes.forEach(function(v){
-    if(new Date(v.fechaSalida).toDateString() === today) hoy++;
+    /* 23/10: "Hoy" = viajes actuales del dia: programados hoy + continuados de dias anteriores en curso/demorados + terminados hoy */
+    if(v.estado !== 'cancelado'){
+      var __salHoy = new Date(v.fechaSalida).toDateString() === today;
+      var __act = v.estado === 'en_curso' || v.estado === 'demorado';
+      var __finHoy = v.estado === 'completado' && v.completadoEn && new Date(v.completadoEn).toDateString() === today;
+      if(__salHoy){ hoy++; __hoyProg++; } else if(__act || __finHoy){ hoy++; __hoyCont++; }
+    }
     if(v.estado === 'en_curso') curso++;
     if(v.estado === 'completado') comp++;
     if(v.estado === 'demorado') dem++;
   });
   var vals = {'stat-hoy':hoy,'stat-curso':curso,'stat-comp':comp,'stat-dem':dem};
   Object.keys(vals).forEach(function(id){ var el=document.getElementById(id); if(el) el.textContent = vals[id]; });
+  var __lblHoy = document.querySelector('#stat-hoy + .gv-stat-lbl');
+  if(__lblHoy) __lblHoy.innerHTML = 'Hoy<br><span style="font-size:.72rem;color:#6b7280">' + __hoyProg + ' programados &middot; ' + __hoyCont + ' continuados</span>';
 }
 
 function gerenciamientoBadge(v){
@@ -346,7 +354,7 @@ if(cf) cf.addEventListener('click', function(){ gCalSelectedDay = null; renderTr
 } else if(gStatFilter){
 var todayStr = new Date().toDateString();
 viajes = viajes.filter(function(v){
-if(gStatFilter === 'hoy') return new Date(v.fechaSalida).toDateString() === todayStr;
+if(gStatFilter === 'hoy') return v.estado !== 'cancelado' && (new Date(v.fechaSalida).toDateString() === todayStr || v.estado === 'en_curso' || v.estado === 'demorado' || (v.estado === 'completado' && v.completadoEn && new Date(v.completadoEn).toDateString() === todayStr));
 if(gStatFilter === 'curso') return v.estado === 'en_curso';
 if(gStatFilter === 'comp') return v.estado === 'completado';
 if(gStatFilter === 'dem') return v.estado === 'demorado';
@@ -4088,6 +4096,18 @@ for(var day=1; day<=daysInMonth; day++){
 var dateObj = new Date(year, month, day);
 var dateStr = GV.dateStr(dateObj);
 var dayTrips = gSolQuery ? gvViajesDelDia(viajes, dateStr) : viajes.filter(function(v){ return GV.dateStr(v.fechaSalida) === dateStr; });
+/* 23/10: el dia de HOY cuenta tambien los viajes continuados de dias anteriores (en curso o demorados) y los que
+   terminaron hoy, igual que Seguimiento. Antes un dia sin salidas nuevas aparecia vacio aunque hubiera viajes activos. */
+var __contHoy = 0;
+if(!gSolQuery && dateStr === todayStr){
+  dayTrips = viajes.filter(function(v){
+    if(v.estado === 'cancelado') return false;
+    if(GV.dateStr(v.fechaSalida) === dateStr) return true;
+    if(v.estado === 'en_curso' || v.estado === 'demorado') return true;
+    return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === dateStr;
+  });
+  __contHoy = dayTrips.filter(function(v){ return GV.dateStr(v.fechaSalida) < dateStr; }).length;
+}
 /* 19/10: en los dias anteriores a hoy se cuentan los viajes de ese dia (salieron o terminaron ese dia), lo mismo que muestra la ventana del dia. */
 var __esPasado = dateStr < todayStr;
 var __finDia = __esPasado ? gvViajesDelDia(viajes, dateStr) : [];
@@ -4102,7 +4122,7 @@ html += '<div class="' + cls + '" data-date="' + dateStr + '">' +
 (__esPasado
   ? ((__finDia.length ? '<div class="gv-cal-count">' + __finDia.length + '</div><div class="gv-cal-sub">viaje' + (__finDia.length === 1 ? '' : 's') + '</div>' : ''))
   : ((dayTrips.length ? '<div class="gv-cal-count">' + dayTrips.length + '</div>' : '') +
-     (dayTrips.length ? '<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>' : ''))) +
+     (dayTrips.length ? ((dateStr === todayStr && !gSolQuery) ? ('<div class="gv-cal-sub"><b>' + (dayTrips.length - __contHoy) + '</b> programados hoy &middot; <b>' + __contHoy + '</b> continuados</div><div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>') : ('<div class="gv-cal-sub">' + plan + ' plan / ' + curso + ' curso / ' + comp + ' comp</div>')) : ''))) +
 '</div>';
 }
 grid.innerHTML = html;
