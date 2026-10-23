@@ -1,10 +1,12 @@
-# Lee los mails de la carpeta SLB y deja los pedidos como borradores para confirmar en el panel.
+# Lee los mails de la carpeta SLB (cada 10 min de 06:00 a 00:00 hs de Argentina) y deja los pedidos como borradores para confirmar en el panel.
 # APAGADO hasta que se cargue la variable de repositorio SLB_ACTIVO = true
 # (Settings > Secrets and variables > Actions > Variables) y los secretos de Microsoft (ver slb/leer-mails.mjs).
 name: Pedidos SLB desde Outlook
 on:
   schedule:
-    - cron: '*/10 9-23 * * *'   # cada 10 min entre las 06 y las 20 hs de Argentina (UTC-3)
+    - cron: '*/10 9-23 * * *'   # cada 10 min de 06:00 a 20:59 hs de Argentina (UTC-3)
+    - cron: '*/10 0-2 * * *'    # cada 10 min de 21:00 a 23:59 hs de Argentina
+    - cron: '0 3 * * *'         # ultima vuelta a las 00:00 hs de Argentina
   workflow_dispatch: {}
 jobs:
   leer:
