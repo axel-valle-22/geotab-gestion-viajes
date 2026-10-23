@@ -4291,7 +4291,18 @@ function ensureCamBox(){
   sizeBtn.title = 'Agrandar / achicar';
   sizeBtn.style.cssText = 'flex:0 0 auto;background:transparent;border:none;color:#e5e7eb;font-size:.72rem;line-height:1;padding:2px 3px;cursor:pointer;border-radius:3px';
   sizeBtn.innerHTML = '&#43;'; // agrandar ("+"; se evitan glifos de flechas diagonales poco soportados)
+  /* 23/10: boton EN VIVO chico, fijo en el encabezado. El grande del centro queda tapado cuando se muestran las
+     fotos del recorrido, asi que este es el acceso permanente a la camara en vivo. */
+  var headLive = document.createElement('button');
+  headLive.type = 'button';
+  headLive.className = 'gv-cam-livehead';
+  headLive.title = 'Ver la camara en vivo';
+  headLive.style.cssText = 'flex:0 0 auto;margin-left:auto;background:#dc2626;border:none;color:#fff;font-size:.55rem;font-weight:700;line-height:1;padding:2px 6px;cursor:pointer;border-radius:8px;display:none';
+  headLive.innerHTML = '&#9679; EN VIVO';
+  headLive.addEventListener('mousedown', function(e){ e.stopPropagation(); });
+  headLive.addEventListener('click', function(e){ e.stopPropagation(); detCamToggleLive(); });
   head.appendChild(headLabel);
+  head.appendChild(headLive);
   head.appendChild(sizeBtn);
   /* Arrastrar la caja: mousedown en el encabezado (pero no en el boton de agrandar) empieza el
      arrastre; mousemove/mouseup se escuchan en document para no perder el gesto si el mouse sale
@@ -4374,6 +4385,14 @@ function detCamUpdateLiveBtnVisibility(){
   if(!box) return;
   var btn = box.querySelector('.gv-cam-livebtn');
   if(btn) btn.style.display = (detCamInfo && detCamInfo.cameraSerialNumber) ? 'block' : 'none';
+  detCamSyncHeadLive();
+}
+function detCamSyncHeadLive(){
+  var hl = detCamBox && detCamBox.querySelector('.gv-cam-livehead');
+  if(!hl) return;
+  hl.style.display = (detCamInfo && detCamInfo.cameraSerialNumber) ? 'inline-block' : 'none';
+  hl.innerHTML = detCamLiveMode ? 'DETENER' : '&#9679; EN VIVO';
+  hl.style.background = detCamLiveMode ? '#374151' : '#dc2626';
 }
 /* Sin evento real cerca: se deja la ventana visible (para que quede claro que la camara esta
    activa en este viaje) pero con un cartel neutro en vez de la imagen. detCamLastTs se limpia
@@ -4493,13 +4512,14 @@ function detCamToggleLive(){
   if(detCamLiveMode){
     detCamLiveMode = false;
     detCamLiveToken++;
-    if(btn){ btn.innerHTML = '&#9679; EN VIVO'; btn.style.background = 'rgba(220,38,38,.92)'; btn.style.display = 'block'; }
+    if(btn){ btn.innerHTML = '&#9679; EN VIVO'; btn.style.background = 'rgba(220,38,38,.92)'; btn.style.display = 'block'; } detCamSyncHeadLive();
     if(detCamEl) detCamEl.style.display = 'none';
     detCamLastTs = null;
     detCamIdle(); // estado neutro inmediato; el proximo tick de reproduccion/slider lo corrige solo
     return;
   }
   detCamLiveMode = true;
+  detCamThumbOff(); detCamSyncHeadLive();
   var myToken = ++detCamLiveToken;
   if(btn){ btn.innerHTML = 'DETENER'; btn.style.background = 'rgba(55,65,81,.92)'; }
   box.style.display = 'flex';
