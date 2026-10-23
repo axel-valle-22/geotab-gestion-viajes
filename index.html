@@ -3639,10 +3639,16 @@ function gvSlbProblemas(prop){
   if(!prop.solicitud) p.push('El mail no trae el TR de esta unidad (se crea sin solicitud).');
   return p;
 }
+/* 23/10: id fijo por unidad + dia + primer servicio: si dos pantallas del panel crean el mismo viaje a la vez, queda uno solo. */
+function gvSlbIdViaje(prop){
+  var cv = (prop.filas || []).map(function(f){ return f.cvu || ''; }).filter(Boolean).sort()[0] || ((prop.filas[0] || {}).hora || '');
+  return 'slb_' + gvSlbCompact(prop.patente) + '_' + String(prop.fecha || '').replace(/-/g, '') + '_' + gvSlbCompact(cv);
+}
 function gvSlbCrearViaje(prop){
   var origen = gvSlbOrigen(prop);
+  var __t6 = new Date(prop.fecha + 'T06:00:00-03:00').getTime();
   var viaje = {
-    id: GV.genId(),
+    id: gvSlbIdViaje(prop),
     conductorId: prop.chofer.id, conductor: prop.chofer.text,
     vehiculoId: prop.vehiculo.id, vehiculo: prop.vehiculo.text,
     fechaSalida: prop.fechaSalida,
@@ -3657,6 +3663,9 @@ function gvSlbCrearViaje(prop){
     solicitud: prop.solicitud || '',
     estado: 'planificado', creadoEn: new Date().toISOString(), notificado: false, gerenciamiento: null,
     origenPedidoSLB: true,
+    /* creado antes de las 06:00 de ese dia: el origen es la posicion de AHORA; a las 06:00 se corrige solo (gvSlbAjustarOrigenes0600) */
+    slbOrigenProv: (!isNaN(__t6) && Date.now() < __t6 && origen) ? { lat: origen.lat, lng: origen.lng } : null,
+    slbAuto: !!prop.__auto,
     slbFilas: prop.filas.map(function(f){ return { cvu: f.cvu || '', fecha: f.fecha || '', hora: f.hora || '', origen: f.origen || '', destino: f.destino || '', patente: f.patente || '', tr: f.tr || '' }; }),
     tramos: [{ conductorId: prop.chofer.id, conductor: prop.chofer.text, vehiculoId: prop.vehiculo.id, vehiculo: prop.vehiculo.text, desde: prop.fechaSalida, hasta: null, motivo: null, motivoDetalle: '' }]
   };
@@ -3743,6 +3752,90 @@ function gvSlbRecalcularPropuestas(){
     });
     gvSlbAvisoSeguimiento();
     try{ gvPintarSinPlan(); }catch(e){}
+    gvSlbAutoProcesar();
+  });
+}
+/* ---------------- 23/10: Pedidos SLB AUTOMATICOS ----------------
+   Pedido de Logistica: los viajes de los mails de SLB se crean solos (sin "Confirmar") y los cambios, agregados y
+   cancelaciones que llegan despues por mail tambien se aplican solos. Solo quedan a mano los que tienen un dato que
+   el panel no puede resolver (unidad o chofer que no se encuentran, o un lugar sin ubicacion cargada): esos siguen
+   apareciendo en Seguimiento con "Revisar". Cada viaje creado o cambiado deja un aviso en Alertas. */
+var GV_SLB_AUTO = true;
+var __gvSlbAutoHecho = {}, __gvSlbCargaPanel = Date.now();
+function gvSlbAvisoAuto(v, tipo, textos){
+  try{
+    var id = 'al_' + v.id + '_slbauto_' + (tipo === 'alta' ? 'alta' : Date.now());
+    var msg = tipo === 'alta'
+      ? ('SLB: viaje creado automaticamente desde el mail - ' + (v.conductor || '') + ' - ' + (v.vehiculo || '') + (v.solicitud ? (' (Sol. ' + v.solicitud + ')') : '') + ', salida ' + String(v.fechaSalida || '').slice(8, 10) + '/' + String(v.fechaSalida || '').slice(5, 7) + ' ' + String(v.fechaSalida || '').slice(11, 16) + '.')
+      : ('SLB: cambio aplicado automaticamente desde el mail - ' + (v.conductor || '') + ' - ' + (v.vehiculo || '') + ': ' + (textos || []).join(' / '));
+    GV.Storage.addAlerta({ id: id, tipo: 'info', mensaje: msg, fecha: new Date().toISOString(), viajeId: v.id });
+  }catch(e){}
+}
+function gvSlbAutoListo(){
+  /* no se crea nada hasta tener cargados los viajes del servidor (si no, todo pareceria nuevo) */
+  if(!GV_SLB_AUTO || !GV.Storage.isConnected()) return false;
+  if(Date.now() - __gvSlbCargaPanel < 20000) return false;
+  if(!(GV.Storage.getViajes() || []).length) return false;
+  if(!document.querySelector('#gv-vehiculo option[value]:not([value=""])')) return false;
+  return true;
+}
+function gvSlbAutoProcesar(){
+  if(!gvSlbAutoListo()){ if(GV_SLB_AUTO && (gPropuestasSLB.length || gCambiosSLB.length)) setTimeout(gvSlbRecalcularPropuestas, 15000); return; }
+  var hubo = false;
+  gPropuestasSLB.slice().forEach(function(prop){
+    if(prop.creado) return;
+    if(gvSlbProblemas(prop).filter(function(t){ return !/TR/.test(t); }).length) return; /* le falta un dato: queda para "Revisar" */
+    var id = gvSlbIdViaje(prop);
+    if(__gvSlbAutoHecho[id] || GV.Storage.getViaje(id)) return;
+    __gvSlbAutoHecho[id] = 1; hubo = true;
+    prop.__auto = true;
+    gvSlbCrearViaje(prop).then(function(v){
+      prop.creado = true;
+      gPropuestasSLB = gPropuestasSLB.filter(function(x){ return x !== prop; });
+      gvSlbAvisoAuto(v, 'alta');
+      try{ gvPintarSinPlan(); renderTracking(); renderStats(); if(gPanelView === 'calendario') renderCalendar(); }catch(e){}
+    })['catch'](function(){ delete __gvSlbAutoHecho[id]; });
+  });
+  gCambiosSLB.slice().forEach(function(c){
+    if(c.autoBloqueado) return;
+    var key = c.viaje.id + '|' + c.firma;
+    if(__gvSlbAutoHecho[key]) return;
+    __gvSlbAutoHecho[key] = 1; hubo = true;
+    gvSlbAplicarCambio(c, null, true)['catch'](function(){ delete __gvSlbAutoHecho[key]; });
+  });
+  if(hubo){ gvSlbAvisoSeguimiento(); setTimeout(gvSlbRecalcularPropuestas, 4000); }
+}
+/* Viajes de SLB creados antes de las 06:00 de su dia (mail de la tarde anterior): el origen se armo con la posicion
+   de ese momento. A partir de las 06:00 se corrige con la regla de siempre (donde estaba la unidad a las 06:00; si
+   estaba en la primera carga, ese sitio) y se recalcula la salida. Si alguien ya cambio el origen a mano, no se toca. */
+function gvSlbAjustarOrigenes0600(){
+  var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+  if(!GV_SLB_AUTO || !GV.Storage.isConnected()) return;
+  (GV.Storage.getViajes() || []).forEach(function(v){
+    if(!v.origenPedidoSLB || !v.slbOrigenProv || v.estado !== 'planificado' || !v.origen) return;
+    var fecha = String(v.fechaSalida || '').slice(0, 10);
+    var t6 = new Date(fecha + 'T06:00:00-03:00').getTime();
+    if(isNaN(t6) || Date.now() < t6 + 5 * 60000) return;
+    if(GV.distKm(v.origen, v.slbOrigenProv) * 1000 > 50){ GV.Storage.updateViaje(v.id, { slbOrigenProv: null }); return; }
+    gvSlbPosicion0600(v.vehiculoId, fecha).then(function(pos){
+      if(!pos) return;
+      var p1 = (v.paradas || [])[0];
+      var org = gvSlbOrigen({ paradas: p1 ? [{ sitio: p1 }] : [], pos0600: pos });
+      if(!org) return;
+      var patch = { origen: org, slbOrigenProv: null };
+      try{
+        var hora = ((v.slbFilas || [])[0] || {}).hora;
+        if(hora && p1){
+          var hm = hora.split(':'), minCarga = (+hm[0]) * 60 + (+hm[1] || 0), legSeg = 0;
+          var dKm = GV.distKm(org, p1) || 0;
+          if(dKm > 0.3){ var ra = GV.buscarRutaAprendida ? GV.buscarRutaAprendida(org, p1) : null; legSeg = (ra && ra.r && ra.r.minProm) ? ra.r.minProm * 60 : GV.duracionCamionSeg(dKm * 1.35 * 1000, 0); }
+          var minSal = Math.floor(Math.max(0, minCarga - Math.round(legSeg / 60)) / 5) * 5;
+          patch.fechaSalida = fecha + 'T' + pad(Math.floor(minSal / 60)) + ':' + pad(minSal % 60) + ':00';
+          if(v.tramos && v.tramos[0] && v.tramos[0].desde === v.fechaSalida){ var tr = v.tramos.slice(); tr[0] = Object.assign({}, tr[0], { desde: patch.fechaSalida }); patch.tramos = tr; }
+        }
+      }catch(e){}
+      GV.Storage.updateViaje(v.id, patch).then(function(){ try{ renderTracking(); }catch(e){} });
+    });
   });
 }
 /* En el boton "Mostrar mas viajes de hoy" de Seguimiento se avisa cuantos viajes de SLB hay para confirmar. */
@@ -3809,8 +3902,8 @@ function gvSlbDetectarCambios(todas, cvuCancelado){
   gCambiosSLB = cambios.filter(function(c){ c.firma = c.textos.join(' | '); return c.viaje.slbIgnorado !== c.firma; });
 }
 /* Junta lo que ya tenia el viaje con lo nuevo del mail y rearma SOLO los puntos pendientes. */
-function gvSlbAplicarCambio(k, btn){
-  var c = gCambiosSLB[k]; if(!c) return;
+function gvSlbAplicarCambio(k, btn, auto){
+  var c = (k && typeof k === 'object') ? k : gCambiosSLB[k]; if(!c) return Promise.resolve(false);
   var v = GV.Storage.getViaje(c.viaje.id); if(!v) return;
   if(btn){ btn.disabled = true; btn.textContent = 'Aplicando...'; }
   var porCvu = {}, orden = [];
@@ -3823,34 +3916,34 @@ function gvSlbAplicarCambio(k, btn){
   var ultimaVisitada = -1;
   (v.paradas || []).forEach(function(p, i){ var x = sr['parada' + i]; if(x && (x.ingreso || x.egreso)) ultimaVisitada = i; });
   var fin = function(patch){
-    GV.Storage.updateViaje(v.id, patch).then(function(){
+    if(auto) gvSlbAvisoAuto(v, 'cambio', c.textos);
+    return GV.Storage.updateViaje(v.id, patch).then(function(){
       gCambiosSLB = gCambiosSLB.filter(function(x){ return x !== c; });
       try{ gvPintarSinPlan(); renderTracking(); renderTrips(); }catch(e){}
       setTimeout(gvSlbRecalcularPropuestas, 1500);
     });
   };
   if(!filas.length){
-    if(ultimaVisitada < 0){ if(!confirm('SLB cancelo todos los servicios de este viaje. ¿Cancelar el viaje?')){ if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return; } fin({ estado: 'cancelado', canceladoEn: new Date().toISOString(), slbFilas: [] }); return; }
-    fin({ paradas: (v.paradas || []).slice(0, ultimaVisitada + 1), slbFilas: [] });
-    return;
+    if(ultimaVisitada < 0){ if(!auto && !confirm('SLB cancelo todos los servicios de este viaje. ¿Cancelar el viaje?')){ if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return Promise.resolve(false); } return fin({ estado: 'cancelado', canceladoEn: new Date().toISOString(), slbFilas: [] }); }
+    return fin({ paradas: (v.paradas || []).slice(0, ultimaVisitada + 1), slbFilas: [] });
   }
   var pseudo = { _id: c.pedidos[0], _ids: c.pedidos, asunto: 'cambio', recorrido: c.recorrido || null, trs: {}, filas: filas };
-  gvSlbArmarPropuestas(pseudo).then(function(props){
-    var prop = props[0]; if(!prop) return;
+  return gvSlbArmarPropuestas(pseudo).then(function(props){
+    var prop = props[0]; if(!prop) return false;
     var nuevas = prop.paradas.map(function(x){
       if(!x.sitio) return null;
       var cp = gvSlbCopiaSitio(x.sitio, x.tipo);
       if(x.hora && (x.fecha || prop.fecha)){ var d = new Date((x.fecha || prop.fecha) + 'T' + (x.hora.length === 4 ? '0' + x.hora : x.hora) + ':00-03:00'); if(!isNaN(d.getTime())) cp.llegadaProgramada = d.toISOString(); }
       return cp;
     });
-    if(nuevas.some(function(x){ return !x; })){ alert('Hay lugares del mail sin ubicacion cargada. Cargalos con "Revisar" y volve a tocar Aplicar.'); if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return; }
+    if(nuevas.some(function(x){ return !x; })){ if(auto){ c.autoBloqueado = true; try{ gvPintarSinPlan(); }catch(e){} return false; } alert('Hay lugares del mail sin ubicacion cargada. Cargalos con "Revisar" y volve a tocar Aplicar.'); if(btn){ btn.disabled = false; btn.textContent = 'Aplicar'; } return false; }
     /* lo ya visitado queda igual; de lo nuevo se sacan los primeros puntos que coinciden con lo ya visitado */
     var hechas = (v.paradas || []).slice(0, ultimaVisitada + 1);
     var j = 0;
     hechas.forEach(function(h){ if(j < nuevas.length && GV.distKm(h, nuevas[j]) * 1000 < 300) j++; });
     var paradas = hechas.concat(nuevas.slice(j));
     var srN = {}; Object.keys(sr).forEach(function(key){ var m = /^parada(\d+)$/.exec(key); srN[key] = (m && +m[1] > ultimaVisitada) ? null : sr[key]; });
-    fin({ paradas: paradas, sitiosReal: srN, observaciones: prop.observaciones, slbFilas: filas.map(function(f){ return { cvu: f.cvu || '', fecha: f.fecha || '', hora: f.hora || '', origen: f.origen || '', destino: f.destino || '', patente: f.patente || '', tr: f.tr || '' }; }) });
+    return fin({ paradas: paradas, sitiosReal: srN, observaciones: prop.observaciones, slbFilas: filas.map(function(f){ return { cvu: f.cvu || '', fecha: f.fecha || '', hora: f.hora || '', origen: f.origen || '', destino: f.destino || '', patente: f.patente || '', tr: f.tr || '' }; }) });
   });
 }
 function gvSlbIgnorarCambio(k){
@@ -3880,7 +3973,7 @@ function gvSlbHtmlPropuestas(){
   var __cambiosHtml = gvSlbHtmlCambios();
   if(!gPropuestasSLB.length) return __cambiosHtml;
   var TIPO = { carga: 'Carga', descarga: 'Descarga', ambos: 'Carga y Descarga' };
-  return __cambiosHtml + '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b91c1c">Viajes del mail para confirmar (' + gPropuestasSLB.length + ')</span></div>' +
+  return __cambiosHtml + '<div style="margin:6px 0 3px;display:flex;align-items:center;gap:6px">' + GV.clienteBadgeHtml('SLB') + '<span style="font-size:.74rem;font-weight:700;color:#b91c1c">' + (GV_SLB_AUTO ? 'Viajes del mail que no se pudieron crear solos (' : 'Viajes del mail para confirmar (') + gPropuestasSLB.length + ')</span></div>' +
     gPropuestasSLB.map(function(prop, k){
       var bloq = gvSlbProblemas(prop).filter(function(t){ return !/TR/.test(t); }).length > 0;
       var org = gvSlbOrigen(prop);
@@ -3899,6 +3992,10 @@ function gvSlbHtmlPropuestas(){
     }).join('') + '<div style="height:6px"></div>';
 }
 function gvEscucharPedidosSLB(){
+  if(!window.__gvSlbIntervalo){
+    window.__gvSlbIntervalo = setInterval(function(){ try{ gvSlbAjustarOrigenes0600(); if(gPedidosSLB.length) gvSlbRecalcularPropuestas(); }catch(e){} }, 5 * 60000);
+    setTimeout(function(){ try{ gvSlbAjustarOrigenes0600(); }catch(e){} }, 30000);
+  }
   GV.loadFirebase().then(function(firebase){
     if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
     firebase.firestore().collection('gv_pedidos_slb').where('estado', '==', 'pendiente').onSnapshot(function(qs){
