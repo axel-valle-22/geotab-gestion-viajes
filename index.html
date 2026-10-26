@@ -5495,6 +5495,13 @@ mantenerNombre: true, nombreSitio: GV.siteNameFor(cur) || cur.direccion || (p &&
 mostrarCamion: true, vehiculoId: v.vehiculoId, api: gApi
 }).then(function(res){
 if(!res) return;
+/* 26/10 (caso H337 Sañudo, PH 359): si el area quedo lejos del punto marcado (punto afuera del poligono y a mas de
+   300 m de su centro), el area no corresponde a esta ubicacion: se descarta y se usa el circulo automatico. */
+if(res.poligono && res.poligono.length >= 3 && !GV.pointInPolygon({ lat: res.lat, lng: res.lng }, res.poligono)){
+  var __pcLa = 0, __pcLo = 0; res.poligono.forEach(function(q){ __pcLa += q.lat; __pcLo += q.lng; });
+  var __pc = { lat: __pcLa / res.poligono.length, lng: __pcLo / res.poligono.length };
+  if((GV.distKm(__pc, res) || 0) * 1000 > 300){ res = Object.assign({}, res, { poligono: null }); }
+}
 var mergeObj = { lat: res.lat, lng: res.lng, direccion: res.direccion, poligono: res.poligono || null };
 /* 23/10 (2): era un sitio "a confirmar" de un pedido SLB: la ubicacion marcada se aplica tambien al sitio guardado
    (para los proximos mails) y a los demas viajes abiertos que tengan ese mismo lugar sin confirmar. */
