@@ -1,28 +1,57 @@
-# Lee los mails de la carpeta SLB (cada 10 min de 06:00 a 00:00 hs de Argentina) y deja los pedidos como borradores para confirmar en el panel.
-# APAGADO hasta que se cargue la variable de repositorio SLB_ACTIVO = true
-# (Settings > Secrets and variables > Actions > Variables) y los secretos de Microsoft (ver slb/leer-mails.mjs).
+# Lee los mails de la carpeta SLB CADA 30 MINUTOS (de 06:00 a 00:00 hs de Argentina) y deja los pedidos en Firestore;
+# el panel de Gestion de Viajes crea / modifica los viajes solo.
+# Se apaga borrando la variable de repositorio SLB_ACTIVO (Settings > Secrets and variables > Actions > Variables).
+#
+# 26/10: GitHub demora mucho las tareas programadas (con "cada 10 min" corria cada 1 a 3 horas). Por eso cada corrida
+# queda viva ~5 h 30 min leyendo los mails cada 30 min y, al terminar, ella misma lanza la siguiente corrida (cadena).
+# La tarea programada de cada hora es solo un respaldo: si la cadena se corta, la vuelve a arrancar. El "concurrency"
+# asegura que nunca haya dos lecturas al mismo tiempo. El repositorio es publico: los minutos de Actions no se cobran.
 name: Pedidos SLB desde Outlook
 on:
   schedule:
-    - cron: '*/10 9-23 * * *'   # cada 10 min de 06:00 a 20:59 hs de Argentina (UTC-3)
-    - cron: '*/10 0-2 * * *'    # cada 10 min de 21:00 a 23:59 hs de Argentina
-    - cron: '0 3 * * *'         # ultima vuelta a las 00:00 hs de Argentina
+    - cron: '7 * * * *'   # respaldo: arranca la cadena si se corto
   workflow_dispatch: {}
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: pedidos-slb
+  cancel-in-progress: false
 jobs:
   leer:
     if: ${{ vars.SLB_ACTIVO == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: node slb/test-parser.mjs > /dev/null
-      - run: node slb/leer-mails.mjs
+      - name: Leer mails cada 30 min (06:00 a 00:00 hs de Argentina)
         env:
           MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
           MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
           SLB_BUZON: ${{ secrets.SLB_BUZON }}
           SLB_CARPETA: ${{ vars.SLB_CARPETA }}
+        run: |
+          fin=$(( $(date +%s) + 330 * 60 ))
+          while true; do
+            h=$(TZ=America/Argentina/Buenos_Aires date +%-H)
+            m=$(TZ=America/Argentina/Buenos_Aires date +%-M)
+            if [ "$h" -ge 6 ] || { [ "$h" -eq 0 ] && [ "$m" -lt 30 ]; }; then
+              echo "=== Lectura $(TZ=America/Argentina/Buenos_Aires date '+%d/%m %H:%M') ==="
+              node slb/leer-mails.mjs || echo "Esta vuelta fallo; se reintenta en 30 min."
+            else
+              echo "$(TZ=America/Argentina/Buenos_Aires date '+%H:%M'): fuera de horario, no se lee."
+            fi
+            resto=$(( fin - $(date +%s) ))
+            if [ "$resto" -le 1800 ]; then break; fi
+            sleep 1800
+          done
+      - name: Lanzar la siguiente corrida (cadena)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pedidos-slb.yml --ref main -R "${{ github.repository }}" || echo "No se pudo encadenar; la tarea de cada hora la vuelve a arrancar."
