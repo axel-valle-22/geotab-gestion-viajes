@@ -2080,6 +2080,69 @@ GV.__paradasReestructuradas = function(prevP, nextP){
   }
   return dif >= 2; /* una sola parada movida = correccion de ubicacion (se conservan sus horarios) */
 };
+/* 27/10 (caso C348 Medrano: RAO SLB -> LCav174_2 -> RAO SLB): SITIOS REPETIDOS. La segunda aparicion de un mismo lugar
+   NO puede tener ingreso mientras alguna parada intermedia siga sin visitar: la unidad esta en la primera. Antes,
+   distintos chequeos (backfill de historial, refinamiento de ingreso, reevaluacion al editar) podian sellar el
+   ingreso en la ultima aparicion; al salir de ese lugar el viaje (sin destino) se cerraba solo, con las paradas del
+   medio sin hacer. Esta regla se aplica en el UNICO lugar por el que pasan todas las escrituras. */
+GV.__mismoLugar = function(a, b){
+  if(!a || !b || typeof a.lat !== 'number' || typeof b.lat !== 'number') return false;
+  var d = GV.distKm(a, b);
+  return d != null && d * 1000 <= 300;
+};
+GV.__repetidaPrevia = function(paradas, k){
+  for(var j = 0; j < k; j++){ if(GV.__mismoLugar(paradas[j], paradas[k])) return j; }
+  return -1;
+};
+GV.sitioRepetidoAdelantado = function(paradas, sr, siteId){
+  var m = /^parada(\d+)$/.exec(siteId || ''); if(!m) return false;
+  var k = +m[1]; paradas = paradas || []; sr = sr || {};
+  if(!paradas[k]) return false;
+  for(var j = 0; j < k; j++){
+    if(!GV.__mismoLugar(paradas[j], paradas[k])) continue;
+    for(var q = j + 1; q < k; q++){
+      if(!paradas[q] || !paradas[q].tipo) continue;
+      var x = sr['parada' + q];
+      if(!(x && (x.ingreso || x.egreso))) return true;
+    }
+  }
+  return false;
+};
+/* Saca de un cambio los ingresos/egresos NUEVOS de una aparicion repetida adelantada (los ya guardados no se tocan:
+   eso lo cuida protegerHorarios) y corrige la permanencia abierta si apunta a esa aparicion. */
+GV.sanearSitiosRepetidos = function(prevV, nextView, patch){
+  if(!patch) return patch;
+  var paradas = (nextView && nextView.paradas) || (prevV && prevV.paradas) || [];
+  if(paradas.length < 3) return patch;
+  var prevSr = (prevV && prevV.sitiosReal) || {};
+  if(patch.sitiosReal){
+    var sr = Object.assign({}, patch.sitiosReal), quitados = [];
+    Object.keys(sr).forEach(function(key){
+      var x = sr[key]; if(!x) return;
+      var antes = prevSr[key] || {};
+      var nuevoIng = x.ingreso && !antes.ingreso, nuevoEg = x.egreso && !antes.egreso;
+      if(!nuevoIng && !nuevoEg) return;
+      if(x.ingresoManual || x.egresoManual || x.choferMarcoIngreso || x.choferMarcoEgreso) return;
+      var simulado = Object.assign({}, prevSr, sr);
+      if(!GV.sitioRepetidoAdelantado(paradas, simulado, key)) return;
+      var y = Object.assign({}, x);
+      if(nuevoIng){ delete y.ingreso; delete y.ingresoGps; }
+      if(nuevoEg){ delete y.egreso; delete y.egresoGps; }
+      sr[key] = y; quitados.push(key);
+    });
+    if(quitados.length){ try{ console.warn('[GV] sitio repetido: no se registra el horario en la aparicion adelantada', (prevV && prevV.vehiculo) || '', quitados.join(', ')); }catch(e){} }
+    patch.sitiosReal = sr;
+  }
+  if(patch.dwellState && patch.dwellState.siteId){
+    var srAll = Object.assign({}, prevSr, patch.sitiosReal || {});
+    if(GV.sitioRepetidoAdelantado(paradas, srAll, patch.dwellState.siteId)){
+      var k = +/^parada(\d+)$/.exec(patch.dwellState.siteId)[1], j = GV.__repetidaPrevia(paradas, k);
+      var xj = srAll['parada' + j];
+      patch.dwellState = (j >= 0 && !(xj && xj.egreso)) ? Object.assign({}, patch.dwellState, { siteId: 'parada' + j }) : null;
+    }
+  }
+  return patch;
+};
 GV.protegerHorarios = function(prevV, nextView, nextSr, permitir){
   var prevSr = (prevV && prevV.sitiosReal) || {};
   var out = Object.assign({}, nextSr || {});
@@ -2500,24 +2563,25 @@ GV.Storage = (function(){
                 finalViaje = _localFullById[id] || serverViaje;
                 /* 23/10: una escritura completa (pantalla con copia vieja) tampoco puede borrar horarios ya guardados */
                 if(serverViaje && finalViaje && finalViaje !== serverViaje){
-                  finalViaje = Object.assign({}, finalViaje, { sitiosReal: GV.protegerHorarios(serverViaje, finalViaje, finalViaje.sitiosReal || {}, null) });
+                  var __sanF = GV.sanearSitiosRepetidos(serverViaje, finalViaje, { sitiosReal: finalViaje.sitiosReal || {}, dwellState: finalViaje.dwellState || null });
+                  finalViaje = Object.assign({}, finalViaje, { sitiosReal: GV.protegerHorarios(serverViaje, finalViaje, __sanF.sitiosReal || {}, null), dwellState: __sanF.dwellState || null });
                 }
               } else {
-                var _entryAplicado = entry;
+                var _entryAplicado = (entry.sitiosReal || entry.dwellState) ? GV.sanearSitiosRepetidos(serverViaje, { paradas: ('paradas' in entry) ? entry.paradas : serverViaje.paradas }, Object.assign({}, entry)) : entry;
                 var _esTerminalEnServidor = serverViaje.estado === 'completado' || serverViaje.estado === 'cancelado';
                 if(_esTerminalEnServidor && entry.reaperturaExplicita !== true){
                   var _estadoPatchNoTerminal = ('estado' in entry) && entry.estado !== 'completado' && entry.estado !== 'cancelado';
                   var _reabrePendiente = ('llegadaDestinoPendienteEn' in entry) && !!entry.llegadaDestinoPendienteEn;
                   if(_estadoPatchNoTerminal || _reabrePendiente){
-                    _entryAplicado = Object.assign({}, entry);
+                    _entryAplicado = Object.assign({}, _entryAplicado);
                     delete _entryAplicado.estado; delete _entryAplicado.iniciadoEn; delete _entryAplicado.autoIniciado;
                     delete _entryAplicado.salioConDemora; delete _entryAplicado.demoraSalidaMin; delete _entryAplicado.dwellState;
                     delete _entryAplicado.llegadaDestinoPendienteEn;
                   }
                 }
                 finalViaje = Object.assign({}, serverViaje, _entryAplicado);
-                if(entry.sitiosReal){
-                  finalViaje.sitiosReal = Object.assign({}, serverViaje.sitiosReal || {}, entry.sitiosReal);
+                if(_entryAplicado.sitiosReal){
+                  finalViaje.sitiosReal = Object.assign({}, serverViaje.sitiosReal || {}, _entryAplicado.sitiosReal);
                   /* Ajuste 16/10 (casos T280 Cruces y C258 Veschi): un sitio con valor null en el patch se BORRA. Antes el
                      merge sitio por sitio no podia borrar nada: al reordenar las paradas, el horario de una parada quedaba
                      tambien en su posicion vieja (que ahora era otra parada) y figuraban dos "en sitio". */
@@ -2588,6 +2652,9 @@ GV.Storage = (function(){
       var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
       var __permitir = patch && patch.__borrarHorarios;
       if(patch && '__borrarHorarios' in patch){ patch = Object.assign({}, patch); delete patch.__borrarHorarios; }
+      if(v && patch && (patch.sitiosReal || patch.dwellState)){
+        patch = GV.sanearSitiosRepetidos(v, { paradas: ('paradas' in patch) ? patch.paradas : v.paradas }, Object.assign({}, patch));
+      }
       if(v && patch && patch.sitiosReal){
         patch = Object.assign({}, patch);
         patch.sitiosReal = GV.protegerHorarios(v, { paradas: ('paradas' in patch) ? patch.paradas : v.paradas, destino: ('destino' in patch) ? patch.destino : v.destino }, patch.sitiosReal, __permitir);
