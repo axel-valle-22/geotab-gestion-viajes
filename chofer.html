@@ -108,7 +108,9 @@ var gState = null;
    Las hojas de ruta completas (PDF) quedan disponibles para consultar cuando el chofer quiera. El RUTOGRAMA (mapa +
    referencias de riesgo ante lluvias intensas) es OBLIGATORIO: aparece dentro del gerenciamiento y el chofer tiene que
    confirmar que lo leyo para poder continuar. Archivos en la carpeta hojas-de-ruta/ del repositorio. */
-var GV_HDR_BASE = ((GV.__baseUrl || 'https://axel-valle-22.github.io/geotab-gestion-viajes/') + 'hojas-de-ruta/');
+/* 27/10: se calcula al usarse (no al cargar la pagina): en MyGeotab Drive common.js puede terminar de cargar DESPUES que
+   este script, y leer GV aca arriba rompia toda la app (quedaba en "Cargando tus viajes..."). */
+function gvHdrBase(){ return (((typeof GV !== 'undefined' && GV.__baseUrl) || 'https://axel-valle-22.github.io/geotab-gestion-viajes/') + 'hojas-de-ruta/'); }
 var GV_HDR_CRITERIO = 'CRITERIO ANTE LLUVIA INTENSA: si el estado de rutas informa corte o restricción, o hay sectores anegados en el recorrido, detener la marcha en un lugar seguro, informar a la supervisión de TDP y reprogramar el traslado. No cruzar zonas con agua acumulada.';
 var GV_HDR_ESTADO_RUTAS = 'https://emergenciasyriesgos.neuquen.gov.ar/operativo-nieve/';
 var GV_HOJAS_RUTA = [
@@ -168,7 +170,7 @@ function gvHdrRutogramaHtml(h){
   return '<div class="gv-hdr-ruto">' +
     '<div style="font-size:.78rem;background:#e8f1fb;border:1px solid #9cc3e6;border-radius:8px;padding:8px 10px;margin-bottom:8px"><b>ESTADO ACTUAL DE RUTAS:</b> las condiciones cambian según el clima. Consultar antes de cada salida el mapa de Emergencias y Riesgos – Neuquén: <a href="' + GV_HDR_ESTADO_RUTAS + '" target="_blank" rel="noopener">abrir mapa</a></div>' +
     '<div style="background:#5b9bd5;color:#fff;font-weight:700;text-align:center;padding:6px;border-radius:8px 8px 0 0;font-size:.85rem">RUTOGRAMA – ' + GV.escapeHtml(h.titulo) + ' · ' + GV.escapeHtml(h.km) + '</div>' +
-    '<a href="' + GV_HDR_BASE + h.mapa + '" target="_blank" rel="noopener" title="Tocá para agrandar"><img src="' + GV_HDR_BASE + h.mapa + '" alt="Rutograma" style="width:100%;display:block;border:1px solid #9cc3e6;border-top:0"></a>' +
+    '<a href="' + gvHdrBase() + h.mapa + '" target="_blank" rel="noopener" title="Tocá para agrandar"><img src="' + gvHdrBase() + h.mapa + '" alt="Rutograma" style="width:100%;display:block;border:1px solid #9cc3e6;border-top:0"></a>' +
     '<div style="background:#5b9bd5;color:#fff;font-weight:700;text-align:center;padding:6px;margin-top:8px;font-size:.8rem">REFERENCIAS DEL RUTOGRAMA – RIESGO ANTE LLUVIAS INTENSAS</div>' +
     '<table style="width:100%;border-collapse:collapse;font-size:.76rem">' +
     '<thead><tr style="background:#1f4e79;color:#fff"><th style="padding:4px">N°</th><th style="padding:4px">KM</th><th style="padding:4px;text-align:left">Punto / condición y acción</th><th style="padding:4px">Riesgo</th></tr></thead><tbody>' +
@@ -178,7 +180,7 @@ function gvHdrRutogramaHtml(h){
         '<td style="text-align:center;font-weight:700;padding:4px;' + (COL[p[4]] || '') + '">' + p[4] + '</td></tr>';
     }).join('') + '</tbody></table>' +
     '<div style="font-size:.78rem;background:#fff4d6;border:1px solid #e0b252;color:#7a5200;border-radius:8px;padding:8px 10px;margin-top:8px">' + GV.escapeHtml(GV_HDR_CRITERIO) + '</div>' +
-    '<div style="margin-top:8px"><a class="gv-btn gv-btn-sec gv-btn-sm" href="' + GV_HDR_BASE + h.pdf + '" target="_blank" rel="noopener">Ver hoja de ruta completa (PDF)</a></div>' +
+    '<div style="margin-top:8px"><a class="gv-btn gv-btn-sec gv-btn-sm" href="' + gvHdrBase() + h.pdf + '" target="_blank" rel="noopener">Ver hoja de ruta completa (PDF)</a></div>' +
     '</div>';
 }
 function gvAbrirHojasDeRuta(idInicial){
@@ -192,7 +194,7 @@ function gvAbrirHojasDeRuta(idInicial){
       return '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:10px">' +
         '<div style="font-weight:700">' + GV.escapeHtml(h.titulo) + '</div><div style="font-size:.78rem;color:#6b7280;margin:2px 0 8px">' + GV.escapeHtml(h.km + ' · ' + h.version) + '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' + (h.puntos ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" data-hdr-ver="' + h.id + '">Ver rutograma</button>' : '') +
-        '<a class="gv-btn gv-btn-sec gv-btn-sm" href="' + GV_HDR_BASE + h.pdf + '" target="_blank" rel="noopener">Hoja de ruta completa (PDF)</a></div></div>';
+        '<a class="gv-btn gv-btn-sec gv-btn-sm" href="' + gvHdrBase() + h.pdf + '" target="_blank" rel="noopener">Hoja de ruta completa (PDF)</a></div></div>';
     }).join('');
   }
   function ver(id){
@@ -963,6 +965,8 @@ renderDriverView();
 
 function doInit(api, state){
 try{ document.body.classList.add('gv-chofer'); }catch(e){}
+/* common.js todavia no termino de cargar (MyGeotab Drive carga los scripts en paralelo): se espera y se reintenta */
+if(typeof GV === 'undefined' || !GV.Storage){ setTimeout(function(){ doInit(api, state); }, 150); return; }
 if(window._gvInitDone === 'real') return; /* evita doble inicializacion si ya hubo una real */
 window._gvInitDone = api ? 'real' : 'null';
 gApi = api;
@@ -992,6 +996,15 @@ if(typeof callback === 'function') callback();
 /* el registro del add-in esta al principio de la pagina (ver <head>); aca solo se conecta con la inicializacion real */
 window.__gvChoferInit = doInit;
 if(window.__gvChoferPend) doInit(window.__gvChoferPend.api, window.__gvChoferPend.state);
+/* respaldo: si MyGeotab no ejecuto el script del <head>, el add-in se registra aca (como antes) */
+if(typeof geotab !== 'undefined' && geotab.addin && !geotab.addin.GestionViajesDPChofer){
+geotab.addin.GestionViajesDPChofer = function(){
+return {
+initialize: function(api, state, callback){ doInit(api, state); if(typeof callback === 'function') callback(); },
+focus: function(){}, blur: function(){}
+};
+};
+}
 
 setTimeout(function(){
 if(typeof window._gvInitDone === 'undefined'){
