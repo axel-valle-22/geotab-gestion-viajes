@@ -590,7 +590,7 @@ function abrirWizard(viajeId){
 var viaje = viajeId ? GV.Storage.getViaje(viajeId) : null;
 if(viajeId && !viaje) return;
 var sinViaje = !viaje;
-var datosSV = { vehiculoId: '', vehiculo: '', destino: '' };
+var datosSV = { vehiculoId: '', vehiculo: '', destino: '', origen: null, destinoSitio: null, km: null, min: null, kmFuente: '' };
 var __devicesSV = null;
 
 var respuestas = {
@@ -643,7 +643,8 @@ body = '<h3>Gerenciamiento sin viaje programado</h3>' +
   '<div id="gv-sv-veh-pick" style="display:' + (datosSV.vehiculo ? 'none' : 'block') + '">' +
   '<input type="text" id="gv-sv-veh-txt" placeholder="Buscar o escribir la unidad (ej. T205)" autocomplete="off" value="">' +
   '<div id="gv-sv-veh-list" style="margin-top:8px;max-height:46vh;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;padding:6px"></div></div></div>' +
-'<div class="gv-form-row"><label>Destino / recorrido<span class="gv-req">*</span></label><input type="text" id="gv-sv-dest" placeholder="Ej. Base Añelo, Rincón de los Sauces, locación..." value="' + GV.escapeHtml(datosSV.destino) + '"></div>';
+gvSvSitioHtml('orig', 'Origen (desde donde salis)', datosSV.origen) + gvSvSitioHtml('dest', 'Destino', datosSV.destinoSitio) +
+'<div id="gv-sv-km" style="margin-top:4px">' + gvSvKmHtml() + '</div>';
 } else if(steps[stepIdx] === 'hojaRuta'){
 var __h = respuestas.hojaRuta && respuestas.hojaRuta !== 'otra' ? gvHdrPorId(respuestas.hojaRuta) : null;
 body = '<h3>Hoja de ruta<span class="gv-req">*</span></h3>' +
@@ -727,7 +728,8 @@ renderActions();
 });
 
 if(steps[stepIdx] === 'datos'){
-var __vt = document.getElementById('gv-sv-veh-txt'), __ds = document.getElementById('gv-sv-dest');
+var __vt = document.getElementById('gv-sv-veh-txt');
+gvSvSitioWire('orig'); gvSvSitioWire('dest');
 /* 27/10: la unidad se elige de una lista de botones grandes con buscador (el desplegable nativo no abria en el celular) */
 var __vl = document.getElementById('gv-sv-veh-list');
 var __elegirU = function(id, nombre){
@@ -756,7 +758,6 @@ window.__gvPintarUnidadesSV = __pintarU;
 if(__vt) __vt.addEventListener('input', __pintarU);
 var __vc = document.getElementById('gv-sv-veh-cambiar'); if(__vc) __vc.addEventListener('click', function(){ __elegirU('', ''); if(__vt){ __vt.value = ''; __pintarU(); } });
 __pintarU();
-if(__ds) __ds.addEventListener('input', function(){ datosSV.destino = __ds.value.trim(); renderActions(); });
 if(!__devicesSV) cargarUnidadesSV();
 }
 if(steps[stepIdx] === 'hojaRuta'){
@@ -790,6 +791,76 @@ r.addEventListener('change', function(){ respuestas.clima = r.value; renderActio
 renderActions();
 }
 
+function gvSvPos(x){ return (x && typeof x.lat === 'number') ? { lat: x.lat, lng: x.lng, siteId: x.siteId || null } : null; }
+/* 27/10: origen y destino del gerenciamiento sin viaje se eligen de los SITIOS GUARDADOS (como en "Nuevo viaje"),
+   con buscador y botones grandes; si el lugar no esta guardado se puede escribir a mano. Con los dos sitios se
+   calculan solos los km (ruta aprendida de viajes reales anteriores o, si no hay, ruta por calle). */
+function gvSvSitios(){
+  var l = (GV.Storage.getSitios ? GV.Storage.getSitios() : []) || [];
+  if(!Array.isArray(l)) l = Object.values(l);
+  return l.filter(function(x){ return x && x.nombre && typeof x.lat === 'number' && !/a confirmar/i.test(x.nombre); })
+    .sort(function(a, b){ return String(a.nombre).localeCompare(String(b.nombre), 'es', { numeric: true }); });
+}
+function gvSvSitioHtml(k, titulo, val){
+  return '<div class="gv-form-row"><label>' + titulo + '<span class="gv-req">*</span></label>' +
+    '<div id="gv-sv-' + k + '-sel" style="display:' + (val ? 'flex' : 'none') + ';align-items:center;justify-content:space-between;gap:10px;background:#dcfce7;border:2px solid #16a34a;border-radius:12px;padding:12px 14px;margin-bottom:8px;font-size:1.1rem;font-weight:700;color:#14532d"><span id="gv-sv-' + k + '-sel-txt">' + GV.escapeHtml(val ? val.nombre : '') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-sv-' + k + '-cambiar">Cambiar</button></div>' +
+    '<div id="gv-sv-' + k + '-pick" style="display:' + (val ? 'none' : 'block') + '">' +
+    '<input type="text" id="gv-sv-' + k + '-txt" placeholder="Buscar sitio (ej. RAO, Añelo, Plottier)" autocomplete="off" value="">' +
+    '<div id="gv-sv-' + k + '-list" style="margin-top:8px;max-height:40vh;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;padding:6px"></div></div></div>';
+}
+function gvSvSitioWire(k){
+  var tx = document.getElementById('gv-sv-' + k + '-txt'), box = document.getElementById('gv-sv-' + k + '-list');
+  var elegir = function(val){
+    if(k === 'orig') datosSV.origen = val; else { datosSV.destinoSitio = val; datosSV.destino = val ? val.nombre : ''; }
+    var sel = document.getElementById('gv-sv-' + k + '-sel'), pk = document.getElementById('gv-sv-' + k + '-pick'), st = document.getElementById('gv-sv-' + k + '-sel-txt');
+    if(st) st.textContent = val ? val.nombre : ''; if(sel) sel.style.display = val ? 'flex' : 'none'; if(pk) pk.style.display = val ? 'none' : 'block';
+    gvSvCalcularKm(); renderActions();
+  };
+  var pintar = function(){
+    if(!box) return;
+    var q = tx ? tx.value.trim() : '', nq = gvNormUnidad(q);
+    var lista = gvSvSitios().filter(function(x){ return !nq || gvNormUnidad(x.nombre).indexOf(nq) !== -1 || gvNormUnidad(x.direccion).indexOf(nq) !== -1; });
+    var h = '';
+    if(q) h += '<button type="button" class="gv-btn gv-btn-primary" data-s-txt="1" style="width:100%;margin:4px 0;justify-content:flex-start">Usar "' + GV.escapeHtml(q) + '" (no esta guardado)</button>';
+    h += lista.slice(0, 150).map(function(x){ return '<button type="button" class="gv-btn gv-btn-sec" data-s-id="' + GV.escapeHtml(x.id) + '" style="width:100%;margin:4px 0;justify-content:flex-start;text-align:left">' + GV.escapeHtml(x.nombre) + '</button>'; }).join('');
+    if(!lista.length && !q) h += '<div style="padding:12px;color:#6b7280;font-size:1rem">No hay sitios guardados. Escribí el lugar arriba.</div>';
+    box.innerHTML = h;
+    box.querySelectorAll('[data-s-id]').forEach(function(b){ b.addEventListener('click', function(){ var id = b.getAttribute('data-s-id'); var x = gvSvSitios().filter(function(y){ return y.id === id; })[0]; if(x) elegir({ nombre: x.nombre, lat: x.lat, lng: x.lng, siteId: x.id }); }); });
+    var bt = box.querySelector('[data-s-txt]'); if(bt) bt.addEventListener('click', function(){ elegir({ nombre: q, lat: null, lng: null, siteId: null }); });
+  };
+  if(tx) tx.addEventListener('input', pintar);
+  var cb = document.getElementById('gv-sv-' + k + '-cambiar'); if(cb) cb.addEventListener('click', function(){ elegir(null); if(tx){ tx.value = ''; } pintar(); });
+  pintar();
+}
+var __gvSvKmTok = 0;
+function gvSvKmHtml(){
+  if(!datosSV.origen || !datosSV.destinoSitio) return '';
+  var base = 'background:#eef6ff;border:1px solid #93c5fd;border-radius:12px;padding:12px 14px;font-size:1.1rem;color:#1e3a8a';
+  if(datosSV.km === 'calc') return '<div style="' + base + '">Calculando kilometros...</div>';
+  if(datosSV.km == null) return '<div style="' + base.replace('#eef6ff', '#f3f4f6').replace('#93c5fd', '#d1d5db').replace('#1e3a8a', '#374151') + '">Sin calculo de km (el origen o el destino no es un sitio guardado).</div>';
+  var hs = datosSV.min != null ? Math.floor(datosSV.min / 60) + ' h ' + ('0' + (datosSV.min % 60)).slice(-2) + ' min' : '';
+  return '<div style="' + base + '"><b>Distancia estimada: ' + datosSV.km + ' km</b>' + (hs ? ' &middot; aprox. ' + hs + ' de manejo' : '') +
+    '<div style="font-size:.85rem;margin-top:4px;color:#475569">' + (datosSV.kmFuente === 'aprendida' ? 'Segun recorridos reales anteriores' : (datosSV.kmFuente === 'recta' ? 'Aproximado (linea recta)' : 'Calculado por ruta')) + '</div></div>';
+}
+function gvSvPintarKm(){ var el = document.getElementById('gv-sv-km'); if(el) el.innerHTML = gvSvKmHtml(); }
+function gvSvCalcularKm(){
+  var o = datosSV.origen, d = datosSV.destinoSitio, tok = ++__gvSvKmTok;
+  datosSV.km = null; datosSV.min = null; datosSV.kmFuente = '';
+  if(!o || !d || typeof o.lat !== 'number' || typeof d.lat !== 'number'){ gvSvPintarKm(); return; }
+  datosSV.km = 'calc'; gvSvPintarKm();
+  var recta = function(){ var dk = GV.distKm(o, d) || 0; datosSV.km = Math.round(dk * 1.25); datosSV.min = Math.round(GV.duracionCamionSeg(dk * 1250, 0) / 60); datosSV.kmFuente = 'recta'; };
+  var p = null;
+  try{ p = GV.getRoute([{ lat: o.lat, lng: o.lng }, { lat: d.lat, lng: d.lng }]); }catch(e){}
+  var listo = false;
+  var fin = function(rt){
+    if(listo || tok !== __gvSvKmTok) return; listo = true;
+    if(rt && rt.distance > 0){ datosSV.km = Math.round(rt.distance / 1000); datosSV.min = Math.round((rt.duration || 0) / 60); datosSV.kmFuente = rt.tramosAprendidos ? 'aprendida' : 'ruta'; }
+    else recta();
+    gvSvPintarKm(); renderActions();
+  };
+  setTimeout(function(){ fin(null); }, 9000);
+  if(p && p.then) p.then(fin, function(){ fin(null); }); else fin(null);
+}
 function cargarUnidadesSV(){
   /* 27/10: en MyGeotab Drive el usuario chofer muchas veces no tiene permiso para leer las unidades (la consulta
      vuelve vacia o no responde) y la lista quedaba vacia. Ahora se juntan tres fuentes: MyGeotab, la lista de unidades
@@ -817,7 +888,7 @@ function gvNormUnidad(t){ return String(t || '').toLowerCase().normalize('NFD').
 
 function stepValido(){
 var s = steps[stepIdx];
-if(s === 'datos') return !!(datosSV.vehiculo && datosSV.destino);
+if(s === 'datos') return !!(datosSV.vehiculo && datosSV.origen && datosSV.destinoSitio);
 if(s === 'hojaRuta') return respuestas.hojaRuta === 'otra' || (!!respuestas.hojaRuta && respuestas.hojaRutaLeida);
 if(s === 'aviso') return respuestas.durmioPoco && respuestas.horasDespiertoMas16 && respuestas.alcoholMedicacion && respuestas.noApto;
 if(s === 'motivo') return !!respuestas.motivo;
@@ -852,7 +923,7 @@ if(cancelBtn) cancelBtn.addEventListener('click', cerrarWizard);
 var prevBtn = document.getElementById('gv-wizard-prev');
 if(prevBtn) prevBtn.addEventListener('click', function(){ stepIdx--; renderStep(); });
 var nextBtn = document.getElementById('gv-wizard-next');
-if(nextBtn) nextBtn.addEventListener('click', function(){ if(stepValido()){ if(steps[stepIdx] === 'datos' && !respuestas.hojaRuta) respuestas.hojaRuta = gvHdrSugerida(datosSV.destino); stepIdx++; renderStep(); } });
+if(nextBtn) nextBtn.addEventListener('click', function(){ if(stepValido()){ if(steps[stepIdx] === 'datos' && !respuestas.hojaRuta) respuestas.hojaRuta = gvHdrSugerida(((datosSV.origen && datosSV.origen.nombre) || '') + ' ' + datosSV.destino); stepIdx++; renderStep(); } });
 var finishBtn = document.getElementById('gv-wizard-finish');
 if(finishBtn) finishBtn.addEventListener('click', function(){ finalizarWizard(false); });
 var solicitarBtn = document.getElementById('gv-wizard-solicitar');
@@ -890,11 +961,13 @@ var r = calcularResultado();
       id: GV.genId('ger'), viajeId: null, sinViaje: true,
       conductorId: gDriver ? gDriver.id : null, conductor: gDriver ? (gDriver.nombre || gDriver.name || '') : '',
       vehiculoId: datosSV.vehiculoId || null, vehiculo: datosSV.vehiculo, destino: datosSV.destino,
+      origen: datosSV.origen ? datosSV.origen.nombre : '', origenPos: gvSvPos(datosSV.origen), destinoPos: gvSvPos(datosSV.destinoSitio),
+      kmEstimado: (typeof datosSV.km === 'number') ? datosSV.km : null, minEstimado: (typeof datosSV.km === 'number') ? datosSV.min : null, kmFuente: datosSV.kmFuente || '',
       fecha: ahora, resultado: r.resultado, motivos: r.motivos, respuestas: respuestas,
       autorizadoPor: r.resultado === 'verde' ? 'auto' : null, rechazado: false,
       solicitoAutorizacion: !!(r.resultado === 'rojo' && solicitarAuth)
     };
-    var __txt = __reg.conductor + ' (' + __reg.vehiculo + ') - sin viaje programado, destino: ' + __reg.destino;
+    var __txt = __reg.conductor + ' (' + __reg.vehiculo + ') - sin viaje programado: ' + (__reg.origen ? __reg.origen + ' -> ' : '') + __reg.destino + (__reg.kmEstimado != null ? ' (' + __reg.kmEstimado + ' km)' : '');
     GV.Storage.addGerenciamiento(__reg).then(function(){
       if(r.resultado === 'amarillo' || (r.resultado === 'rojo' && solicitarAuth)){
         return GV.Storage.addAlerta({ id: 'al_auth_ger_' + __reg.id, tipo: 'autorizacion', gerId: __reg.id, mensaje: 'Solicitud de autorizacion' + (r.resultado === 'rojo' ? ' (gerenciamiento ROJO)' : '') + ': ' + __txt + ' - ' + r.motivos.join('; '), fecha: ahora });
