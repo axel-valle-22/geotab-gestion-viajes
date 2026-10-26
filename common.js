@@ -2622,6 +2622,7 @@ GV.Storage = (function(){
     },
 getGerenciamientos: function(){ return _data.gerenciamientos; },
     addGerenciamiento: function(g){ _data.gerenciamientos.push(g); _marcarItem('gerenciamientos', g); return persist(); },
+    updateGerenciamiento: function(id, patch){ var g = _data.gerenciamientos.find(function(x){ return x.id === id; }); if(g){ Object.keys(patch || {}).forEach(function(k){ g[k] = patch[k]; }); _marcarItem('gerenciamientos', g); } return persist(); },
     isConnected: function(){ return !!_addInId; },
     pushCompartido: function(token, payload){
       if(!token) return Promise.resolve(false);
