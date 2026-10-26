@@ -2112,6 +2112,27 @@ GV.Storage = (function(){
   var _listeners = [];
       var _pendingWrites = 0;
     var _dirtyViajeIds = {}; var _removedViajeIds = {};
+    /* 26/10 (chequeo general): sitios, alertas y gerenciamientos tambien se guardan "por item" contra el servidor. Antes
+       cada guardado reescribia esas listas COMPLETAS con la copia de esta pantalla: una pantalla con datos viejos borraba
+       sitios o alertas que otra acababa de crear (ej. un sitio "a confirmar" recien creado, una alerta nueva). */
+    var _dirtyLista = { sitios: {}, alertas: {}, gerenciamientos: {} }, _removedLista = { sitios: {}, alertas: {}, gerenciamientos: {} };
+    var _reintentosEscritura = 0;
+    function _marcarItem(lista, item){ if(!item || typeof item !== 'object') return; if(item.id == null) item.id = lista.slice(0, 3) + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); _dirtyLista[lista][item.id] = true; }
+    function _mergeLista(lista, server, local, dirty, removed){
+      server = Array.isArray(server) ? server : [];
+      local = Array.isArray(local) ? local : [];
+      var localPorId = {}; local.forEach(function(x){ if(x && x.id != null) localPorId[x.id] = x; });
+      var vistos = {};
+      var out = [];
+      server.forEach(function(x){
+        if(!x) return;
+        if(x.id != null && removed[x.id]) return;
+        if(x.id != null) vistos[x.id] = true;
+        out.push((x.id != null && dirty[x.id] && localPorId[x.id]) ? localPorId[x.id] : x);
+      });
+      Object.keys(dirty).forEach(function(id){ if(!vistos[id] && !removed[id] && localPorId[id]) out.push(localPorId[id]); });
+      return out;
+    }
     var REPO_MARK = 'geotab-gestion-viajes';
     /* Ajuste 4/10: marca de version que viaja en TODA escritura al documento principal (gv_data/main).
        Las reglas de seguridad de Firestore exigen este valor exacto para aceptar la escritura.
@@ -2135,7 +2156,7 @@ GV.Storage = (function(){
      sigue en AAAA-MM_2, _3...). No se pierde nada: se leen al abrir y getViajes()/getViaje() los
      siguen devolviendo, asi el calendario, la lista y las estadisticas muestran todo igual.
      Si alguien edita un viaje ya archivado, vuelve solo al documento principal. */
-  var DIAS_HISTORICO = 90;
+  var DIAS_HISTORICO = 30; /* 26/10: antes 90. El documento principal (que todas las pantallas leen y escriben a la vez) ya pesaba ~550 KB de 1 MB maximo; los viajes cerrados de mas de 30 dias pasan al historico (se siguen viendo igual). */
   var DIAS_HISTORICO_ALERTAS = 3; // las alertas se archivan mucho antes que los viajes: son ruido operativo del dia a dia, no un registro que haga falta conservar a mano en el Panel
   var MAX_POR_CORRIDA = 300; // tope de viajes/alertas movidos por vez (el resto en la proxima)
   var MAX_BYTES_MES = 800 * 1024; // margen bajo el limite de 1 MiB por documento
@@ -2427,9 +2448,20 @@ GV.Storage = (function(){
     var _removedIdsSnapshot = Object.keys(_removedViajeIds); _removedViajeIds = {};
     if(_fbReady && _fbDocRef){
       _pendingWrites++;
+      var _dirtyListaSnap = _dirtyLista, _removedListaSnap = _removedLista;
+      /* copia de los items modificados TAL COMO ESTAN AHORA (si antes de guardar llega una actualizacion de otra pantalla
+         que reemplaza las listas locales, igual se guarda lo que esta pantalla cambio) */
+      var _itemsListaSnap = {};
+      ['sitios', 'alertas', 'gerenciamientos'].forEach(function(l){ _itemsListaSnap[l] = (_data[l] || []).filter(function(x){ return x && x.id != null && _dirtyListaSnap[l][x.id]; }); });
+      _dirtyLista = { sitios: {}, alertas: {}, gerenciamientos: {} }; _removedLista = { sitios: {}, alertas: {}, gerenciamientos: {} };
       var _otherFields = { alertas: _data.alertas, sitios: _data.sitios, conductores: _data.conductores, gerenciamientos: _data.gerenciamientos, _schemaBuild: SCHEMA_BUILD, _writeNonce: _genWriteNonce() };
+      var _listasDesdeServidor = function(d){
+        var o = Object.assign({}, _otherFields);
+        ['sitios', 'alertas', 'gerenciamientos'].forEach(function(l){ o[l] = _mergeLista(l, d && d[l], _itemsListaSnap[l], _dirtyListaSnap[l], _removedListaSnap[l]); });
+        return o;
+      };
       var _writeOp;
-            if((_dirtyIdsSnapshot.length || _removedIdsSnapshot.length) && _fbDb){
+            if(_fbDb){
         var _localFullById = {};
         _dirtyIdsSnapshot.forEach(function(id){ var v = _data.viajes.find(function(x){ return x.id === id; }); if(v) _localFullById[id] = v; });
         _writeOp = _fbDb.runTransaction(function(tx){
@@ -2499,13 +2531,29 @@ GV.Storage = (function(){
                 if(idx >= 0){ serverViajes[idx] = finalViaje; } else { serverViajes.push(finalViaje); }
               }
             });
-            tx.set(_fbDocRef, Object.assign({ viajes: serverViajes }, _otherFields), { merge: true });
+            tx.set(_fbDocRef, Object.assign({ viajes: serverViajes }, _listasDesdeServidor(doc.exists ? doc.data() : null)), { merge: true });
           });
         });
       } else {
         _writeOp = _fbDocRef.set(_otherFields, { merge: true });
       }
-      _writeOp.then(function(){ _pendingWrites--; }).catch(function(){ _pendingWrites--; });
+      /* 26/10: si el guardado falla (conflicto con otra pantalla que guardo al mismo tiempo, corte de red), los cambios
+         vuelven a la cola y se reintenta solo (1, 2, 4... hasta 30 s). Antes se perdian en silencio y el viaje "volvia"
+         al estado anterior con la siguiente actualizacion. */
+      _writeOp.then(function(){ _pendingWrites--; _reintentosEscritura = 0; }).catch(function(err){
+        _pendingWrites--;
+        _dirtyIdsSnapshot.forEach(function(id){
+          var vieja = _dirtyEntriesSnapshot[id], nueva = _dirtyViajeIds[id];
+          if(!nueva) _dirtyViajeIds[id] = vieja;
+          else if(vieja === 'full' || nueva === 'full') _dirtyViajeIds[id] = 'full';
+          else _dirtyViajeIds[id] = Object.assign({}, vieja, nueva);
+        });
+        _removedIdsSnapshot.forEach(function(id){ _removedViajeIds[id] = true; });
+        ['sitios', 'alertas', 'gerenciamientos'].forEach(function(l){ Object.assign(_dirtyLista[l], _dirtyListaSnap[l]); Object.assign(_removedLista[l], _removedListaSnap[l]); });
+        _reintentosEscritura++;
+        try{ console.warn('[GV] no se pudo guardar (' + ((err && err.code) || err) + '), reintento ' + _reintentosEscritura); }catch(e){}
+        if(_reintentosEscritura <= 12) setTimeout(function(){ persist(); }, Math.min(30000, 1000 * Math.pow(2, _reintentosEscritura - 1)));
+      });
     }
     saveToLS();
     notify();
@@ -2534,7 +2582,7 @@ GV.Storage = (function(){
     historicoCargado: function(){ return _hist.cargado; },
     getConductores: function(){ return _data.conductores; },
     setConductores: function(list){ _data.conductores = list || []; return persist(); },
-    getAlertas: function(){ /* arreglo 1/10: alertas viejas de 12hs guardadas con creadoEn/texto en vez de fecha/mensaje rompian el orden de la lista de Alertas */ _data.alertas.forEach(function(a){ if(a && !a.fecha && a.creadoEn) a.fecha = a.creadoEn; if(a && !a.mensaje && a.texto) a.mensaje = a.texto; }); return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); return persist(); },
+    getAlertas: function(){ /* arreglo 1/10: alertas viejas de 12hs guardadas con creadoEn/texto en vez de fecha/mensaje rompian el orden de la lista de Alertas */ _data.alertas.forEach(function(a){ if(a && !a.fecha && a.creadoEn) a.fecha = a.creadoEn; if(a && !a.mensaje && a.texto) a.mensaje = a.texto; }); return _data.alertas; }, getSitios: function(){ return _data.sitios; }, addSitio: function(s){ _data.sitios.push(s); _marcarItem('sitios', s); return persist(); }, updateSitio: function(id, patch){ var s = _data.sitios.find(function(x){ return x.id === id; }); if(s){ Object.keys(patch).forEach(function(k){ s[k] = patch[k]; }); _marcarItem('sitios', s); } return persist(); }, removeSitio: function(id){ _data.sitios = _data.sitios.filter(function(x){ return x.id !== id; }); if(id != null) _removedLista.sitios[id] = true; return persist(); },
     addViaje: function(v){ _data.viajes.push(v); if(v && v.id) _dirtyViajeIds[v.id] = 'full'; return persist(); },
     updateViaje: function(id, patch){
       var v = _data.viajes.find(function(x){ return x.id === id; }) || traerDelHistorico(id);
@@ -2566,14 +2614,14 @@ GV.Storage = (function(){
     getViaje: function(id){ return _data.viajes.find(function(v){ return v.id === id; }) || _hist.viajes.find(function(v){ return v.id === id; }); },
     addAlerta: function(a){
       if(_data.alertas.some(function(x){ return x.id === a.id; }) || _hist.alertaIds[a.id]) return Promise.resolve(false);
-      _data.alertas.push(a); return persist();
+      _data.alertas.push(a); _marcarItem('alertas', a); return persist();
     },
     removeAlerta: function(id){
-      _data.alertas = _data.alertas.filter(function(a){ return a.id !== id; });
+      _data.alertas = _data.alertas.filter(function(a){ return a.id !== id; }); if(id != null) _removedLista.alertas[id] = true;
       return persist();
     },
 getGerenciamientos: function(){ return _data.gerenciamientos; },
-    addGerenciamiento: function(g){ _data.gerenciamientos.push(g); return persist(); },
+    addGerenciamiento: function(g){ _data.gerenciamientos.push(g); _marcarItem('gerenciamientos', g); return persist(); },
     isConnected: function(){ return !!_addInId; },
     pushCompartido: function(token, payload){
       if(!token) return Promise.resolve(false);
