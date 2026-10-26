@@ -31,6 +31,132 @@ var gDriver = null;
 var gConductores = [];
 var gPollTimer = null;
 var gSessionUserName = null;
+var gState = null;
+/* ---------------- 26/10: HOJAS DE RUTA ----------------
+   Las hojas de ruta completas (PDF) quedan disponibles para consultar cuando el chofer quiera. El RUTOGRAMA (mapa +
+   referencias de riesgo ante lluvias intensas) es OBLIGATORIO: aparece dentro del gerenciamiento y el chofer tiene que
+   confirmar que lo leyo para poder continuar. Archivos en la carpeta hojas-de-ruta/ del repositorio. */
+var GV_HDR_BASE = ((GV.__baseUrl || 'https://axel-valle-22.github.io/geotab-gestion-viajes/') + 'hojas-de-ruta/');
+var GV_HDR_CRITERIO = 'CRITERIO ANTE LLUVIA INTENSA: si el estado de rutas informa corte o restricción, o hay sectores anegados en el recorrido, detener la marcha en un lugar seguro, informar a la supervisión de TDP y reprogramar el traslado. No cruzar zonas con agua acumulada.';
+var GV_HDR_ESTADO_RUTAS = 'https://emergenciasyriesgos.neuquen.gov.ar/operativo-nieve/';
+var GV_HOJAS_RUTA = [
+  { id: 'plottier-rdls', titulo: 'Base TDP Plottier → Base TDP Rincón de los Sauces', km: '259 km', version: 'Actualizada 15/10/2026',
+    pdf: 'hdr-plottier-rdls-10-2026.pdf', mapa: 'rutograma-plottier-rdls.jpg', claves: ['rincon de los sauces', 'rincon', 'rdls', 'r.d.l.s'],
+    puntos: [
+      ['1', '0,6', 'Paso a nivel y cruce semaforizado – acceso a RN 22', 'calzada mojada y menor adherencia. Reducir la velocidad antes del cruce; evitar maniobras bruscas.', 'MEDIO'],
+      ['2', '9,8 – 26', 'RP N°7 (Autovía Norte), tramo PIN – Centenario', 'calzada de ripio con presencia de pozos. Circular a velocidad precautoria.', 'ALTO'],
+      ['3', '47,8', 'RPN°51 – dársena junto al Río Neuquén', 'dársena de ripio, banquina blanda o con barro. Usarla solo si es imprescindible y con suelo firme.', 'BAJO'],
+      ['4', '71 – 78', 'RPN°8 y Dique Compensador El Chañar', 'calzada de ripio con pozos, angosta sobre el dique, con barro de chacras. Velocidad precautoria; prohibido adelantar.', 'ALTO'],
+      ['5', '76 – 121', 'RPN°8 / RP N°7 – zona de chacras', 'barro arrastrado a la calzada por riego y maquinaria; banquinas blandas. Ampliar la distancia de seguimiento.', 'MEDIO'],
+      ['6', '124,5', 'RP N°7 – zona de pendiente (Añelo)', 'calzada resbaladiza y mayor distancia de frenado de equipos pesados. Descender a velocidad precautoria.', 'MEDIO'],
+      ['7', '124,5 – 185', 'RP N°7 Añelo – cruce RP N°5', 'deformaciones, baches profundos y barro (mapa Protección Civil 15/10/2026). No usar las banquinas; velocidad precautoria.', 'MEDIO'],
+      ['8', '145', 'RP N°7 – Bajada del Mono', 'descenso sinuoso con calzada mojada; mayor distancia de frenado. Máx. 40 km/h; prohibido sobrepasar.', 'ALTO'],
+      ['9', '161', 'RP N°7 – Cañadón de las Coloradas', 'zona inundable. No cruzar con agua o barro sobre la calzada; detenerse en lugar seguro e informar a la supervisión.', 'ALTO'],
+      ['10', '185', 'Cruce RP N°7 – RP N°5', 'giro a la derecha con calzada mojada. Reducir la velocidad y verificar terceros en ambos sentidos.', 'MEDIO'],
+      ['11', '187', 'RP N°5 – Cañadón / Arroyo Carranza', 'zona inundable; el caudal está en monitoreo y la ruta puede cortarse. Respetar la señalización; no cruzar con agua.', 'ALTO'],
+      ['12', '190', 'RP N°5 – inicio de camino sinuoso', 'curvas con calzada mojada. Reducir la velocidad antes de cada curva; ampliar la distancia de seguimiento.', 'MEDIO'],
+      ['13', '257', 'Rotonda RP N°5 – RP N°6, ingreso a Rincón de los Sauces', 'calzada mojada en la rotonda. Máx. 40 km/h; ceder el paso.', 'BAJO'],
+      ['14', '259', 'Ingreso a Base TDP RDLS', 'suelo natural con posible barro y pozos. Máx. 10 km/h; velocidad precautoria.', 'MEDIO']
+    ] },
+  { id: 'plottier-anelo', titulo: 'Base TDP Plottier → Base TDP Añelo', km: '128,3 km', version: 'Actualizada 10/2026',
+    pdf: 'hdr-plottier-anelo-10-2026.pdf', mapa: 'rutograma-plottier-anelo.jpg', claves: ['anelo', 'añelo'],
+    puntos: [
+      ['1', '0,6', 'Paso a nivel y cruce semaforizado – acceso a RN 22', 'calzada mojada y menor adherencia. Reducir la velocidad antes del cruce; evitar maniobras bruscas.', 'MEDIO'],
+      ['2', '9,8 – 26', 'RP N°7 (Autovía Norte), tramo PIN – Centenario', 'calzada de ripio con presencia de pozos. Circular a velocidad precautoria.', 'ALTO'],
+      ['3', '47,8', 'RPN°51 – dársena junto al Río Neuquén', 'dársena de ripio, banquina blanda o con barro. Usarla solo si es imprescindible y con suelo firme.', 'BAJO'],
+      ['4', '71 – 78', 'RPN°8 y Dique Compensador El Chañar', 'calzada de ripio con pozos, angosta sobre el dique, con barro de chacras. Velocidad precautoria; prohibido adelantar.', 'ALTO'],
+      ['5', '76 – 121', 'RPN°8 / RP N°7 – zona de chacras', 'barro arrastrado a la calzada por riego y maquinaria; banquinas blandas. Ampliar la distancia de seguimiento.', 'MEDIO'],
+      ['6', '124,5', 'RP N°7 – zona de pendiente', 'calzada resbaladiza y mayor distancia de frenado de equipos pesados. Descender a velocidad precautoria.', 'MEDIO'],
+      ['7', '127 – 128,3', 'Cruce RP N°7 y camino interno PI Añelo / acceso a base', 'ripio/suelo natural con barro, ahuellamiento o encharcamiento. Evaluar con la supervisión antes de ingresar.', 'ALTO'],
+      ['B1', 'Bypass 0', 'Cruce RP N°8 – RP N°7 (inicio de la variante)', 'cruce peligroso con calzada mojada. Reducir la velocidad; ceder el paso.', 'MEDIO'],
+      ['B2', 'Bypass 34', 'Curva y contracurva en subida', 'calzada resbaladiza, mayor distancia de frenado. Velocidad precautoria.', 'MEDIO'],
+      ['B3', 'Bypass 35 – 43', 'RP N°17 – tramo en construcción (7 km), camino alternativo de ripio', 'barro, encharcamiento y máquinas viales. Consultar estado de la ruta; reprogramar si hay restricción.', 'ALTO'],
+      ['B4', 'Bypass 50', 'Cruce RP N°17 – RP N°7', 'barro de obra sobre la calzada y peatones en paradores. Distancia prudente; ceder el paso.', 'MEDIO'],
+      ['R', 'Retorno', 'Calles Trenque Lauquen y Río Colorado', 'banquina de ripio y curva pronunciada. Máx. 40 km/h; disminuir la velocidad en la curva.', 'MEDIO']
+    ] },
+  { id: 'plottier-anelo-02', titulo: 'Base TDP Plottier → Base TDP Añelo (versión 02/2026)', km: '128,3 km', version: 'Versión anterior 02/2026',
+    pdf: 'hdr-plottier-anelo-02-2026.pdf', soloConsulta: true }
+];
+function gvHdrPorId(id){ return GV_HOJAS_RUTA.filter(function(h){ return h.id === id; })[0] || null; }
+function gvHdrNorm(t){ return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+/* Sugiere la hoja de ruta segun el texto del viaje (origen, paradas, destino, observaciones). */
+function gvHdrSugerida(texto){
+  var t = gvHdrNorm(texto);
+  if(!t) return null;
+  var h = GV_HOJAS_RUTA.filter(function(x){ return !x.soloConsulta && x.claves.some(function(k){ return t.indexOf(gvHdrNorm(k)) >= 0; }); })[0];
+  return h ? h.id : null;
+}
+function gvHdrTextoViaje(v){
+  if(!v) return '';
+  return [v.origen && v.origen.direccion, v.destino && v.destino.direccion].concat((v.paradas || []).map(function(p){ return p.direccion; })).concat([v.observaciones]).join(' ');
+}
+function gvHdrRutogramaHtml(h){
+  if(!h || !h.puntos) return '';
+  var COL = { ALTO: 'background:#c00000;color:#fff', MEDIO: 'background:#ffc000;color:#111', BAJO: 'background:#2e9e48;color:#fff' };
+  return '<div class="gv-hdr-ruto">' +
+    '<div style="font-size:.78rem;background:#e8f1fb;border:1px solid #9cc3e6;border-radius:8px;padding:8px 10px;margin-bottom:8px"><b>ESTADO ACTUAL DE RUTAS:</b> las condiciones cambian según el clima. Consultar antes de cada salida el mapa de Emergencias y Riesgos – Neuquén: <a href="' + GV_HDR_ESTADO_RUTAS + '" target="_blank" rel="noopener">abrir mapa</a></div>' +
+    '<div style="background:#5b9bd5;color:#fff;font-weight:700;text-align:center;padding:6px;border-radius:8px 8px 0 0;font-size:.85rem">RUTOGRAMA – ' + GV.escapeHtml(h.titulo) + ' · ' + GV.escapeHtml(h.km) + '</div>' +
+    '<a href="' + GV_HDR_BASE + h.mapa + '" target="_blank" rel="noopener" title="Tocá para agrandar"><img src="' + GV_HDR_BASE + h.mapa + '" alt="Rutograma" style="width:100%;display:block;border:1px solid #9cc3e6;border-top:0"></a>' +
+    '<div style="background:#5b9bd5;color:#fff;font-weight:700;text-align:center;padding:6px;margin-top:8px;font-size:.8rem">REFERENCIAS DEL RUTOGRAMA – RIESGO ANTE LLUVIAS INTENSAS</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:.76rem">' +
+    '<thead><tr style="background:#1f4e79;color:#fff"><th style="padding:4px">N°</th><th style="padding:4px">KM</th><th style="padding:4px;text-align:left">Punto / condición y acción</th><th style="padding:4px">Riesgo</th></tr></thead><tbody>' +
+    h.puntos.map(function(p){
+      return '<tr style="border-bottom:1px solid #d1d5db"><td style="text-align:center;font-weight:700;padding:4px">' + p[0] + '</td><td style="text-align:center;padding:4px;white-space:nowrap">' + GV.escapeHtml(p[1]) + '</td>' +
+        '<td style="padding:4px"><b>' + GV.escapeHtml(p[2]) + ':</b> ' + GV.escapeHtml(p[3]) + '</td>' +
+        '<td style="text-align:center;font-weight:700;padding:4px;' + (COL[p[4]] || '') + '">' + p[4] + '</td></tr>';
+    }).join('') + '</tbody></table>' +
+    '<div style="font-size:.78rem;background:#fff4d6;border:1px solid #e0b252;color:#7a5200;border-radius:8px;padding:8px 10px;margin-top:8px">' + GV.escapeHtml(GV_HDR_CRITERIO) + '</div>' +
+    '<div style="margin-top:8px"><a class="gv-btn gv-btn-sec gv-btn-sm" href="' + GV_HDR_BASE + h.pdf + '" target="_blank" rel="noopener">Ver hoja de ruta completa (PDF)</a></div>' +
+    '</div>';
+}
+function gvAbrirHojasDeRuta(idInicial){
+  var ov = document.createElement('div');
+  ov.className = 'gv-modal-overlay';
+  ov.innerHTML = '<div class="gv-modal" style="max-width:760px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><h3 style="margin:0">Hojas de ruta</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-hdr-cerrar>Cerrar</button></div><div data-hdr-cuerpo></div></div>';
+  document.body.appendChild(ov);
+  var cuerpo = ov.querySelector('[data-hdr-cuerpo]');
+  function lista(){
+    cuerpo.innerHTML = GV_HOJAS_RUTA.map(function(h){
+      return '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:10px">' +
+        '<div style="font-weight:700">' + GV.escapeHtml(h.titulo) + '</div><div style="font-size:.78rem;color:#6b7280;margin:2px 0 8px">' + GV.escapeHtml(h.km + ' · ' + h.version) + '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' + (h.puntos ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" data-hdr-ver="' + h.id + '">Ver rutograma</button>' : '') +
+        '<a class="gv-btn gv-btn-sec gv-btn-sm" href="' + GV_HDR_BASE + h.pdf + '" target="_blank" rel="noopener">Hoja de ruta completa (PDF)</a></div></div>';
+    }).join('');
+  }
+  function ver(id){
+    var h = gvHdrPorId(id); if(!h){ lista(); return; }
+    cuerpo.innerHTML = '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-hdr-volver style="margin-bottom:8px">&larr; Todas las hojas de ruta</button>' + gvHdrRutogramaHtml(h);
+  }
+  ov.addEventListener('click', function(e){
+    if(e.target === ov || e.target.closest('[data-hdr-cerrar]')){ ov.remove(); return; }
+    var b = e.target.closest('[data-hdr-ver]'); if(b){ ver(b.getAttribute('data-hdr-ver')); return; }
+    if(e.target.closest('[data-hdr-volver]')) lista();
+  });
+  if(idInicial) ver(idInicial); else lista();
+}
+
+/* ---------------- 26/10: GERENCIAMIENTO SIN VIAJE PROGRAMADO ----------------
+   Cualquier chofer puede hacer el gerenciamiento aunque no tenga un viaje cargado. Queda registrado en Gerenciamientos
+   (sin viaje) y avisa al coordinador. Si despues le cargan un viaje ese mismo dia, puede usar ese gerenciamiento
+   (si quedo autorizado) sin tener que repetirlo. */
+function misGerSinViaje(horas){
+  if(!gDriver) return [];
+  var desde = Date.now() - (horas || 24) * 3600000;
+  return ((GV.Storage.getGerenciamientos && GV.Storage.getGerenciamientos()) || []).filter(function(g){
+    return g && g.sinViaje && g.conductorId === gDriver.id && new Date(g.fecha).getTime() >= desde;
+  }).sort(function(a, b){ return new Date(b.fecha) - new Date(a.fecha); });
+}
+function gerAutorizado(g){
+  if(!g || g.rechazado) return false;
+  if(g.autorizadoPor === 'supervisor') return true;
+  return g.resultado === 'verde';
+}
+function estadoGerTxt(g){
+  if(g.rechazado) return '<span style="color:#991b1b;font-weight:700">Rechazado por el supervisor</span>';
+  if(gerAutorizado(g)) return '<span style="color:#065f46;font-weight:700">Autorizado para viajar</span>';
+  if(g.resultado === 'rojo' && !g.solicitoAutorizacion) return '<span style="color:#991b1b;font-weight:700">NO AUTORIZADO A VIAJAR</span>';
+  return '<span style="color:#92400e;font-weight:700">Esperando autorizacion del supervisor</span>';
+}
 
 function puedeIniciar(v){
 var g = v.gerenciamiento;
@@ -58,7 +184,17 @@ var pendientes = viajes.filter(function(v){ return v.estado === 'planificado' ||
 var enCurso = viajes.filter(function(v){ return v.estado === 'en_curso'; });
 var historial = viajes.filter(function(v){ return v.estado === 'completado'; }).slice(-5).reverse();
 
-var html = '';
+var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
+  '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="ger-sin-viaje">Hacer gerenciamiento (sin viaje programado)</button>' +
+  '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="hojas-ruta">Hojas de ruta</button></div>';
+var __gsv = misGerSinViaje(24);
+if(__gsv.length){
+  html += '<div class="gv-driver-trip" style="padding:10px 12px"><div style="font-weight:700;font-size:.85rem;margin-bottom:6px">Mis gerenciamientos sin viaje (ultimas 24 h)</div>' +
+    __gsv.map(function(g){
+      var col = g.resultado === 'verde' ? '#059669' : (g.resultado === 'amarillo' ? '#d97706' : '#dc2626');
+      return '<div style="font-size:.82rem;padding:6px 0;border-top:1px dashed #e5e7eb"><b style="color:' + col + '">' + (g.resultado || '').toUpperCase() + '</b> · ' + GV.fmtDate(g.fecha) + ' · ' + GV.escapeHtml(g.vehiculo || '') + (g.destino ? ' → ' + GV.escapeHtml(g.destino) : '') + '<br>' + estadoGerTxt(g) + '</div>';
+    }).join('') + '</div>';
+}
 
 enCurso.concat(pendientes).forEach(function(v){
 html += renderViajeCard(v);
@@ -77,6 +213,20 @@ box.innerHTML = html;
 
 box.querySelectorAll('[data-action="gerenciar"]').forEach(function(btn){
 btn.addEventListener('click', function(){ abrirWizard(btn.getAttribute('data-id')); });
+});
+box.querySelectorAll('[data-action="ger-sin-viaje"]').forEach(function(btn){
+btn.addEventListener('click', function(){ abrirWizard(null); });
+});
+box.querySelectorAll('[data-action="hojas-ruta"]').forEach(function(btn){
+btn.addEventListener('click', function(){ gvAbrirHojasDeRuta(btn.getAttribute('data-hdr') || null); });
+});
+box.querySelectorAll('[data-action="usar-ger"]').forEach(function(btn){
+btn.addEventListener('click', function(){
+  var g = misGerSinViaje(12).filter(function(x){ return x.id === btn.getAttribute('data-ger'); })[0];
+  if(!g) return;
+  GV.Storage.updateViaje(btn.getAttribute('data-id'), { gerenciamiento: { resultado: g.resultado, motivos: g.motivos || [], respuestas: g.respuestas || {}, completadoEn: g.fecha, autorizadoPor: g.autorizadoPor || (g.resultado === 'verde' ? 'auto' : null), rechazado: false, solicitoAutorizacion: false, desdeGerenciamientoId: g.id } })
+    .then(function(){ renderDriverView(); });
+});
 });
 box.querySelectorAll('[data-action="iniciar"]').forEach(function(btn){
 btn.addEventListener('click', function(){
@@ -222,6 +372,7 @@ progreso = renderProgresoSitios(v);
   /* Ningun viaje puede iniciar sin gerenciamiento: mientras el viaje no este autorizado a salir,
      la opcion de hacer (o rehacer) el gerenciamiento tiene que seguir disponible siempre. */
   var autorizado = puedeIniciar(v);
+  var __gHoy = (!g || !g.resultado) ? misGerSinViaje(12).filter(gerAutorizado)[0] : null;
   if(!g || !g.resultado){
     banner = '<div class="gv-banner gv-banner-info"><h3>Tenes un viaje programado</h3><p>Antes de iniciar, debes completar el Gerenciamiento de Viaje (obligatorio).</p></div>';
   } else if(autorizado){
@@ -241,11 +392,14 @@ progreso = renderProgresoSitios(v);
     actions = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="iniciar" data-id="' + v.id + '">Iniciar Viaje</button>';
   } else {
     actions = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="gerenciar" data-id="' + v.id + '">' + ((!g || !g.resultado) ? 'Iniciar Gerenciamiento de Viaje' : 'Rehacer Gerenciamiento de Viaje') + '</button>';
+    if(__gHoy) actions += '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="usar-ger" data-id="' + v.id + '" data-ger="' + __gHoy.id + '">Usar el gerenciamiento de hoy (' + new Date(__gHoy.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) + ')</button>';
   }
 }
 }
 
 actions += '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="detalle" data-id="' + v.id + '">Ver Detalle</button>';
+var __hdrV = (v.gerenciamiento && v.gerenciamiento.respuestas && v.gerenciamiento.respuestas.hojaRuta && v.gerenciamiento.respuestas.hojaRuta !== 'otra') ? v.gerenciamiento.respuestas.hojaRuta : gvHdrSugerida(gvHdrTextoViaje(v));
+if(__hdrV && !compact) actions += '<button class="gv-btn gv-btn-sec gv-btn-sm" data-action="hojas-ruta" data-hdr="' + __hdrV + '">Hoja de ruta</button>';
 
 return '<div class="gv-driver-trip">' + banner +
 '<div class="gv-trip-header"><div class="gv-trip-title">' + GV.escapeHtml(v.vehiculo||'?') + '</div><span class="gv-status gv-s-' + v.estado + '">' + GV.statusLabel(v.estado) + '</span></div>' +
@@ -347,8 +501,11 @@ if(mapBox2) mapBox2.textContent = 'Error al cargar el mapa: ' + err.message;
 
 /* ---------------- Wizard de Gerenciamiento de Viaje ---------------- */
 function abrirWizard(viajeId){
-var viaje = GV.Storage.getViaje(viajeId);
-if(!viaje) return;
+var viaje = viajeId ? GV.Storage.getViaje(viajeId) : null;
+if(viajeId && !viaje) return;
+var sinViaje = !viaje;
+var datosSV = { vehiculoId: '', vehiculo: '', destino: '' };
+var __devicesSV = null;
 
 var respuestas = {
 durmioPoco: null, horasDespiertoMas16: null, alcoholMedicacion: null, noApto: null,
@@ -356,8 +513,10 @@ motivo: null, motivoOtro: '',
 checklist: { alarmaRetroceso: null, kitAntiderrame: null, parabrisas: null, espejos: null, neumaticos: null, verificacion360: null },
 checklistObs: '',
 clima: null, rutaConocida: null, comunicacion: null,
-fatiga: null
+fatiga: null,
+hojaRuta: null, hojaRutaLeida: false
 };
+respuestas.hojaRuta = viaje ? gvHdrSugerida(gvHdrTextoViaje(viaje)) : null;
 
 /* Indica si, para una pregunta si/no del wizard, contestar "si" es la respuesta buena (verde) o
    la mala (rojo). En el aviso de seguridad vial son preguntas capciosas: contestar "si" es malo.
@@ -372,7 +531,7 @@ var esBueno = (v === 'si') === siEsPositivo(q);
 return esBueno ? 'gv-r-yes-sel' : 'gv-r-no-sel';
 }
 
-var steps = ['aviso', 'motivo', 'checklist', 'riesgos', 'fatiga', 'resultado'];
+var steps = (sinViaje ? ['datos'] : []).concat(['aviso', 'motivo', 'checklist', 'riesgos', 'hojaRuta', 'fatiga', 'resultado']);
 var stepIdx = 0;
 
 var overlay = document.createElement('div');
@@ -390,7 +549,23 @@ return html + '</div>';
 
 function renderStep(){
 var body = '';
-if(steps[stepIdx] === 'aviso'){
+if(steps[stepIdx] === 'datos'){
+body = '<h3>Gerenciamiento sin viaje programado</h3>' +
+'<p style="font-size:.85rem;color:#374151;margin:0 0 10px">Completá con que unidad salis y a donde vas. El coordinador recibe el aviso.</p>' +
+'<div class="gv-form-row"><label>Unidad<span class="gv-req">*</span></label><select id="gv-sv-veh"><option value="">' + (__devicesSV ? 'Seleccionar unidad...' : 'Cargando unidades...') + '</option>' +
+  (__devicesSV || []).map(function(d){ return '<option value="' + GV.escapeHtml(d.id) + '"' + (datosSV.vehiculoId === d.id ? ' selected' : '') + '>' + GV.escapeHtml(d.name) + '</option>'; }).join('') + '</select>' +
+  '<input type="text" id="gv-sv-veh-txt" placeholder="...o escribí la unidad (ej. T205)" value="' + GV.escapeHtml(datosSV.vehiculoId ? '' : datosSV.vehiculo) + '" style="margin-top:6px"></div>' +
+'<div class="gv-form-row"><label>Destino / recorrido<span class="gv-req">*</span></label><input type="text" id="gv-sv-dest" placeholder="Ej. Base Añelo, Rincón de los Sauces, locación..." value="' + GV.escapeHtml(datosSV.destino) + '"></div>';
+} else if(steps[stepIdx] === 'hojaRuta'){
+var __h = respuestas.hojaRuta && respuestas.hojaRuta !== 'otra' ? gvHdrPorId(respuestas.hojaRuta) : null;
+body = '<h3>Hoja de ruta<span class="gv-req">*</span></h3>' +
+'<div class="gv-form-row"><label>Recorrido</label><select id="gv-hdr-sel"><option value="">Seleccionar...</option>' +
+  GV_HOJAS_RUTA.filter(function(h){ return !h.soloConsulta; }).map(function(h){ return '<option value="' + h.id + '"' + (respuestas.hojaRuta === h.id ? ' selected' : '') + '>' + GV.escapeHtml(h.titulo) + '</option>'; }).join('') +
+  '<option value="otra"' + (respuestas.hojaRuta === 'otra' ? ' selected' : '') + '>Otro recorrido (sin hoja de ruta cargada)</option></select></div>' +
+(__h ? (gvHdrRutogramaHtml(__h) +
+  '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:.88rem;font-weight:600;background:#eef6ff;border:1px solid #93c5fd;border-radius:8px;padding:10px"><input type="checkbox" id="gv-hdr-leida"' + (respuestas.hojaRutaLeida ? ' checked' : '') + ' style="margin-top:3px"> Lei el rutograma y los puntos de riesgo ante lluvias intensas de esta hoja de ruta.</label>')
+  : (respuestas.hojaRuta === 'otra' ? '<p style="font-size:.85rem;color:#6b7280">Este recorrido no tiene hoja de ruta cargada. Consultá el estado de rutas antes de salir: <a href="' + GV_HDR_ESTADO_RUTAS + '" target="_blank" rel="noopener">mapa de Emergencias y Riesgos</a>.</p>' : ''));
+} else if(steps[stepIdx] === 'aviso'){
 body = '<h3>Aviso de seguridad vial</h3>' +
 '<div class="gv-banner gv-banner-warn"><p>El conductor debera notificar a su supervisor y NO REALIZAR EL VIAJE si:</p></div>' +
 '<div class="gv-check-row"><span>Dormiste menos de 6 horas la jornada anterior</span><div class="gv-radio-pair" data-q="durmioPoco"><button data-v="si">Si</button><button data-v="no">No</button></div></div>' +
@@ -463,6 +638,19 @@ renderActions();
 });
 });
 
+if(steps[stepIdx] === 'datos'){
+var __vs = document.getElementById('gv-sv-veh'), __vt = document.getElementById('gv-sv-veh-txt'), __ds = document.getElementById('gv-sv-dest');
+if(__vs) __vs.addEventListener('change', function(){ datosSV.vehiculoId = __vs.value; datosSV.vehiculo = __vs.value ? __vs.options[__vs.selectedIndex].text : (__vt ? __vt.value.trim() : ''); if(__vs.value && __vt) __vt.value = ''; renderActions(); });
+if(__vt) __vt.addEventListener('input', function(){ if(__vt.value.trim()){ datosSV.vehiculoId = ''; datosSV.vehiculo = __vt.value.trim(); if(__vs) __vs.value = ''; } else if(!datosSV.vehiculoId){ datosSV.vehiculo = ''; } renderActions(); });
+if(__ds) __ds.addEventListener('input', function(){ datosSV.destino = __ds.value.trim(); renderActions(); });
+if(!__devicesSV) cargarUnidadesSV();
+}
+if(steps[stepIdx] === 'hojaRuta'){
+var __hs = document.getElementById('gv-hdr-sel');
+if(__hs) __hs.addEventListener('change', function(){ respuestas.hojaRuta = __hs.value || null; respuestas.hojaRutaLeida = false; renderStep(); });
+var __hl = document.getElementById('gv-hdr-leida');
+if(__hl) __hl.addEventListener('change', function(){ respuestas.hojaRutaLeida = __hl.checked; renderActions(); });
+}
 if(steps[stepIdx] === 'fatiga'){
 modal.querySelectorAll('input[name="gv-fatiga"]').forEach(function(r){
 r.addEventListener('change', function(){ respuestas.fatiga = r.value; renderActions(); });
@@ -488,8 +676,21 @@ r.addEventListener('change', function(){ respuestas.clima = r.value; renderActio
 renderActions();
 }
 
+function cargarUnidadesSV(){
+  var listo = function(lista){ __devicesSV = (lista || []).filter(function(d){ return d && d.id && d.name; }).sort(function(a, b){ return a.name.localeCompare(b.name, 'es', { numeric: true }); }); if(steps[stepIdx] === 'datos') renderStep(); };
+  /* en MyGeotab Drive, la unidad en la que esta logueado el chofer viene en el estado de la app */
+  var actual = gState && gState.device && gState.device.id;
+  if(!gApi){ listo([]); return; }
+  gApi.call('Get', { typeName: 'Device', resultsLimit: 1000 }, function(res){
+    listo((res || []).map(function(d){ return { id: d.id, name: d.name }; }));
+    if(actual && !datosSV.vehiculoId){ var d0 = __devicesSV.filter(function(d){ return d.id === actual; })[0]; if(d0){ datosSV.vehiculoId = d0.id; datosSV.vehiculo = d0.name; if(steps[stepIdx] === 'datos') renderStep(); } }
+  }, function(){ listo([]); });
+}
+
 function stepValido(){
 var s = steps[stepIdx];
+if(s === 'datos') return !!(datosSV.vehiculo && datosSV.destino);
+if(s === 'hojaRuta') return respuestas.hojaRuta === 'otra' || (!!respuestas.hojaRuta && respuestas.hojaRutaLeida);
 if(s === 'aviso') return respuestas.durmioPoco && respuestas.horasDespiertoMas16 && respuestas.alcoholMedicacion && respuestas.noApto;
 if(s === 'motivo') return !!respuestas.motivo;
 if(s === 'checklist'){
@@ -523,7 +724,7 @@ if(cancelBtn) cancelBtn.addEventListener('click', cerrarWizard);
 var prevBtn = document.getElementById('gv-wizard-prev');
 if(prevBtn) prevBtn.addEventListener('click', function(){ stepIdx--; renderStep(); });
 var nextBtn = document.getElementById('gv-wizard-next');
-if(nextBtn) nextBtn.addEventListener('click', function(){ if(stepValido()){ stepIdx++; renderStep(); } });
+if(nextBtn) nextBtn.addEventListener('click', function(){ if(stepValido()){ if(steps[stepIdx] === 'datos' && !respuestas.hojaRuta) respuestas.hojaRuta = gvHdrSugerida(datosSV.destino); stepIdx++; renderStep(); } });
 var finishBtn = document.getElementById('gv-wizard-finish');
 if(finishBtn) finishBtn.addEventListener('click', function(){ finalizarWizard(false); });
 var solicitarBtn = document.getElementById('gv-wizard-solicitar');
@@ -554,6 +755,26 @@ function cerrarWizard(){ overlay.remove(); }
 function finalizarWizard(solicitarAuth){
 var r = calcularResultado();
   var ahora = new Date().toISOString();
+  var __hdrSel = respuestas.hojaRuta && respuestas.hojaRuta !== 'otra' ? gvHdrPorId(respuestas.hojaRuta) : null;
+  if(__hdrSel){ respuestas.hojaRutaTitulo = __hdrSel.titulo; respuestas.hojaRutaVersion = __hdrSel.version; respuestas.hojaRutaLeidaEn = ahora; }
+  if(sinViaje){
+    var __reg = {
+      id: GV.genId('ger'), viajeId: null, sinViaje: true,
+      conductorId: gDriver ? gDriver.id : null, conductor: gDriver ? (gDriver.nombre || gDriver.name || '') : '',
+      vehiculoId: datosSV.vehiculoId || null, vehiculo: datosSV.vehiculo, destino: datosSV.destino,
+      fecha: ahora, resultado: r.resultado, motivos: r.motivos, respuestas: respuestas,
+      autorizadoPor: r.resultado === 'verde' ? 'auto' : null, rechazado: false,
+      solicitoAutorizacion: !!(r.resultado === 'rojo' && solicitarAuth)
+    };
+    var __txt = __reg.conductor + ' (' + __reg.vehiculo + ') - sin viaje programado, destino: ' + __reg.destino;
+    GV.Storage.addGerenciamiento(__reg).then(function(){
+      if(r.resultado === 'amarillo' || (r.resultado === 'rojo' && solicitarAuth)){
+        return GV.Storage.addAlerta({ id: 'al_auth_ger_' + __reg.id, tipo: 'autorizacion', gerId: __reg.id, mensaje: 'Solicitud de autorizacion' + (r.resultado === 'rojo' ? ' (gerenciamiento ROJO)' : '') + ': ' + __txt + ' - ' + r.motivos.join('; '), fecha: ahora });
+      }
+      return GV.Storage.addAlerta({ id: 'al_ger_' + __reg.id, tipo: 'info', gerId: __reg.id, mensaje: (r.resultado === 'rojo' ? 'Gerenciamiento ROJO, chofer bloqueado para viajar: ' : 'Gerenciamiento VERDE: ') + __txt + (r.motivos.length ? (' - ' + r.motivos.join('; ')) : ''), fecha: ahora });
+    }).then(function(){ cerrarWizard(); renderDriverView(); });
+    return;
+  }
 var gerenciamiento = {
   resultado: r.resultado,
   motivos: r.motivos,
@@ -672,6 +893,7 @@ function doInit(api, state){
 if(window._gvInitDone === 'real') return; /* evita doble inicializacion si ya hubo una real */
 window._gvInitDone = api ? 'real' : 'null';
 gApi = api;
+gState = state || null;
 GV.injectCSS('gv-style-container');
 setupEvents();
 
