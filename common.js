@@ -1186,7 +1186,11 @@ GV.pickLocation = function(opts){
         var __nmKeep = opts.mantenerNombre ? ((document.getElementById('gv-site-name') || {}).value || '').trim() : '';
         if(__nmKeep){ current.direccion = __nmKeep; current.nombreSitio = __nmKeep; }
         /* Contorno tomado del SIG de Neuquen: se conserva solo si el punto nuevo sigue adentro de esa locacion. */
-        if(__prevPoligono && !(__prevSig && !GV.pointInPolygon({ lat: lat, lng: lng }, __prevPoligono))){ current.poligono = __prevPoligono; if(__prevSig) current.sigNqn = __prevSig; }
+        /* 26/10 (caso H337 Sañudo, PH 359): el area anterior (contorno del SIG o poligono dibujado a mano) se conserva SOLO si
+           el punto nuevo sigue adentro de ella. Antes un poligono dibujado a mano se conservaba siempre: se movia el punto a
+           2,5 km pero la geocerca quedaba en el lugar viejo y la unidad nunca figuraba "en sitio". */
+        if(__prevPoligono && GV.pointInPolygon({ lat: lat, lng: lng }, __prevPoligono)){ current.poligono = __prevPoligono; if(__prevSig) current.sigNqn = __prevSig; }
+        else if(__prevPoligono && !__prevSig && shapeMode === 'manual'){ manualPoly = []; try{ updateManualPoly(); }catch(__eMP){} setShapeMode('circulo'); }
         else if(__prevSig && shapeMode === 'circulo'){ var __bC2 = document.getElementById('gv-shape-circulo'); if(__bC2){ __bC2.style.background = 'var(--gv-accent)'; __bC2.style.color = '#fff'; } }
         scheduleAreaPreview();
         var addrEl = document.getElementById('gv-map-addr');
