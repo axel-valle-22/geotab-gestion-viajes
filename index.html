@@ -565,7 +565,7 @@ function renderAlertas(){
         seccion('Motivo del viaje', motivoHtml) +
         seccion('Controles y checklist vehicular', checklistHtml) +
         seccion('Evaluacion de riesgos', riesgosHtml) +
-        (g.sinViaje ? seccion('Viaje (sin viaje programado)', fila('Unidad', GV.escapeHtml(g.vehiculo || '-')) + fila('Destino / recorrido', GV.escapeHtml(g.destino || '-')) + fila('Autorizacion', g.rechazado ? 'Rechazado' : (g.autorizadoPor === 'supervisor' ? 'Aprobado por supervisor' : (g.resultado === 'verde' ? 'Automatica (verde)' : 'Pendiente')))) : '') +
+        (g.sinViaje ? seccion('Viaje (sin viaje programado)', fila('Unidad', GV.escapeHtml(g.vehiculo || '-')) + (g.origen ? fila('Origen', GV.escapeHtml(g.origen)) : '') + fila('Destino', GV.escapeHtml(g.destino || '-')) + (g.kmEstimado != null ? fila('Km estimados', g.kmEstimado + ' km' + (g.minEstimado ? ' (aprox. ' + Math.floor(g.minEstimado / 60) + ' h ' + ('0' + (g.minEstimado % 60)).slice(-2) + ' min)' : '') + (g.kmFuente === 'recta' ? ' - aproximado' : (g.kmFuente === 'aprendida' ? ' - segun recorridos reales' : ''))) : '') + fila('Autorizacion', g.rechazado ? 'Rechazado' : (g.autorizadoPor === 'supervisor' ? 'Aprobado por supervisor' : (g.resultado === 'verde' ? 'Automatica (verde)' : 'Pendiente')))) : '') +
         seccion('Hoja de ruta', fila('Recorrido', GV.escapeHtml(r.hojaRutaTitulo || (r.hojaRuta === 'otra' ? 'Otro recorrido (sin hoja de ruta)' : '-'))) + (r.hojaRutaTitulo ? (fila('Version', GV.escapeHtml(r.hojaRutaVersion || '-')) + fila('Rutograma leido y confirmado', r.hojaRutaLeida ? ('Si - ' + GV.fmtDate(r.hojaRutaLeidaEn)) : 'No')) : '')) +
         seccion('Diagnostico de fatiga', fatigaHtml) +
       '</div>';
@@ -7043,7 +7043,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-27b';
+var GV_BUILD = '2026-10-27c';
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
