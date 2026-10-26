@@ -1000,6 +1000,9 @@ for(var i = 0; i < hist.length && idx < sites.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
 var t = new Date(rec.dateTime).getTime();
+/* 26/10 (caso H337 Sañudo): con el sitio ya abierto (ingreso registrado), los puntos ANTERIORES a ese ingreso no cuentan:
+   si no, el GPS de antes de llegar (la unidad todavia en la base) se tomaba como "salida" y el viaje se cerraba mal. */
+if(confirmado && ingreso != null && t < ingreso) continue;
 var site = sites[idx];
 var adentro = GV.isWithinSiteEx({ lat: rec.latitude, lng: rec.longitude }, site, sites, confirmado ? (GV.SITE_EXIT_HYSTERESIS_M || 0) : 0);
 if(!confirmado){
@@ -1011,6 +1014,7 @@ if(t - adentroDesde >= minMs){ confirmado = true; ingreso = adentroDesde; afuera
 if(!adentro){
 if(afueraDesde == null) afueraDesde = t;
 if(t - afueraDesde >= minMs){
+if(afueraDesde < ingreso){ afueraDesde = null; continue; } /* nunca un egreso anterior al ingreso */
 hallados[site.id] = { ingreso: new Date(ingreso).toISOString(), egreso: new Date(afueraDesde).toISOString() };
 idx++; adentroDesde = null; confirmado = false; ingreso = null; afueraDesde = null;
 }
