@@ -638,9 +638,11 @@ var body = '';
 if(steps[stepIdx] === 'datos'){
 body = '<h3>Gerenciamiento sin viaje programado</h3>' +
 '<p style="font-size:.85rem;color:#374151;margin:0 0 10px">Completá con que unidad salis y a donde vas. El coordinador recibe el aviso.</p>' +
-'<div class="gv-form-row"><label>Unidad<span class="gv-req">*</span></label><select id="gv-sv-veh"><option value="">' + (__devicesSV ? 'Seleccionar unidad...' : 'Cargando unidades...') + '</option>' +
-  (__devicesSV || []).map(function(d){ return '<option value="' + GV.escapeHtml(d.id) + '"' + (datosSV.vehiculoId === d.id ? ' selected' : '') + '>' + GV.escapeHtml(d.name) + '</option>'; }).join('') + '</select>' +
-  '<input type="text" id="gv-sv-veh-txt" placeholder="...o escribí la unidad (ej. T205)" value="' + GV.escapeHtml(datosSV.vehiculoId ? '' : datosSV.vehiculo) + '" style="margin-top:6px"></div>' +
+'<div class="gv-form-row"><label>Unidad<span class="gv-req">*</span></label>' +
+  '<div id="gv-sv-veh-sel" style="display:' + (datosSV.vehiculo ? 'flex' : 'none') + ';align-items:center;justify-content:space-between;gap:10px;background:#dcfce7;border:2px solid #16a34a;border-radius:12px;padding:12px 14px;margin-bottom:8px;font-size:1.15rem;font-weight:700;color:#14532d"><span id="gv-sv-veh-sel-txt">' + GV.escapeHtml(datosSV.vehiculo || '') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-sv-veh-cambiar">Cambiar</button></div>' +
+  '<div id="gv-sv-veh-pick" style="display:' + (datosSV.vehiculo ? 'none' : 'block') + '">' +
+  '<input type="text" id="gv-sv-veh-txt" placeholder="Buscar o escribir la unidad (ej. T205)" autocomplete="off" value="">' +
+  '<div id="gv-sv-veh-list" style="margin-top:8px;max-height:46vh;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;padding:6px"></div></div></div>' +
 '<div class="gv-form-row"><label>Destino / recorrido<span class="gv-req">*</span></label><input type="text" id="gv-sv-dest" placeholder="Ej. Base Añelo, Rincón de los Sauces, locación..." value="' + GV.escapeHtml(datosSV.destino) + '"></div>';
 } else if(steps[stepIdx] === 'hojaRuta'){
 var __h = respuestas.hojaRuta && respuestas.hojaRuta !== 'otra' ? gvHdrPorId(respuestas.hojaRuta) : null;
@@ -725,9 +727,35 @@ renderActions();
 });
 
 if(steps[stepIdx] === 'datos'){
-var __vs = document.getElementById('gv-sv-veh'), __vt = document.getElementById('gv-sv-veh-txt'), __ds = document.getElementById('gv-sv-dest');
-if(__vs) __vs.addEventListener('change', function(){ datosSV.vehiculoId = __vs.value; datosSV.vehiculo = __vs.value ? __vs.options[__vs.selectedIndex].text : (__vt ? __vt.value.trim() : ''); if(__vs.value && __vt) __vt.value = ''; renderActions(); });
-if(__vt) __vt.addEventListener('input', function(){ if(__vt.value.trim()){ datosSV.vehiculoId = ''; datosSV.vehiculo = __vt.value.trim(); if(__vs) __vs.value = ''; } else if(!datosSV.vehiculoId){ datosSV.vehiculo = ''; } renderActions(); });
+var __vt = document.getElementById('gv-sv-veh-txt'), __ds = document.getElementById('gv-sv-dest');
+/* 27/10: la unidad se elige de una lista de botones grandes con buscador (el desplegable nativo no abria en el celular) */
+var __vl = document.getElementById('gv-sv-veh-list');
+var __elegirU = function(id, nombre){
+  datosSV.vehiculoId = (id && id.indexOf('nom:') !== 0) ? id : ''; datosSV.vehiculo = nombre || '';
+  var sel = document.getElementById('gv-sv-veh-sel'), pk = document.getElementById('gv-sv-veh-pick'), tx = document.getElementById('gv-sv-veh-sel-txt');
+  if(tx) tx.textContent = datosSV.vehiculo; if(sel) sel.style.display = datosSV.vehiculo ? 'flex' : 'none'; if(pk) pk.style.display = datosSV.vehiculo ? 'none' : 'block';
+  renderActions();
+};
+var __pintarU = function(){
+  if(!__vl) return;
+  var q = __vt ? __vt.value.trim() : '';
+  var nq = gvNormUnidad(q);
+  var lista = (__devicesSV || []).filter(function(d){ return !nq || gvNormUnidad(d.name).indexOf(nq) !== -1; });
+  var h = '';
+  if(q && !lista.some(function(d){ return gvNormUnidad(d.name) === nq; })){
+    h += '<button type="button" class="gv-btn gv-btn-primary" data-u-txt="1" style="width:100%;margin:4px 0;justify-content:flex-start">Usar "' + GV.escapeHtml(q) + '"</button>';
+  }
+  h += lista.slice(0, 200).map(function(d){ return '<button type="button" class="gv-btn gv-btn-sec" data-u-id="' + GV.escapeHtml(d.id) + '" style="width:100%;margin:4px 0;justify-content:flex-start">' + GV.escapeHtml(d.name) + '</button>'; }).join('');
+  if(!__devicesSV) h += '<div style="padding:12px;color:#6b7280;font-size:1rem">Cargando unidades...</div>';
+  else if(!lista.length && !q) h += '<div style="padding:12px;color:#6b7280;font-size:1rem">No se pudo cargar la lista. Escribí la unidad arriba (ej. T205).</div>';
+  __vl.innerHTML = h;
+  __vl.querySelectorAll('[data-u-id]').forEach(function(b){ b.addEventListener('click', function(){ var id = b.getAttribute('data-u-id'); var d = (__devicesSV || []).filter(function(x){ return x.id === id; })[0]; if(d) __elegirU(d.id, d.name); }); });
+  var bt = __vl.querySelector('[data-u-txt]'); if(bt) bt.addEventListener('click', function(){ __elegirU('', q.toUpperCase()); });
+};
+window.__gvPintarUnidadesSV = __pintarU;
+if(__vt) __vt.addEventListener('input', __pintarU);
+var __vc = document.getElementById('gv-sv-veh-cambiar'); if(__vc) __vc.addEventListener('click', function(){ __elegirU('', ''); if(__vt){ __vt.value = ''; __pintarU(); } });
+__pintarU();
 if(__ds) __ds.addEventListener('input', function(){ datosSV.destino = __ds.value.trim(); renderActions(); });
 if(!__devicesSV) cargarUnidadesSV();
 }
@@ -763,15 +791,29 @@ renderActions();
 }
 
 function cargarUnidadesSV(){
-  var listo = function(lista){ __devicesSV = (lista || []).filter(function(d){ return d && d.id && d.name; }).sort(function(a, b){ return a.name.localeCompare(b.name, 'es', { numeric: true }); }); if(steps[stepIdx] === 'datos') renderStep(); };
-  /* en MyGeotab Drive, la unidad en la que esta logueado el chofer viene en el estado de la app */
+  /* 27/10: en MyGeotab Drive el usuario chofer muchas veces no tiene permiso para leer las unidades (la consulta
+     vuelve vacia o no responde) y la lista quedaba vacia. Ahora se juntan tres fuentes: MyGeotab, la lista de unidades
+     que publica el panel de coordinacion, y las unidades de los viajes cargados. Nunca queda esperando: maximo 8 s. */
+  var porNombre = {}, terminado = false;
+  var agregar = function(arr){ (arr || []).forEach(function(d){ if(!d || !d.name) return; var k = gvNormUnidad(d.name); if(!k) return; if(!porNombre[k] || (d.id && porNombre[k].id.indexOf('nom:') === 0)) porNombre[k] = { id: d.id || ('nom:' + d.name), name: d.name }; }); };
   var actual = gState && gState.device && gState.device.id;
-  if(!gApi){ listo([]); return; }
-  gApi.call('Get', { typeName: 'Device', resultsLimit: 1000 }, function(res){
-    listo((res || []).map(function(d){ return { id: d.id, name: d.name }; }));
-    if(actual && !datosSV.vehiculoId){ var d0 = __devicesSV.filter(function(d){ return d.id === actual; })[0]; if(d0){ datosSV.vehiculoId = d0.id; datosSV.vehiculo = d0.name; if(steps[stepIdx] === 'datos') renderStep(); } }
-  }, function(){ listo([]); });
+  var publicar = function(){
+    __devicesSV = Object.keys(porNombre).map(function(k){ return porNombre[k]; }).sort(function(a, b){ return a.name.localeCompare(b.name, 'es', { numeric: true }); });
+    if(actual && !datosSV.vehiculo){ var d0 = __devicesSV.filter(function(d){ return d.id === actual; })[0]; if(d0){ datosSV.vehiculoId = d0.id; datosSV.vehiculo = d0.name; if(steps[stepIdx] === 'datos'){ renderStep(); return; } } }
+    if(steps[stepIdx] === 'datos' && typeof window.__gvPintarUnidadesSV === 'function') window.__gvPintarUnidadesSV();
+  };
+  var fin = function(){ terminado = true; publicar(); };
+  try{ agregar((GV.Storage.getViajes ? GV.Storage.getViajes() : []).map(function(v){ return { id: v.vehiculoId || null, name: v.vehiculo }; })); }catch(e){}
+  setTimeout(function(){ if(!terminado){ fin(); } }, 8000);
+  if(gApi){
+    try{ gApi.call('Get', { typeName: 'Device', resultsLimit: 2000 }, function(res){ agregar((res || []).map(function(d){ return { id: d.id, name: d.name }; })); fin(); }, function(){ fin(); }); }catch(e){ fin(); }
+  } else { fin(); }
+  try{
+    GV.loadFirebase().then(function(fb){ return fb.firestore().collection('gv_data').doc('main').get(); })
+      .then(function(snap){ var d = snap && snap.exists ? snap.data() : null; agregar(d && d.unidades); fin(); })['catch'](function(){ fin(); });
+  }catch(e){ fin(); }
 }
+function gvNormUnidad(t){ return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''); }
 
 function stepValido(){
 var s = steps[stepIdx];
