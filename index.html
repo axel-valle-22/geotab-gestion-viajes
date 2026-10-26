@@ -978,6 +978,24 @@ if(!hist || !hist.length) return;
 var minMs = (GV.MIN_DWELL_MIN || 3) * 60000;
 var idx = 0, adentroDesde = null, confirmado = false, ingreso = null, afueraDesde = null;
 var hallados = {};
+/* 26/10 (caso T205 Garrido, viaje del 21/10): el historial se pide como mucho de las ultimas 72 h, pero el barrido
+   arrancaba igual desde el PRIMER sitio del viaje. En un viaje de mas de 3 dias ese primer sitio ya habia quedado
+   fuera de la ventana, no se encontraba nunca y el viaje no se cerraba jamas (quedaba "En sitio" en la ultima
+   parada). Ahora el barrido arranca en el primer sitio que todavia no tiene egreso registrado; si ese sitio ya tiene
+   ingreso (la unidad esta/estuvo adentro), se toma como "adentro" desde el arranque, asi la primera salida real
+   (afuera mas de GV.MIN_DWELL_MIN minutos) cuenta como egreso aunque despues haya vuelto al mismo lugar. */
+(function(){
+  var srS = (GV.Storage.getViaje(v.id) || v).sitiosReal || {};
+  for(var k = 0; k < sites.length; k++){
+    var e = srS[sites[k].id];
+    if(e && e.egreso){ hallados[sites[k].id] = { ingreso: e.ingreso || e.egreso, egreso: e.egreso }; continue; }
+    idx = k;
+    if(e && e.ingreso){ confirmado = true; ingreso = new Date(e.ingreso).getTime(); }
+    return;
+  }
+  idx = sites.length;
+})();
+if(idx >= sites.length) idx = sites.length; /* todos con egreso: se cierra con el del ultimo */
 for(var i = 0; i < hist.length && idx < sites.length; i++){
 var rec = hist[i];
 if(rec.latitude == null) continue;
