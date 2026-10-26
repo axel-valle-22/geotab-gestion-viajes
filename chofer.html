@@ -805,7 +805,8 @@ function gvSvSitioHtml(k, titulo, val){
   return '<div class="gv-form-row"><label>' + titulo + '<span class="gv-req">*</span></label>' +
     '<div id="gv-sv-' + k + '-sel" style="display:' + (val ? 'flex' : 'none') + ';align-items:center;justify-content:space-between;gap:10px;background:#dcfce7;border:2px solid #16a34a;border-radius:12px;padding:12px 14px;margin-bottom:8px;font-size:1.1rem;font-weight:700;color:#14532d"><span id="gv-sv-' + k + '-sel-txt">' + GV.escapeHtml(val ? val.nombre : '') + '</span><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-sv-' + k + '-cambiar">Cambiar</button></div>' +
     '<div id="gv-sv-' + k + '-pick" style="display:' + (val ? 'none' : 'block') + '">' +
-    '<input type="text" id="gv-sv-' + k + '-txt" placeholder="Buscar sitio (ej. RAO, Añelo, Plottier)" autocomplete="off" value="">' +
+    '<button type="button" class="gv-btn gv-btn-primary" id="gv-sv-' + k + '-mapa" style="width:100%;margin-bottom:8px">Marcar en el mapa</button>' +
+    '<input type="text" id="gv-sv-' + k + '-txt" placeholder="...o buscar sitio guardado (ej. RAO, Añelo)" autocomplete="off" value="">' +
     '<div id="gv-sv-' + k + '-list" style="margin-top:8px;max-height:40vh;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb;padding:6px"></div></div></div>';
 }
 function gvSvSitioWire(k){
@@ -829,15 +830,84 @@ function gvSvSitioWire(k){
     var bt = box.querySelector('[data-s-txt]'); if(bt) bt.addEventListener('click', function(){ elegir({ nombre: q, lat: null, lng: null, siteId: null }); });
   };
   if(tx) tx.addEventListener('input', pintar);
+  var bm = document.getElementById('gv-sv-' + k + '-mapa');
+  if(bm) bm.addEventListener('click', function(){
+    var actual = (k === 'orig' ? datosSV.origen : datosSV.destinoSitio);
+    gvSvMapa(k, actual).then(function(val){ if(val) elegir(val); });
+  });
   var cb = document.getElementById('gv-sv-' + k + '-cambiar'); if(cb) cb.addEventListener('click', function(){ elegir(null); if(tx){ tx.value = ''; } pintar(); });
   pintar();
+}
+/* 27/10: marcar origen/destino tocando el mapa (pantalla completa). El punto se puede arrastrar, hay boton para usar
+   la ubicacion actual del celular y un nombre opcional. Si el punto cae dentro de un sitio guardado, toma ese sitio. */
+function gvSvMapa(k, actual){
+  return new Promise(function(resolve){
+    var termino = false;
+    var fin = function(v){ if(termino) return; termino = true; try{ ov.remove(); }catch(e){} resolve(v || null); };
+    var ov = document.createElement('div');
+    ov.className = 'gv-modal-overlay';
+    ov.innerHTML = '<div class="gv-modal">' +
+      '<h3 style="margin:0 0 6px">' + (k === 'orig' ? 'Marcá el ORIGEN' : 'Marcá el DESTINO') + '</h3>' +
+      '<p style="margin:0 0 8px;font-size:1rem;color:#374151">Tocá el mapa en el lugar. Podés arrastrar el punto para corregirlo.</p>' +
+      '<button type="button" class="gv-btn gv-btn-sec" id="gv-svm-gps" style="width:100%;margin-bottom:8px">Usar mi ubicación actual</button>' +
+      '<div id="gv-svm-map" style="flex:1 1 auto;min-height:45vh;border-radius:12px;overflow:hidden;background:#e5e7eb"><div style="padding:20px;color:#6b7280">Cargando mapa...</div></div>' +
+      '<div id="gv-svm-info" style="font-size:1rem;color:#374151;margin:8px 0 4px">Todavía no marcaste ningún punto.</div>' +
+      '<input type="text" id="gv-svm-nom" placeholder="Nombre del lugar (opcional, ej. Locación YPF 123)" autocomplete="off" style="margin-bottom:8px;width:100%;box-sizing:border-box;font-size:1.1rem;min-height:52px;padding:10px 12px;border:1px solid #9ca3af;border-radius:10px">' +
+      '<div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec" id="gv-svm-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary" id="gv-svm-ok" disabled>Confirmar ubicación</button></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    var punto = null, marker = null, map = null, sitioEn = null;
+    var okB = ov.querySelector('#gv-svm-ok'), info = ov.querySelector('#gv-svm-info'), nom = ov.querySelector('#gv-svm-nom');
+    var sitioDe = function(pt){
+      var best = null, bestD = null;
+      gvSvSitios().forEach(function(x){ var d = GV.distKm(pt, x); var dentro = (GV.isWithinSite && GV.isWithinSite(pt, x)) || (d != null && d * 1000 <= 150); if(dentro && (bestD == null || d < bestD)){ best = x; bestD = d; } });
+      return best;
+    };
+    var marcar = function(pt, centrar){
+      punto = { lat: pt.lat, lng: pt.lng };
+      sitioEn = sitioDe(punto);
+      if(map){
+        if(!marker){
+          marker = new google.maps.Marker({ position: punto, map: map, draggable: true });
+          marker.addListener('dragend', function(e){ marcar({ lat: e.latLng.lat(), lng: e.latLng.lng() }, false); });
+        } else marker.setPosition(punto);
+        if(centrar){ map.setCenter(punto); if(map.getZoom() < 14) map.setZoom(15); }
+      }
+      info.innerHTML = sitioEn ? ('Punto dentro del sitio guardado <b>' + GV.escapeHtml(sitioEn.nombre) + '</b>.') : ('Punto marcado: ' + punto.lat.toFixed(5) + ', ' + punto.lng.toFixed(5));
+      okB.disabled = false;
+    };
+    ov.querySelector('#gv-svm-cancel').addEventListener('click', function(){ fin(null); });
+    okB.addEventListener('click', function(){
+      if(!punto) return;
+      var n = (nom.value || '').trim();
+      if(sitioEn && !n){ fin({ nombre: sitioEn.nombre, lat: sitioEn.lat, lng: sitioEn.lng, siteId: sitioEn.id }); return; }
+      fin({ nombre: n || ('Punto marcado (' + punto.lat.toFixed(4) + ', ' + punto.lng.toFixed(4) + ')'), lat: punto.lat, lng: punto.lng, siteId: null, marcadoEnMapa: true });
+    });
+    ov.querySelector('#gv-svm-gps').addEventListener('click', function(){
+      var b = this; b.disabled = true; b.textContent = 'Buscando tu ubicación...';
+      if(!navigator.geolocation){ b.textContent = 'Este celular no permite usar la ubicación'; return; }
+      navigator.geolocation.getCurrentPosition(function(pos){
+        b.disabled = false; b.textContent = 'Usar mi ubicación actual';
+        marcar({ lat: pos.coords.latitude, lng: pos.coords.longitude }, true);
+      }, function(){ b.disabled = false; b.textContent = 'No se pudo obtener la ubicación. Tocá el mapa.'; }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+    });
+    GV.loadGoogleMaps().then(function(g){
+      if(termino) return;
+      var cont = ov.querySelector('#gv-svm-map'); cont.innerHTML = '';
+      var centro = (actual && typeof actual.lat === 'number') ? { lat: actual.lat, lng: actual.lng } : { lat: -38.3477, lng: -68.8209 };
+      map = new g.maps.Map(cont, { center: centro, zoom: (actual && typeof actual.lat === 'number') ? 15 : 11, mapTypeId: 'hybrid', gestureHandling: 'greedy', streetViewControl: false, fullscreenControl: false, mapTypeControl: true, clickableIcons: false });
+      gvSvSitios().forEach(function(x){ new g.maps.Marker({ position: { lat: x.lat, lng: x.lng }, map: map, title: x.nombre, icon: { path: g.maps.SymbolPath.CIRCLE, scale: 5, fillColor: '#00A6E0', fillOpacity: .9, strokeColor: '#fff', strokeWeight: 1 } }); });
+      map.addListener('click', function(e){ marcar({ lat: e.latLng.lat(), lng: e.latLng.lng() }, false); });
+      if(actual && typeof actual.lat === 'number') marcar(actual, true);
+    })['catch'](function(){ var c = ov.querySelector('#gv-svm-map'); if(c) c.innerHTML = '<div style="padding:20px;color:#b91c1c">No se pudo cargar el mapa. Revisá la conexión o usá "Usar mi ubicación actual".</div>'; });
+  });
 }
 var __gvSvKmTok = 0;
 function gvSvKmHtml(){
   if(!datosSV.origen || !datosSV.destinoSitio) return '';
   var base = 'background:#eef6ff;border:1px solid #93c5fd;border-radius:12px;padding:12px 14px;font-size:1.1rem;color:#1e3a8a';
   if(datosSV.km === 'calc') return '<div style="' + base + '">Calculando kilometros...</div>';
-  if(datosSV.km == null) return '<div style="' + base.replace('#eef6ff', '#f3f4f6').replace('#93c5fd', '#d1d5db').replace('#1e3a8a', '#374151') + '">Sin calculo de km (el origen o el destino no es un sitio guardado).</div>';
+  if(datosSV.km == null) return '<div style="' + base.replace('#eef6ff', '#f3f4f6').replace('#93c5fd', '#d1d5db').replace('#1e3a8a', '#374151') + '">Sin calculo de km (el origen o el destino se escribio a mano, sin ubicacion).</div>';
   var hs = datosSV.min != null ? Math.floor(datosSV.min / 60) + ' h ' + ('0' + (datosSV.min % 60)).slice(-2) + ' min' : '';
   return '<div style="' + base + '"><b>Distancia estimada: ' + datosSV.km + ' km</b>' + (hs ? ' &middot; aprox. ' + hs + ' de manejo' : '') +
     '<div style="font-size:.85rem;margin-top:4px;color:#475569">' + (datosSV.kmFuente === 'aprendida' ? 'Segun recorridos reales anteriores' : (datosSV.kmFuente === 'recta' ? 'Aproximado (linea recta)' : 'Calculado por ruta')) + '</div></div>';
@@ -961,7 +1031,7 @@ var r = calcularResultado();
       id: GV.genId('ger'), viajeId: null, sinViaje: true,
       conductorId: gDriver ? gDriver.id : null, conductor: gDriver ? (gDriver.nombre || gDriver.name || '') : '',
       vehiculoId: datosSV.vehiculoId || null, vehiculo: datosSV.vehiculo, destino: datosSV.destino,
-      origen: datosSV.origen ? datosSV.origen.nombre : '', origenPos: gvSvPos(datosSV.origen), destinoPos: gvSvPos(datosSV.destinoSitio),
+      origen: datosSV.origen ? datosSV.origen.nombre : '', origenPos: gvSvPos(datosSV.origen), destinoPos: gvSvPos(datosSV.destinoSitio), origenEnMapa: !!(datosSV.origen && datosSV.origen.marcadoEnMapa), destinoEnMapa: !!(datosSV.destinoSitio && datosSV.destinoSitio.marcadoEnMapa),
       kmEstimado: (typeof datosSV.km === 'number') ? datosSV.km : null, minEstimado: (typeof datosSV.km === 'number') ? datosSV.min : null, kmFuente: datosSV.kmFuente || '',
       fecha: ahora, resultado: r.resultado, motivos: r.motivos, respuestas: respuestas,
       autorizadoPor: r.resultado === 'verde' ? 'auto' : null, rechazado: false,
