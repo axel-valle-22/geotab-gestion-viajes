@@ -3826,7 +3826,9 @@ function gvSlbCrearSitiosProvisorios(prop){
 }
 function gvSlbAutoListo(){
   /* no se crea nada hasta tener cargados los viajes del servidor (si no, todo pareceria nuevo) */
-  if(!GV_SLB_AUTO || !GV.Storage.isConnected()) return false;
+  /* 26/10: no se usa GV.Storage.isConnected(): da false cuando los datos vienen de Firebase (asi el modo automatico nunca
+     arrancaba). Alcanza con que esten cargados los viajes y las listas de unidades. */
+  if(!GV_SLB_AUTO) return false;
   if(Date.now() - __gvSlbCargaPanel < 20000) return false;
   if(!(GV.Storage.getViajes() || []).length) return false;
   if(!document.querySelector('#gv-vehiculo option[value]:not([value=""])')) return false;
@@ -3864,7 +3866,7 @@ function gvSlbAutoProcesar(){
    estaba en la primera carga, ese sitio) y se recalcula la salida. Si alguien ya cambio el origen a mano, no se toca. */
 function gvSlbAjustarOrigenes0600(){
   var pad = function(n){ return (n < 10 ? '0' : '') + n; };
-  if(!GV_SLB_AUTO || !GV.Storage.isConnected()) return;
+  if(!GV_SLB_AUTO || !(GV.Storage.getViajes() || []).length) return;
   (GV.Storage.getViajes() || []).forEach(function(v){
     if(!v.origenPedidoSLB || !v.slbOrigenProv || v.estado !== 'planificado' || !v.origen) return;
     var fecha = String(v.fechaSalida || '').slice(0, 10);
