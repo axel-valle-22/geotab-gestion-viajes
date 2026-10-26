@@ -5,50 +5,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mi Viaje</title>
-<style id="gv-chofer-grande">
-/* 27/10: app del chofer pensada para leer y tocar comodo en el celular (choferes mayores): letra grande, botones
-   grandes de ancho completo y ventanas (gerenciamiento, detalle, hojas de ruta) a pantalla completa. */
-body.gv-chofer{font-size:18px;-webkit-text-size-adjust:100%}
-body.gv-chofer #gv-app{font-size:1.05rem}
-body.gv-chofer #gv-header h1{font-size:1.6rem}
-body.gv-chofer #gv-header p{font-size:1rem}
-body.gv-chofer .gv-btn,body.gv-chofer .gv-btn-sm{min-height:56px;padding:14px 18px !important;font-size:1.08rem !important;font-weight:700 !important;border-radius:12px !important;line-height:1.25;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;text-align:center}
-body.gv-chofer .gv-btn-sec{border:2px solid #9ca3af !important;color:#111827 !important;background:#fff !important}
-body.gv-chofer .gv-topbar{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
-body.gv-chofer .gv-topbar .gv-btn{width:100%}
-body.gv-chofer .gv-trip-actions{display:flex;flex-direction:column;align-items:stretch;gap:10px}
-body.gv-chofer .gv-trip-actions .gv-btn{width:100%}
-body.gv-chofer .gv-driver-trip{padding:16px !important;font-size:1rem}
-body.gv-chofer .gv-trip-title{font-size:1.3rem}
-body.gv-chofer .gv-trip-info{font-size:1.02rem}
-body.gv-chofer .gv-stop-chip,body.gv-chofer .gv-stop-item{font-size:1rem !important}
-body.gv-chofer .gv-status{font-size:.95rem}
-body.gv-chofer .gv-banner h3{font-size:1.2rem}
-body.gv-chofer .gv-banner p{font-size:1.05rem}
-body.gv-chofer .gv-select-driver label{font-size:1.05rem}
-body.gv-chofer .gv-select-driver select{font-size:1.1rem;min-height:54px;width:100%}
-/* ventanas a pantalla completa */
-body.gv-chofer .gv-modal-overlay{padding:0 !important;align-items:stretch !important;justify-content:stretch !important}
-body.gv-chofer .gv-modal{max-width:none !important;width:100% !important;height:100% !important;max-height:none !important;border-radius:0 !important;padding:18px 16px 0 !important;display:flex;flex-direction:column;font-size:1.05rem;box-sizing:border-box}
-body.gv-chofer .gv-modal h3{font-size:1.45rem !important;line-height:1.25}
-body.gv-chofer .gv-modal-actions{position:sticky;bottom:0;background:#fff;margin:auto -16px 0 !important;padding:12px 16px calc(12px + env(safe-area-inset-bottom)) !important;border-top:1px solid #e5e7eb;display:flex;flex-wrap:wrap;gap:10px;z-index:2}
-body.gv-chofer .gv-modal-actions .gv-btn{flex:1 1 40%}
-body.gv-chofer .gv-wizard-progress span{height:8px}
-body.gv-chofer .gv-check-row{flex-direction:column;align-items:stretch;font-size:1.12rem !important;padding:14px 0 !important;gap:10px}
-body.gv-chofer .gv-radio-pair{gap:12px}
-body.gv-chofer .gv-radio-pair button{flex:1;min-height:58px;font-size:1.2rem !important;border-radius:12px !important;border-width:2px !important}
-body.gv-chofer .gv-motivo-list label,body.gv-chofer .gv-fatiga-list label{font-size:1.12rem !important;padding:16px 14px !important;min-height:58px;box-sizing:border-box}
-body.gv-chofer input[type=radio],body.gv-chofer input[type=checkbox]{transform:scale(1.6);transform-origin:center;margin:0 10px 0 4px;flex-shrink:0}
-body.gv-chofer .gv-form-row label{font-size:1.05rem}
-body.gv-chofer .gv-form-row input,body.gv-chofer .gv-form-row select,body.gv-chofer .gv-form-row textarea{font-size:1.12rem !important;min-height:54px;padding:12px !important;box-sizing:border-box;width:100%}
-body.gv-chofer .gv-result-box h2{font-size:1.7rem}
-body.gv-chofer .gv-result-box p{font-size:1.12rem !important}
-body.gv-chofer .gv-hdr-ruto > div{font-size:.98rem !important}
-body.gv-chofer .gv-hdr-ruto table{font-size:.95rem !important}
-body.gv-chofer .gv-hdr-ruto td,body.gv-chofer .gv-hdr-ruto th{padding:7px 5px !important}
-body.gv-chofer .gv-hdr-leida{font-size:1.1rem !important;padding:14px !important}
-body.gv-chofer .gv-map-box{height:42vh !important}
-</style>
 <script>
 /* 27/10: el add-in se registra ANTES de descargar common.js (pesa ~190 KB). La primera vez que se abria en un celular,
    MyGeotab Drive buscaba el add-in mientras common.js todavia se descargaba, no lo encontraba a tiempo y mostraba
@@ -97,6 +53,61 @@ body.gv-chofer .gv-map-box{height:42vh !important}
 <script>
 (function(){
 'use strict';
+/* 27/10: estilos "letra y botones grandes" del chofer. Se inyectan desde aca (y no desde el <head>) porque MyGeotab
+   Drive descarta el <head> de la pagina del add-in: por eso no se veia ningun cambio. Se aplican con la clase
+   gv-chofer en <html>, <body> y #gv-app (las ventanas se agregan al <body>, fuera de #gv-app). */
+function gvChoferEstilos(){
+  try{
+    [document.documentElement, document.body, document.getElementById('gv-app')].forEach(function(el){ if(el && el.classList && !el.classList.contains('gv-chofer')) el.classList.add('gv-chofer'); });
+    var st = document.getElementById('gv-chofer-grande-js');
+    if(st && document.documentElement.contains(st)) return;
+    if(!st){ st = document.createElement('style'); st.id = 'gv-chofer-grande-js'; st.textContent = GV_CHOFER_CSS; }
+    /* siempre al final del documento, despues de los estilos generales (GV.injectCSS), para que ganen */
+    (document.body || document.head || document.documentElement).appendChild(st);
+  }catch(e){}
+}
+var GV_CHOFER_CSS = "body.gv-chofer{font-size:18px;-webkit-text-size-adjust:100%}" +
+".gv-chofer #gv-app{font-size:1.05rem}" +
+".gv-chofer #gv-header h1{font-size:1.6rem}" +
+".gv-chofer #gv-header p{font-size:1rem}" +
+".gv-chofer .gv-btn,.gv-chofer .gv-btn-sm{min-height:56px;padding:14px 18px !important;font-size:1.08rem !important;font-weight:700 !important;border-radius:12px !important;line-height:1.25;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;text-align:center}" +
+".gv-chofer .gv-btn-sec{border:2px solid #9ca3af !important;color:#111827 !important;background:#fff !important}" +
+".gv-chofer .gv-topbar{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}" +
+".gv-chofer .gv-topbar .gv-btn{width:100%}" +
+".gv-chofer .gv-trip-actions{display:flex;flex-direction:column;align-items:stretch;gap:10px}" +
+".gv-chofer .gv-trip-actions .gv-btn{width:100%}" +
+".gv-chofer .gv-driver-trip{padding:16px !important;font-size:1rem}" +
+".gv-chofer .gv-trip-title{font-size:1.3rem}" +
+".gv-chofer .gv-trip-info{font-size:1.02rem}" +
+".gv-chofer .gv-stop-chip,.gv-chofer .gv-stop-item{font-size:1rem !important}" +
+".gv-chofer .gv-status{font-size:.95rem}" +
+".gv-chofer .gv-banner h3{font-size:1.2rem}" +
+".gv-chofer .gv-banner p{font-size:1.05rem}" +
+".gv-chofer .gv-select-driver label{font-size:1.05rem}" +
+".gv-chofer .gv-select-driver select{font-size:1.1rem;min-height:54px;width:100%}" +
+".gv-chofer .gv-modal-overlay{padding:0 !important;align-items:stretch !important;justify-content:stretch !important}" +
+".gv-chofer .gv-modal{max-width:none !important;width:100% !important;height:100% !important;max-height:none !important;border-radius:0 !important;padding:18px 16px 0 !important;display:flex;flex-direction:column;font-size:1.05rem;box-sizing:border-box}" +
+".gv-chofer .gv-modal h3{font-size:1.45rem !important;line-height:1.25}" +
+".gv-chofer .gv-modal-actions{position:sticky;bottom:0;background:#fff;margin:auto -16px 0 !important;padding:12px 16px calc(12px + env(safe-area-inset-bottom)) !important;border-top:1px solid #e5e7eb;display:flex;flex-wrap:wrap;gap:10px;z-index:2}" +
+".gv-chofer .gv-modal-actions .gv-btn{flex:1 1 40%}" +
+".gv-chofer .gv-wizard-progress span{height:8px}" +
+".gv-chofer .gv-check-row{flex-direction:column;align-items:stretch;font-size:1.12rem !important;padding:14px 0 !important;gap:10px}" +
+".gv-chofer .gv-radio-pair{gap:12px}" +
+".gv-chofer .gv-radio-pair button{flex:1;min-height:58px;font-size:1.2rem !important;border-radius:12px !important;border-width:2px !important}" +
+".gv-chofer .gv-motivo-list label,.gv-chofer .gv-fatiga-list label{font-size:1.12rem !important;padding:16px 14px !important;min-height:58px;box-sizing:border-box}" +
+".gv-chofer input[type=radio],.gv-chofer input[type=checkbox]{transform:scale(1.6);transform-origin:center;margin:0 10px 0 4px;flex-shrink:0}" +
+".gv-chofer .gv-form-row label{font-size:1.05rem}" +
+".gv-chofer .gv-form-row input,.gv-chofer .gv-form-row select,.gv-chofer .gv-form-row textarea{font-size:1.12rem !important;min-height:54px;padding:12px !important;box-sizing:border-box;width:100%}" +
+".gv-chofer .gv-result-box h2{font-size:1.7rem}" +
+".gv-chofer .gv-result-box p{font-size:1.12rem !important}" +
+".gv-chofer .gv-hdr-ruto > div{font-size:.98rem !important}" +
+".gv-chofer .gv-hdr-ruto table{font-size:.95rem !important}" +
+".gv-chofer .gv-hdr-ruto td,.gv-chofer .gv-hdr-ruto th{padding:7px 5px !important}" +
+".gv-chofer .gv-hdr-leida{font-size:1.1rem !important;padding:14px !important}" +
+".gv-chofer .gv-map-box{height:42vh !important}" +
+".gv-chofer .gv-modal-x{width:56px !important;height:46px !important;font-size:28px !important;line-height:46px !important;border-radius:8px !important;margin:-8px -6px 6px 10px !important}" +
+".gv-chofer .gv-modal p,.gv-chofer .gv-modal label,.gv-chofer .gv-modal li{font-size:1.05rem}";
+gvChoferEstilos();
 
 var gApi = null;
 var gDriver = null;
@@ -247,6 +258,7 @@ return GV.Storage.getViajes().filter(function(v){ return v.conductorId === gDriv
 }
 
 function renderDriverView(){
+gvChoferEstilos();
 var box = document.getElementById('gv-driver-content');
 if(!box) return;
 if(!gDriver){
@@ -964,7 +976,7 @@ renderDriverView();
 }
 
 function doInit(api, state){
-try{ document.body.classList.add('gv-chofer'); }catch(e){}
+gvChoferEstilos();
 /* common.js todavia no termino de cargar (MyGeotab Drive carga los scripts en paralelo): se espera y se reintenta */
 if(typeof GV === 'undefined' || !GV.Storage){ setTimeout(function(){ doInit(api, state); }, 150); return; }
 if(window._gvInitDone === 'real') return; /* evita doble inicializacion si ya hubo una real */
@@ -972,6 +984,7 @@ window._gvInitDone = api ? 'real' : 'null';
 gApi = api;
 gState = state || null;
 GV.injectCSS('gv-style-container');
+gvChoferEstilos();
 setupEvents();
 
 GV.Storage.init(api).then(function(){
