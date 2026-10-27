@@ -3585,6 +3585,25 @@ function gvSlbChofer(nombre, vehiculoId){
   var toks = gvSlbNorm(nombre).split(' ').filter(function(x){ return x.length > 1; });
   if(!toks.length) return null;
   var cands = gvSlbOpcion('gv-conductor', function(t){ var n = gvSlbNorm(t); return toks.every(function(k){ return n.split(' ').indexOf(k) >= 0; }); });
+  /* 27/10 (caso "Sepulveda Contrera Jorge" en el mail vs "SEPULVEDA CONTRERAS JORGE RUBEN" en MyGeotab): si no hay
+     coincidencia exacta, se acepta cada palabra con una letra de diferencia (falta, sobra o cambia una letra) o
+     abreviada (al menos 4 letras al principio). Solo si queda UN chofer posible, para no elegir mal. */
+  if(!cands.length){
+    var __parecida = function(a, b){
+      if(a === b) return true;
+      if(a.length >= 4 && b.length >= 4 && (a.indexOf(b) === 0 || b.indexOf(a) === 0)) return true;
+      if(Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 4) return false;
+      var i = 0, j = 0, dif = 0;
+      while(i < a.length && j < b.length){
+        if(a[i] === b[j]){ i++; j++; continue; }
+        if(++dif > 1) return false;
+        if(a.length > b.length) i++; else if(b.length > a.length) j++; else { i++; j++; }
+      }
+      return dif + (a.length - i) + (b.length - j) <= 1;
+    };
+    var __aprox = gvSlbOpcion('gv-conductor', function(t){ var ps = gvSlbNorm(t).split(' '); return toks.every(function(k){ return ps.some(function(w){ return __parecida(k, w); }); }); });
+    if(__aprox.length === 1) cands = __aprox;
+  }
   if(cands.length <= 1) return cands[0] || null;
   /* varios iguales (cargados dos veces): se elige el que se uso en el ultimo viaje de esa unidad, o el de mas viajes */
   var vs = GV.Storage.getViajes().slice().sort(function(a, b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); });
@@ -7115,7 +7134,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-27i';
+var GV_BUILD = '2026-10-27j';
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
