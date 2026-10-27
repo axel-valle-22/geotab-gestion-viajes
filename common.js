@@ -2687,6 +2687,14 @@ GV.Storage = (function(){
       _data.alertas = _data.alertas.filter(function(a){ return a.id !== id; }); if(id != null) _removedLista.alertas[id] = true;
       return persist();
     },
+    /* 27/10: "Descartar todas" - borra varias alertas con UNA sola escritura. Antes se llamaba removeAlerta una por una:
+       eran decenas de escrituras simultaneas al mismo documento que chocaban entre si, varias fallaban y las alertas
+       "volvian" a aparecer hasta que se reintentaban. */
+    removeAlertas: function(ids){
+      var set = {}; (ids || []).forEach(function(id){ if(id != null){ set[id] = true; _removedLista.alertas[id] = true; } });
+      _data.alertas = _data.alertas.filter(function(a){ return !(a && set[a.id]); });
+      return persist();
+    },
 getGerenciamientos: function(){ return _data.gerenciamientos; },
     addGerenciamiento: function(g){ _data.gerenciamientos.push(g); _marcarItem('gerenciamientos', g); return persist(); },
     updateGerenciamiento: function(id, patch){ var g = _data.gerenciamientos.find(function(x){ return x.id === id; }); if(g){ Object.keys(patch || {}).forEach(function(k){ g[k] = patch[k]; }); _marcarItem('gerenciamientos', g); } return persist(); },
