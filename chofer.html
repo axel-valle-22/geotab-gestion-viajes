@@ -950,7 +950,7 @@ function cargarUnidadesSV(){
     try{ gApi.call('Get', { typeName: 'Device', resultsLimit: 2000 }, function(res){ agregar((res || []).map(function(d){ return { id: d.id, name: d.name }; })); fin(); }, function(){ fin(); }); }catch(e){ fin(); }
   } else { fin(); }
   try{
-    GV.loadFirebase().then(function(fb){ return fb.firestore().collection('gv_data').doc('main').get(); })
+    GV.loadFirebase().then(function(fb){ return fb.firestore().collection('gv_data').doc('unidades').get(); })
       .then(function(snap){ var d = snap && snap.exists ? snap.data() : null; agregar(d && d.unidades); fin(); })['catch'](function(){ fin(); });
   }catch(e){ fin(); }
 }
