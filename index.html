@@ -483,8 +483,12 @@ function renderAlertas(){
     if(!resto.length){ delete gAlertasAbiertas[u]; return alertCardHtml(top); }
     var abierto = !!gAlertasAbiertas[u];
     var countBadge = '<span class="gv-alert-count">+' + resto.length + '</span>';
+    /* 27/10: "Descartar todas" de esa unidad/viaje (antes habia que borrarlas una por una). Las solicitudes de
+       autorizacion NO se descartan: necesitan Aprobar o Rechazar. */
+    var nDesc = items.filter(function(a){ return a.tipo !== 'autorizacion'; }).length;
+    var btnTodas = nDesc > 1 ? '<div style="display:flex;justify-content:flex-end;margin:4px 0 2px"><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" data-action="dismiss_all" data-u="' + GV.escapeHtml(u) + '" title="Descarta todas las alertas de ' + GV.escapeHtml(u) + ' (menos las solicitudes de autorizacion)">Descartar todas (' + nDesc + ')</button></div>' : '';
     return '<div class="gv-alert-group gv-alert-stacked' + (abierto ? ' gv-alert-open' : '') + '" data-u="' + GV.escapeHtml(u) + '">' +
-        '<div class="gv-alert-group-head">' + alertCardHtml(top, countBadge) + '</div>' +
+        '<div class="gv-alert-group-head">' + alertCardHtml(top, countBadge) + btnTodas + '</div>' +
         '<div class="gv-alert-sub" style="display:' + (abierto ? 'block' : 'none') + '">' + resto.map(function(a){ return alertCardHtml(a); }).join('') + '</div>' +
       '</div>';
   }).join('');
@@ -2482,7 +2486,15 @@ abrirDetalleViaje(id);
     }
     var action = btn.getAttribute('data-action'), id = btn.getAttribute('data-id');
     var alerta = GV.Storage.getAlertas().find(function(a){ return a.id === id; });
-    if(action === 'dismiss'){
+    if(action === 'dismiss_all'){
+      var __u = btn.getAttribute('data-u');
+      var __ids = GV.Storage.getAlertas().filter(function(a){ return a.tipo !== 'autorizacion' && gvUnidadDeAlerta(a) === __u; }).map(function(a){ return a.id; });
+      if(!__ids.length) return;
+      if(!confirm('¿Descartar las ' + __ids.length + ' alertas de ' + __u + '?' + '\n(Las solicitudes de autorizacion no se descartan.)')) return;
+      btn.disabled = true; btn.textContent = 'Descartando...';
+      __ids.reduce(function(pr, x){ return pr.then(function(){ return GV.Storage.removeAlerta(x); })['catch'](function(){}); }, Promise.resolve())
+        .then(function(){ delete gAlertasAbiertas[__u]; renderAlertas(); renderGerenciamientos(); renderEventsWidget(); });
+    } else if(action === 'dismiss'){
       GV.Storage.removeAlerta(id).then(function(){ renderAlertas(); renderGerenciamientos(); renderEventsWidget(); });
     } else if(action === 'justificar_demora' && alerta){
       abrirJustificarDemora(alerta.viajeId);
@@ -7093,7 +7105,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-27d';
+var GV_BUILD = '2026-10-27e';
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
