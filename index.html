@@ -104,7 +104,7 @@
 <div id="gv-tab-seguimiento" class="gv-tab-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <h2 style="margin:0;color:var(--gv-accent);font-size:1.1rem">Seguimiento en tiempo real <span id="gv-track-total" title="Viajes activos: los de hoy mas los continuados de dias anteriores" style="display:inline-block;margin-left:6px;padding:2px 10px;border-radius:999px;background:var(--gv-accent);color:#fff;font-size:.8rem;vertical-align:middle"></span></h2>
-<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="search" id="gv-track-buscar" placeholder="Buscar unidad, chofer, patente o solicitud..." autocomplete="off" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:240px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-mas-hoy" aria-expanded="false" aria-controls="gv-mas-hoy">Mostrar mas viajes de hoy</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="search" id="gv-track-buscar" placeholder="Buscar unidad, chofer, patente o solicitud..." autocomplete="off" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:240px"><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-mas-hoy" aria-expanded="false" aria-controls="gv-mas-hoy">Mostrar mas viajes de hoy</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-toggle-track-map" aria-expanded="false" aria-controls="gv-track-map">Mostrar mapa</button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-ext-slb" title="Extensiones horarias SLB" aria-label="Extensiones horarias SLB" style="position:relative;padding:4px 7px;line-height:1"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" style="display:block"><circle cx="12" cy="13" r="8" fill="none" stroke="#5b21b6" stroke-width="2"/><path d="M12 9v4l2.5 2.5M9 2h6" fill="none" stroke="#5b21b6" stroke-width="2" stroke-linecap="round"/></svg><span id="gv-ext-hoy-badge" style="display:none;position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:#7c3aed;color:#fff;font-size:.6rem;font-weight:700;line-height:15px;text-align:center"></span></button><button class="gv-btn gv-btn-sec gv-btn-sm" id="gv-btn-refresh-track">Actualizar</button></div>
 </div>
 <!-- El mapa arranca minimizado para que la lista de viajes (hasta ~60 por dia) quede a la vista; se despliega/minimiza con el boton "Mostrar mapa"/"Ocultar mapa". -->
 <div id="gv-track-map" style="display:none;height:420px;border-radius:10px;border:1px solid #e5e7eb;margin-bottom:14px"></div>
@@ -2544,6 +2544,8 @@ abrirDetalleViaje(id);
   });
 
   document.getElementById('gv-btn-refresh-track').addEventListener('click', function(){ renderTracking(); gvRenderMasHoy(true); });
+  /* 28/10: boton chico (reloj) de extensiones horarias SLB, con la cantidad de hoy */
+  try{ document.getElementById('gv-btn-ext-slb').addEventListener('click', function(){ gvAbrirExtensionesSLB(); }); setInterval(gvExtBadge, 60000); setTimeout(gvExtBadge, 8000); }catch(__eExB){}
   /* Desplegar / minimizar el bloque "mas viajes de hoy" (finalizados + sin planificacion). */
   (function(){ var __bq = document.getElementById('gv-track-buscar'); if(__bq){ var __tq = null; __bq.addEventListener('input', function(){ clearTimeout(__tq); __tq = setTimeout(function(){ try{ gTrackSelectedId = null; renderTracking(); }catch(e){} }, 150); }); } })();
   document.getElementById('gv-btn-toggle-mas-hoy').addEventListener('click', function(){
@@ -4295,13 +4297,49 @@ function gvSlbVehiculoExt(e){
 function gvExtTxt(e){
   return (e.fecha ? (e.fecha.slice(8, 10) + '/' + e.fecha.slice(5, 7)) : '') + (e.desde ? (' desde ' + e.desde) : '') + (e.hasta ? (' hasta ' + e.hasta) : '') + (e.horas ? (' (' + e.horas + ' hs)') : '');
 }
+/* 28/10 (caso "Extension Jornada Lizama": el mail nombra solo al chofer, sin patente ni numero de unidad): si el mail
+   no trae unidad, se arma la extension igual con el chofer que se nombra (apellido de un chofer de los viajes), la unidad
+   de su ultimo viaje, la fecha del mail y el horario del texto ("hasta las 22hs"). Se registra aunque no haya viaje. */
+function gvExtNorm(t){ return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase(); }
+function gvExtLista(d){
+  var l = (d && d.extensiones) || [];
+  if(l.length || !d) return l;
+  var txt = gvExtNorm((d.asunto || '') + ' ' + (d.texto || ''));
+  var choferes = {};
+  (GV.Storage.getViajes() || []).forEach(function(v){
+    var c = String(v.conductor || '').trim(); if(!c) return;
+    var ap = gvExtNorm(c.split(/\s+/)[0]); if(ap.length < 4) return;
+    var prev = choferes[ap];
+    if(!prev || new Date(v.fechaSalida) > new Date(prev.v.fechaSalida)) choferes[ap] = { nombre: c, v: v };
+  });
+  var hallados = Object.keys(choferes).filter(function(ap){ return new RegExp('\\b' + ap + '\\b').test(txt); });
+  var hora = function(pal){ var m = txt.match(new RegExp(pal + '\\s*(?:LAS\\s*|LA\\s*)?(\\d{1,2})(?:\\s*[:\\.H]\\s*(\\d{2}))?')); if(!m || +m[1] > 24) return null; return ('0' + (+m[1])).slice(-2) + ':' + (m[2] || '00'); };
+  var fecha = GV.dateStr(new Date(d.recibido || Date.now()));
+  var base = { fecha: fecha, desde: hora('DESDE'), hasta: hora('HASTA'), horas: '', cvu: '', obs: '', origen: 'texto-chofer' };
+  if(!hallados.length) return [Object.assign({ patente: '', chofer: '' }, base)];
+  return hallados.map(function(ap){
+    var c = choferes[ap], pat = '';
+    var mm = /-\s*([A-Z]{2}\d{3}[A-Z]{2}|[A-Z]{3}\d{3})\s*$/.exec(String(c.v.vehiculo || '').toUpperCase().replace(/\s+/g, '')); if(mm) pat = mm[1];
+    return Object.assign({ patente: pat, chofer: c.nombre, vehiculoTxt: c.v.vehiculo || '' }, base);
+  });
+}
+function gvExtBadge(){
+  try{
+    var el = document.getElementById('gv-ext-hoy-badge'); if(!el) return;
+    var hoy = GV.dateStr(new Date()), n = 0;
+    (GV.Storage.getViajes() || []).forEach(function(v){ (v.extensionesSLB || []).forEach(function(e){ if(e.fecha === hoy) n++; }); });
+    (gExtensionesSLB || []).forEach(function(d){ gvExtLista(d).forEach(function(e){ var veh = gvSlbVehiculoExt(e); if(e.fecha === hoy && !(veh && gvSlbViajeEnFecha(veh.id, e.fecha))) n++; }); });
+    el.textContent = n; el.style.display = n ? 'inline-block' : 'none';
+    var b = document.getElementById('gv-btn-ext-slb'); if(b) b.title = 'Extensiones horarias SLB' + (n ? (' - hoy: ' + n) : '');
+  }catch(e){}
+}
 function gvSlbProcesarExtensiones(){
   if(!gExtensionesSLB.length) return;
   if(!gvSlbAutoListo()){ setTimeout(gvSlbProcesarExtensiones, 15000); return; }
   gExtensionesSLB.forEach(function(d){
     if(__gvSlbExtHecho[d._id]) return;
     var faltan = 0;
-    (d.extensiones || []).forEach(function(e){
+    gvExtLista(d).forEach(function(e){
       var veh = gvSlbVehiculoExt(e);
       if(!veh) return; /* patente que no es de una unidad de MyGeotab (o un texto que parecia patente): se ignora */
       var v = gvSlbViajeEnFecha(veh.id, e.fecha);
@@ -4322,6 +4360,7 @@ function gvSlbProcesarExtensiones(){
     }
   });
   try{ if(typeof renderTrips === 'function') renderTrips(); }catch(e){}
+  gvExtBadge();
 }
 function gvExtSLBChip(v, soloHoy){
   var l = (v && v.extensionesSLB) || [];
@@ -4348,12 +4387,12 @@ function gvAbrirExtensionesSLB(){
     var filas = [];
     qs.docs.map(function(x){ return Object.assign({ _id: x.id }, x.data()); }).filter(function(d){ return String(d.recibido || '') >= desde; })
       .sort(function(a, b){ return String(b.recibido).localeCompare(String(a.recibido)); }).forEach(function(d){
-        var ex = (d.extensiones && d.extensiones.length) ? d.extensiones : [{}];
+        var ex = gvExtLista(d);
         ex.forEach(function(e){
           var veh = gvSlbVehiculoExt(e);
           var v = veh && e.fecha ? gvSlbViajeEnFecha(veh.id, e.fecha) : null;
-          var est = d.estado === 'procesado' ? '<span style="color:#047857;font-weight:600">Registrada</span>' : (d.estado === 'sin_viaje' ? '<span style="color:#b45309;font-weight:600">Sin viaje</span>' : '<span style="color:#6b7280">Pendiente</span>');
-          filas.push('<tr' + (v ? (' data-ex-viaje="' + v.id + '" style="cursor:pointer" title="Abrir el viaje"') : '') + '><td>' + (e.fecha ? (e.fecha.slice(8, 10) + '/' + e.fecha.slice(5, 7)) : GV.fmtDate(d.recibido)) + '</td><td>' + GV.escapeHtml(veh ? veh.text : (e.patente || (e.interno ? ('#' + e.interno) : '-'))) + '</td><td>' + GV.escapeHtml(v ? (v.conductor || '') : (e.chofer || '')) + '</td><td>' + (e.desde || '-') + '</td><td><b>' + (e.hasta || '-') + '</b></td><td>' + GV.escapeHtml(e.horas || '') + '</td><td>' + est + '</td><td style="font-size:.75rem;color:#374151">' + GV.escapeHtml((d.texto || '').slice(0, 140)) + '<br><span style="color:#9ca3af">' + GV.escapeHtml((d.de || '') + ' - ' + (d.asunto || '')) + ' - ' + GV.fmtDate(d.recibido) + '</span></td></tr>');
+          var est = v ? '<span style="color:#047857;font-weight:600">Registrada en el viaje</span>' : '<span style="color:#b45309;font-weight:600">Registrada (sin viaje cargado)</span>';
+          filas.push('<tr' + (v ? (' data-ex-viaje="' + v.id + '" style="cursor:pointer" title="Abrir el viaje"') : '') + '><td>' + (e.fecha ? (e.fecha.slice(8, 10) + '/' + e.fecha.slice(5, 7)) : GV.fmtDate(d.recibido)) + '</td><td>' + GV.escapeHtml(veh ? veh.text : (e.vehiculoTxt || e.patente || (e.interno ? ('#' + e.interno) : '-'))) + '</td><td>' + GV.escapeHtml(v ? (v.conductor || '') : (e.chofer || '')) + '</td><td>' + (e.desde || '-') + '</td><td><b>' + (e.hasta || '-') + '</b></td><td>' + GV.escapeHtml(e.horas || '') + '</td><td>' + est + '</td><td style="font-size:.75rem;color:#374151">' + GV.escapeHtml((d.texto || '').slice(0, 140)) + '<br><span style="color:#9ca3af">' + GV.escapeHtml((d.de || '') + ' - ' + (d.asunto || '')) + ' - ' + GV.fmtDate(d.recibido) + '</span></td></tr>');
         });
       });
     cuerpo.innerHTML = filas.length ? ('<table class="gv-det-table"><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Desde</th><th>Hasta</th><th>Hs</th><th>Estado</th><th>Mail</th></tr></thead><tbody>' + filas.join('') + '</tbody></table>') : '<p style="color:#6b7280">Todavia no hay extensiones registradas.</p>';
@@ -7369,7 +7408,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-28k';
+var GV_BUILD = '2026-10-28l';
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
