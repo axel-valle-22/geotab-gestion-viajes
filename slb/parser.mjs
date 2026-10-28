@@ -136,7 +136,9 @@ function filasDeTablas(html, recibidoIso){
         telefono: g('telefono'), gin: g('gin'), gv: g('gv'), tr: trM ? ('TR' + trM[1]) : '', sh: g('sh'), detalle: g('detalle'), observaciones: g('observaciones')
       };
       if(!fila.patente || !fila.origen) continue;
-      if(fila.proveedor && !/dolores|parra|tdp/i.test(fila.proveedor)) continue;
+      /* 28/10 (caso Tevez AF576JA, mail de las 17:47 con Proveedor "Crexell" por error de SLB): una fila de otro
+         proveedor ya no se descarta aca. Se marca y el panel la usa SOLO si la patente es de una unidad nuestra. */
+      if(fila.proveedor && !/dolores|parra|tdp/i.test(fila.proveedor)) fila.proveedorAjeno = true;
       /* fila marcada como cancelada en alguna columna (ej. Observaciones "CANCELADO") */
       if(f.some(c => /cancelad|se cancela|anulad/i.test(c))) fila.cancelado = true;
       filas.push(fila);
