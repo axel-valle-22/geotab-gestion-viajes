@@ -10,7 +10,7 @@
      SLB_BUZON                                      -> buzon a leer (ej. avalle@doloresparra.com.ar)
    Opcional: SLB_CARPETA (por defecto "SLB", subcarpeta de la Bandeja de entrada), SLB_DIAS (dias hacia
    atras a revisar, por defecto 3). Si falta algun secreto obligatorio, el proceso termina sin hacer nada. */
-import { parseMailSLB } from './parser.mjs';
+import { parseMailSLB, parseExtensionSLB } from './parser.mjs';
 
 const FB_PROJECT = 'gestion-de-viajes-f5f65';
 const FB_KEY = 'AIzaSyC8e7EGfwvxZkCkmqG59OA2yRTcsAXkamE';
@@ -74,6 +74,24 @@ while(url){
   for(const m of (j.value || [])){
     revisados++;
     const id = idDoc(m.id);
+    const deMail = (m.from && m.from.emailAddress && (m.from.emailAddress.address || '')) || '';
+    /* 28/10: EXTENSIONES HORARIAS. Todo mail de SLB (no los de Dolores Parra, que son las confirmaciones nuestras) que
+       hable de "extension" se analiza y se guarda aparte (documento "x..."), para que el panel la registre en el viaje. */
+    if(!/doloresparra/i.test(deMail)){
+      const idX = 'x' + id.slice(1);
+      if(!(await existeDoc(idX))){
+        let ex = null;
+        try{ ex = parseExtensionSLB(m.body && m.body.content, m.receivedDateTime, m.subject || ''); }catch(e){ console.log('Extension: no se pudo leer', m.subject, e.message); }
+        if(ex){
+          const okX = await crearDoc(idX, {
+            estado: 'pendiente', tipo: 'extension', mailId: m.id, asunto: m.subject || '', recibido: m.receivedDateTime,
+            de: (m.from && m.from.emailAddress && (m.from.emailAddress.name || m.from.emailAddress.address)) || '',
+            extensiones: ex.extensiones, texto: ex.texto, filas: [], cancelados: [], conversacion: m.conversationId || '', creadoEn: new Date().toISOString()
+          });
+          if(okX){ nuevos++; console.log('Extension horaria:', m.subject, '-', ex.extensiones.map(e => e.patente + ' ' + (e.hasta || '?')).join(', ')); }
+        }
+      }
+    }
     if(await existeDoc(id)) continue;
     const r = parseMailSLB(m.body && m.body.content, m.receivedDateTime);
     /* 20/10: solo servicios de hoy en adelante (hora Argentina): los de dias pasados ya se hicieron. */
