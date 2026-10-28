@@ -1750,7 +1750,8 @@ Supervisor); "Solo lectura" y "Ninguno" quedan afuera. Si esta empresa usa un gr
 seguridad personalizado para dar acceso a video, agregar su id aqui. */
 GV.VIDEO_ACCESS_GROUP_IDS = [
   'GroupEverythingSecurityId', // Administrador / acceso total
-  'GroupSupervisorSecurityId'  // Supervisor
+  'GroupSupervisorSecurityId', // Supervisor
+  'b27C2'                      // 28/10: "Supervisor + camaras" (autorizacion propia de Dolores Parra)
 ];
 GV._camAccessCache = null; // null = aun no se sabe, true/false = ya resuelto
 GV.hasVideoAccess = function(api){
