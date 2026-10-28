@@ -198,6 +198,13 @@ function esEncabezadoExtension(fila){ return fila.some(c => /hora hasta|hora des
 const RE_PATENTE = /\b([A-Z]{2}\s?\d{3}\s?[A-Z]{2}|[A-Z]{3}\s?\d{3})\b/g;
 const NO_PATENTE = /^(PAD|DLS|RIG|LOC|BAT|POZ|SET|RDA|MMO|LLL|BPE|BPO|CAN|RAO|TLM|YPF|LAJ|RPS|GIN|CVU|TRA|LCH|LAC|HPE|RDL|EQP|EQU|KM|RUT)/;
 function patentesDe(txt){ return [...new Set((String(txt || '').toUpperCase().match(RE_PATENTE) || []).map(patenteNorm))].filter(p => !(p.length === 6 && NO_PATENTE.test(p))); }
+function internosDe(txt){
+  const out = new Set();
+  const re = /(?:unidad(?:es)?|internos?|m[oó]vil(?:es)?|#)\s*((?:#?\d{2,3}\b(?:\s*(?:,|y|e|\/|-)\s*)?)+)/gi;
+  let m;
+  while((m = re.exec(String(txt || '')))){ (m[1].match(/\d{2,3}/g) || []).forEach(n => out.add(n)); }
+  return [...out];
+}
 function horaTexto(t, palabra){
   const re = new RegExp(palabra + '\\s*(?:las\\s*|la\\s*)?(\\d{1,2})(?:\\s*[:\\.h]\\s*(\\d{2}))?\\s*(?:hs?|horas)?\\b', 'i');
   const m = String(t || '').match(re);
@@ -239,8 +246,17 @@ export function parseExtensionSLB(html, recibidoIso, asunto){
   if(!ext.length){
     let pats = patentesDe(texto);
     if(!pats.length) pats = patentesDe(asunto);
+    /* 28/10: tambien por numero de unidad ("para las unidades 330, 306 y 310", "unidad #336") */
+    if(!pats.length){
+      const ints = internosDe(texto);
+      if(ints.length){
+        const desde = horaTexto(texto, 'desde'), hasta = horaTexto(texto, 'hasta');
+        ints.forEach(n => ext.push({ patente: '', interno: n, fecha: fechaMail, desde, hasta, horas: '', cvu: '', chofer: '', obs: '', origen: 'texto' }));
+      }
+    }
+    if(ext.length) pats = [];
     let filasCit = [];
-    if(!pats.length && citado){ filasCit = filasDeTablas(citado, recibidoIso); pats = [...new Set(filasCit.map(f => f.patente))]; }
+    if(!pats.length && !ext.length && citado){ filasCit = filasDeTablas(citado, recibidoIso); pats = [...new Set(filasCit.map(f => f.patente))]; }
     const desde = horaTexto(texto, 'desde'), hasta = horaTexto(texto, 'hasta');
     pats.forEach(p => {
       const fc = filasCit.filter(f => f.patente === p)[0] || {};
