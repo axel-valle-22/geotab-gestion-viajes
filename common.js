@@ -2181,6 +2181,29 @@ GV.Storage = (function(){
     var _dirtyLista = { sitios: {}, alertas: {}, gerenciamientos: {} }, _removedLista = { sitios: {}, alertas: {}, gerenciamientos: {} };
     var _reintentosEscritura = 0;
     function _marcarItem(lista, item){ if(!item || typeof item !== 'object') return; if(item.id == null) item.id = lista.slice(0, 3) + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); _dirtyLista[lista][item.id] = true; }
+    /* 28/10 (caso viaje 258 Veschi: se creo, aparecio, a los segundos DESAPARECIO y despues volvio): cuando el
+       documento esta muy concurrido el guardado choca con otra pantalla y se reintenta; mientras tanto llegaba la
+       version del servidor (todavia sin el viaje nuevo) y reemplazaba la lista local, asi que el viaje "desaparecia"
+       hasta que el reintento entraba. Ahora los cambios propios que todavia no confirmo el servidor (altas, cambios y
+       bajas de viajes, alertas, sitios y gerenciamientos) se mantienen visibles encima de lo que llega (max. 3 min). */
+    var _pendV = {}, _pendDelV = {}, _pendL = { sitios: {}, alertas: {}, gerenciamientos: {} }, _pendDelL = { sitios: {}, alertas: {}, gerenciamientos: {} };
+    function _superponerPendientes(local, server, pend, pendDel){
+      server = Array.isArray(server) ? server : [];
+      var ahora = Date.now(), lim = 180000, hay = false;
+      Object.keys(pend).forEach(function(k){ if(ahora - pend[k] > lim) delete pend[k]; else hay = true; });
+      Object.keys(pendDel).forEach(function(k){ if(ahora - pendDel[k] > lim) delete pendDel[k]; else hay = true; });
+      if(!hay) return server;
+      var porId = {}; (local || []).forEach(function(x){ if(x && x.id != null) porId[x.id] = x; });
+      var out = server.filter(function(x){ return !(x && x.id != null && pendDel[x.id]); }).map(function(x){ return (x && x.id != null && pend[x.id] && porId[x.id]) ? porId[x.id] : x; });
+      var vistos = {}; out.forEach(function(x){ if(x && x.id != null) vistos[x.id] = 1; });
+      Object.keys(pend).forEach(function(id){ if(!vistos[id] && porId[id] && !pendDel[id]) out.push(porId[id]); });
+      return out;
+    }
+    function _aplicarDelServidor(d){
+      _data.viajes = _superponerPendientes(_data.viajes, d.viajes || [], _pendV, _pendDelV);
+      ['alertas', 'sitios', 'gerenciamientos'].forEach(function(l){ _data[l] = _superponerPendientes(_data[l], d[l] || (l === 'gerenciamientos' ? _data.gerenciamientos : []) || [], _pendL[l], _pendDelL[l]); });
+      _data.conductores = d.conductores || _data.conductores || [];
+    }
     function _mergeLista(lista, server, local, dirty, removed){
       server = Array.isArray(server) ? server : [];
       local = Array.isArray(local) ? local : [];
@@ -2209,7 +2232,7 @@ GV.Storage = (function(){
        y la regla de Firestore exige que el valor nuevo sea DISTINTO al que ya estaba guardado. Una
        pestana que no sabe que este campo existe jamas puede cumplir esa condicion. */
     function _genWriteNonce(){ return Date.now() + '_' + Math.random().toString(36).slice(2); }
-    var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); cargarHistorico(); setTimeout(function(){ archivarAntiguos(); }, 30000); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || []; _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || []; saveToLS(); } notify(); }, function(err){}); return true; }); }
+    var _fbDb = null; var _fbDocRef = null; var _fbReady = false; function initFirebase(){ return GV.loadFirebase().then(function(firebase){ if(!firebase.apps || !firebase.apps.length){ firebase.initializeApp(GV.FIREBASE_CONFIG); } _fbDb = firebase.firestore(); _fbDocRef = _fbDb.collection('gv_data').doc('main'); cargarHistorico(); setTimeout(function(){ archivarAntiguos(); }, 30000); _fbDocRef.onSnapshot(function(snap){ _fbReady = true; var d = snap.exists ? snap.data() : null; if(d){ _aplicarDelServidor(d); saveToLS(); } notify(); }, function(err){}); return true; }); }
 
   /* ---------------- Archivo histórico ----------------
      Todo Gestion de Viajes vive en UN solo documento de Firestore (gv_data/main) y Firestore no
@@ -2474,8 +2497,7 @@ GV.Storage = (function(){
         _fbDocRef.get({ source: 'server' }).then(function(snap){
           var d = snap.exists ? snap.data() : null;
           if(d){
-            _data.viajes = d.viajes || []; _data.alertas = d.alertas || []; _data.sitios = d.sitios || [];
-            _data.conductores = d.conductores || _data.conductores || []; _data.gerenciamientos = d.gerenciamientos || _data.gerenciamientos || [];
+            _aplicarDelServidor(d);
             saveToLS();
           }
           notify();
@@ -2512,6 +2534,14 @@ GV.Storage = (function(){
     if(_fbReady && _fbDocRef){
       _pendingWrites++;
       var _dirtyListaSnap = _dirtyLista, _removedListaSnap = _removedLista;
+      var __marca = Date.now() + Math.random();
+      _dirtyIdsSnapshot.forEach(function(id){ _pendV[id] = __marca; });
+      _removedIdsSnapshot.forEach(function(id){ _pendDelV[id] = __marca; delete _pendV[id]; });
+      ['sitios', 'alertas', 'gerenciamientos'].forEach(function(l){ Object.keys(_dirtyListaSnap[l] || {}).forEach(function(id){ _pendL[l][id] = __marca; }); Object.keys(_removedListaSnap[l] || {}).forEach(function(id){ _pendDelL[l][id] = __marca; }); });
+      var __limpiarPend = function(){
+        var lim = function(m){ Object.keys(m).forEach(function(k){ if(m[k] === __marca) delete m[k]; }); };
+        lim(_pendV); lim(_pendDelV); ['sitios', 'alertas', 'gerenciamientos'].forEach(function(l){ lim(_pendL[l]); lim(_pendDelL[l]); });
+      };
       /* copia de los items modificados TAL COMO ESTAN AHORA (si antes de guardar llega una actualizacion de otra pantalla
          que reemplaza las listas locales, igual se guarda lo que esta pantalla cambio) */
       var _itemsListaSnap = {};
@@ -2604,7 +2634,7 @@ GV.Storage = (function(){
       /* 26/10: si el guardado falla (conflicto con otra pantalla que guardo al mismo tiempo, corte de red), los cambios
          vuelven a la cola y se reintenta solo (1, 2, 4... hasta 30 s). Antes se perdian en silencio y el viaje "volvia"
          al estado anterior con la siguiente actualizacion. */
-      _writeOp.then(function(){ _pendingWrites--; _reintentosEscritura = 0; }).catch(function(err){
+      _writeOp.then(function(){ _pendingWrites--; _reintentosEscritura = 0; __limpiarPend(); }).catch(function(err){
         _pendingWrites--;
         _dirtyIdsSnapshot.forEach(function(id){
           var vieja = _dirtyEntriesSnapshot[id], nueva = _dirtyViajeIds[id];
