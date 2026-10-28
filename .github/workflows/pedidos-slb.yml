@@ -42,6 +42,8 @@ jobs:
             m=$(TZ=America/Argentina/Buenos_Aires date +%-M)
             if [ "$h" -ge 6 ] || { [ "$h" -eq 0 ] && [ "$m" -lt 30 ]; }; then
               echo "=== Lectura $(TZ=America/Argentina/Buenos_Aires date '+%d/%m %H:%M') ==="
+              # 28/10: cada vuelta toma la ultima version del codigo (si se cambio el lector, no hay que esperar la proxima corrida)
+              git fetch -q --depth 1 origin main && git reset -q --hard origin/main || echo "No se pudo actualizar el codigo; se usa el que ya estaba."
               node slb/leer-mails.mjs || echo "Esta vuelta fallo; se reintenta en 30 min."
             else
               echo "$(TZ=America/Argentina/Buenos_Aires date '+%H:%M'): fuera de horario, no se lee."
