@@ -394,7 +394,7 @@ if(csf) csf.addEventListener('click', function(){ gStatFilter = null; updateStat
        gerenciamiento a la izquierda; acciones a la derecha). El resto (fecha, recorrido, paradas,
        estado en vivo) se ve en el detalle, que se abre con "Ver Detalle" o tocando la tarjeta. */
     return '<div class="gv-trip-card gv-trip-compacta" data-action="detalle" data-id="' + v.id + '" title="' + GV.escapeHtml(GV.fmtDate(v.fechaSalida) + ' | ' + GV.fmtRuta(origenTxt, destinoTxt)) + '">' +
-      '<div class="gv-trip-izq"><span class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</span>' + gvSolicitudChip(v) +
+      '<div class="gv-trip-izq"><span class="gv-trip-title">' + GV.escapeHtml(v.conductor||'?') + ' - ' + GV.escapeHtml(v.vehiculo||'?') + '</span>' + gvSolicitudChip(v) + gvExtSLBChip(v, true) +
       '<span class="gv-status gv-s-' + (v.estado||'planificado') + '">' + GV.statusLabel(v.estado||'planificado') + '</span>' + gerenciamientoBadge(v) + '</div>' +
       '<div class="gv-trip-actions">' + actions + '</div></div>';
   }).join('');
@@ -1371,7 +1371,8 @@ function checkJornadas(){
           tipo: 'chofer_12hs',
           viajeId: v.id,
           fecha: new Date().toISOString(),
-          mensaje: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').'
+          mensaje: (v.conductor || 'El chofer') + ' - ' + (v.vehiculo || '') + ': lleva mas de 12 horas en servicio (desde las ' + GV.fmtDate(hoy.inicio).split(' ')[1] + ').' +
+            (function(){ var ex = (v.extensionesSLB || []).filter(function(e){ return e.fecha === hoyStr; }); return ex.length ? (' Tiene EXTENSION HORARIA autorizada por SLB ' + gvExtTxt(ex[ex.length - 1]) + '.') : ''; })()
         });
       }
     }
@@ -4149,17 +4150,106 @@ function gvSlbHtmlPropuestas(){
         '</div>';
     }).join('') + '<div style="height:6px"></div>';
 }
+/* ================= 28/10: EXTENSIONES HORARIAS de SLB =================
+   El lector de mails guarda cada mail de SLB que habla de "extension" (tipo "extension") con las unidades, la fecha y
+   el horario (desde / hasta) que se pudo leer. Aca se registra en el viaje de esa unidad en esa fecha
+   (v.extensionesSLB), se avisa en Alertas y el mail queda "procesado". Si la unidad no tiene viaje ese dia, se
+   reintenta (por si el viaje se carga despues) y a las 36 h queda como "sin viaje" (igual figura en el registro). */
+var gExtensionesSLB = [], __gvSlbExtHecho = {};
+function gvSlbViajeEnFecha(vehId, fecha){
+  var hoy = GV.dateStr(new Date());
+  return (GV.Storage.getViajes() || []).filter(function(v){
+    if(!v || v.estado === 'cancelado') return false;
+    var mio = v.vehiculoId === vehId || (v.tramos || []).some(function(t){ return t && t.vehiculoId === vehId; });
+    if(!mio) return false;
+    var ini = GV.dateStr(v.iniciadoEn || v.fechaSalida);
+    var fin = v.completadoEn ? GV.dateStr(v.completadoEn) : ((v.estado === 'en_curso' || v.estado === 'demorado') ? hoy : GV.dateStr(v.fechaSalida));
+    return ini <= fecha && fin >= fecha;
+  }).sort(function(a, b){ return new Date(b.fechaSalida) - new Date(a.fechaSalida); })[0] || null;
+}
+function gvExtTxt(e){
+  return (e.fecha ? (e.fecha.slice(8, 10) + '/' + e.fecha.slice(5, 7)) : '') + (e.desde ? (' desde ' + e.desde) : '') + (e.hasta ? (' hasta ' + e.hasta) : '') + (e.horas ? (' (' + e.horas + ' hs)') : '');
+}
+function gvSlbProcesarExtensiones(){
+  if(!gExtensionesSLB.length) return;
+  if(!gvSlbAutoListo()){ setTimeout(gvSlbProcesarExtensiones, 15000); return; }
+  gExtensionesSLB.forEach(function(d){
+    if(__gvSlbExtHecho[d._id]) return;
+    var faltan = 0;
+    (d.extensiones || []).forEach(function(e){
+      var veh = e.patente ? gvSlbVehiculo(e.patente) : null;
+      if(!veh) return; /* patente que no es de una unidad de MyGeotab (o un texto que parecia patente): se ignora */
+      var v = gvSlbViajeEnFecha(veh.id, e.fecha);
+      if(!v){ faltan++; return; }
+      var clave = d._id + '|' + e.patente + '|' + e.fecha;
+      var lista = (v.extensionesSLB || []).slice();
+      if(lista.some(function(x){ return x.clave === clave; })) return;
+      lista.push({ clave: clave, fecha: e.fecha, desde: e.desde || null, hasta: e.hasta || null, horas: e.horas || '', cvu: e.cvu || '', chofer: e.chofer || '',
+        obs: e.obs || '', texto: d.texto || '', asunto: d.asunto || '', de: d.de || '', recibido: d.recibido || '', registradoEn: new Date().toISOString() });
+      GV.Storage.updateViaje(v.id, { extensionesSLB: lista });
+      GV.Storage.addAlerta({ id: 'al_' + v.id + '_ext_' + d._id.slice(-10) + '_' + e.patente, tipo: 'info', viajeId: v.id, fecha: new Date().toISOString(),
+        mensaje: (v.conductor || '') + ' - ' + (v.vehiculo || '') + ': SLB autorizo EXTENSION HORARIA ' + gvExtTxt(e) + ' (mail de ' + (d.de || 'SLB') + ': "' + (d.asunto || '') + '").' });
+    });
+    var vieja = (Date.now() - new Date(d.recibido || 0).getTime()) > 36 * 3600000;
+    if(!faltan || vieja){
+      __gvSlbExtHecho[d._id] = 1;
+      gvSlbActualizarPedido(d._id, { estado: faltan ? 'sin_viaje' : 'procesado', procesadoEn: new Date().toISOString() });
+    }
+  });
+  try{ if(typeof renderTrips === 'function') renderTrips(); }catch(e){}
+}
+function gvExtSLBChip(v, soloHoy){
+  var l = (v && v.extensionesSLB) || [];
+  if(soloHoy){ var h = GV.dateStr(new Date()); l = l.filter(function(e){ return e.fecha === h; }); }
+  if(!l.length) return '';
+  return l.map(function(e){ return ' <span title="' + GV.escapeHtml('Extension horaria autorizada por SLB. ' + (e.texto || '') + ' Mail: ' + (e.asunto || '')) + '" style="display:inline-block;font-size:.7rem;font-weight:700;background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;border-radius:999px;padding:1px 8px;margin-left:4px;white-space:nowrap">Ext. horaria ' + GV.escapeHtml(gvExtTxt(e)) + '</span>'; }).join('');
+}
+/* Registro de todas las extensiones horarias (ultimos 60 dias) */
+function gvAbrirExtensionesSLB(){
+  var ov = document.createElement('div');
+  ov.className = 'gv-modal-overlay'; ov.style.zIndex = '99995';
+  ov.innerHTML = '<div class="gv-modal" style="max-width:980px;width:100%;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">Extensiones horarias SLB</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ex-cerrar>Cerrar</button></div>' +
+    '<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">Leidas automaticamente de los mails de SLB que mencionan "extension". Se registran en el viaje de la unidad ese dia.</div>' +
+    '<div data-ex-cuerpo style="overflow:auto;min-height:0"><p style="color:#6b7280">Cargando...</p></div></div>';
+  document.body.appendChild(ov);
+  ov.querySelector('[data-ex-cerrar]').addEventListener('click', function(){ ov.remove(); });
+  var cuerpo = ov.querySelector('[data-ex-cuerpo]');
+  GV.loadFirebase().then(function(fb){
+    if(!fb.apps || !fb.apps.length) fb.initializeApp(GV.FIREBASE_CONFIG);
+    return fb.firestore().collection('gv_pedidos_slb').where('tipo', '==', 'extension').get();
+  }).then(function(qs){
+    var desde = new Date(Date.now() - 60 * 86400000).toISOString();
+    var filas = [];
+    qs.docs.map(function(x){ return Object.assign({ _id: x.id }, x.data()); }).filter(function(d){ return String(d.recibido || '') >= desde; })
+      .sort(function(a, b){ return String(b.recibido).localeCompare(String(a.recibido)); }).forEach(function(d){
+        var ex = (d.extensiones && d.extensiones.length) ? d.extensiones : [{}];
+        ex.forEach(function(e){
+          var veh = e.patente ? gvSlbVehiculo(e.patente) : null;
+          var v = veh && e.fecha ? gvSlbViajeEnFecha(veh.id, e.fecha) : null;
+          var est = d.estado === 'procesado' ? '<span style="color:#047857;font-weight:600">Registrada</span>' : (d.estado === 'sin_viaje' ? '<span style="color:#b45309;font-weight:600">Sin viaje</span>' : '<span style="color:#6b7280">Pendiente</span>');
+          filas.push('<tr' + (v ? (' data-ex-viaje="' + v.id + '" style="cursor:pointer" title="Abrir el viaje"') : '') + '><td>' + (e.fecha ? (e.fecha.slice(8, 10) + '/' + e.fecha.slice(5, 7)) : GV.fmtDate(d.recibido)) + '</td><td>' + GV.escapeHtml(veh ? veh.text : (e.patente || '-')) + '</td><td>' + GV.escapeHtml(v ? (v.conductor || '') : (e.chofer || '')) + '</td><td>' + (e.desde || '-') + '</td><td><b>' + (e.hasta || '-') + '</b></td><td>' + GV.escapeHtml(e.horas || '') + '</td><td>' + est + '</td><td style="font-size:.75rem;color:#374151">' + GV.escapeHtml((d.texto || '').slice(0, 140)) + '<br><span style="color:#9ca3af">' + GV.escapeHtml((d.de || '') + ' - ' + (d.asunto || '')) + ' - ' + GV.fmtDate(d.recibido) + '</span></td></tr>');
+        });
+      });
+    cuerpo.innerHTML = filas.length ? ('<table class="gv-det-table"><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Desde</th><th>Hasta</th><th>Hs</th><th>Estado</th><th>Mail</th></tr></thead><tbody>' + filas.join('') + '</tbody></table>') : '<p style="color:#6b7280">Todavia no hay extensiones registradas.</p>';
+    cuerpo.querySelectorAll('[data-ex-viaje]').forEach(function(tr){ tr.addEventListener('click', function(){ ov.remove(); abrirDetalleViaje(tr.getAttribute('data-ex-viaje')); }); });
+  })['catch'](function(e){ cuerpo.innerHTML = '<p style="color:#b91c1c">No se pudo cargar: ' + GV.escapeHtml(String(e && e.message || e)) + '</p>'; });
+}
 function gvEscucharPedidosSLB(){
   if(!window.__gvSlbIntervalo){
-    window.__gvSlbIntervalo = setInterval(function(){ try{ gvSlbAjustarOrigenes0600(); if(gPedidosSLB.length) gvSlbRecalcularPropuestas(); }catch(e){} }, 5 * 60000);
+    window.__gvSlbIntervalo = setInterval(function(){ try{ gvSlbAjustarOrigenes0600(); if(gPedidosSLB.length) gvSlbRecalcularPropuestas(); gvSlbProcesarExtensiones(); }catch(e){} }, 5 * 60000);
     setTimeout(function(){ try{ gvSlbAjustarOrigenes0600(); }catch(e){} }, 30000);
   }
   GV.loadFirebase().then(function(firebase){
     if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
     firebase.firestore().collection('gv_pedidos_slb').where('estado', '==', 'pendiente').onSnapshot(function(qs){
-      gPedidosSLB = qs.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); }).sort(function(a, b){ return String(b.recibido).localeCompare(String(a.recibido)); });
+      var __docsSLB = qs.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); });
+      /* 28/10: los mails de EXTENSION HORARIA vienen en la misma coleccion (tipo "extension"): van aparte */
+      gExtensionesSLB = __docsSLB.filter(function(d){ return d.tipo === 'extension'; });
+      gPedidosSLB = __docsSLB.filter(function(d){ return d.tipo !== 'extension'; }).sort(function(a, b){ return String(b.recibido).localeCompare(String(a.recibido)); });
       gvSlbPintarContador();
       gvSlbRecalcularPropuestas();
+      gvSlbProcesarExtensiones();
     }, function(err){ try{ console.warn('[GV] pedidos SLB', err && err.message); }catch(e){} });
   })['catch'](function(){});
 }
@@ -4167,12 +4257,13 @@ function gvAbrirPedidosSLB(){
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay'; ov.style.zIndex = '99990';
   ov.innerHTML = '<div class="gv-modal" style="max-width:860px;width:100%;max-height:88vh;display:flex;flex-direction:column">' +
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">Pedidos SLB para confirmar</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ps-cerrar>Cerrar</button></div>' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0;font-size:1rem;flex:1">Pedidos SLB para confirmar</h3><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ps-ext style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd">Extensiones horarias</button><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-ps-cerrar>Cerrar</button></div>' +
     '<div style="font-size:.78rem;color:#6b7280;margin-bottom:8px">Viajes armados automaticamente desde los mails de confirmacion de SLB. Revisa cada uno y toca "Crear viaje".</div>' +
     '<div data-ps-cuerpo style="overflow:auto;min-height:0"></div></div>';
   document.body.appendChild(ov);
   var cuerpo = ov.querySelector('[data-ps-cuerpo]');
   var cerrar = function(){ ov.remove(); };
+  var __bx = ov.querySelector('[data-ps-ext]'); if(__bx) __bx.addEventListener('click', function(){ gvAbrirExtensionesSLB(); });
   ov.addEventListener('click', function(e){ if(e.target === ov || e.target.closest('[data-ps-cerrar]')) cerrar(); });
   var fmt = function(iso){ try{ return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); }catch(e){ return iso; } };
   var TIPO = { carga: 'Carga', descarga: 'Descarga', ambos: 'Carga y Descarga' };
@@ -4450,7 +4541,7 @@ overlay.innerHTML =
 '</div>' +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-reabrir" title="Volver este viaje a En curso, por ejemplo si se cerro solo por error">Reabrir viaje</button>' : '') +
   '</div>' +
-'<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + ((v.reprogramaciones && v.reprogramaciones.length) ? (' &nbsp;|&nbsp; <span style="color:#7c3aed" title="' + GV.escapeHtml(v.reprogramaciones.map(function(r){ return GV.fmtDate(r.fechaAnterior) + ' -> ' + GV.fmtDate(r.fechaNueva) + (r.motivo ? ' (' + r.motivo + ')' : ''); }).join(' | ')) + '">Reprogramado ' + v.reprogramaciones.length + (v.reprogramaciones.length === 1 ? ' vez' : ' veces') + ' (salida original: ' + GV.fmtDate(v.reprogramaciones[0].fechaAnterior) + ')</span>') : '') + '</div>' +
+'<div style="font-size:.85rem;color:#6b7280;margin:6px 0 12px">' + GV.statusLabel(v.estado||'planificado') + ' &nbsp;|&nbsp; Salida: ' + GV.fmtDate(v.fechaSalida) + gvContinuidadChip(v) + gvExtSLBChip(v, false) + ((v.reprogramaciones && v.reprogramaciones.length) ? (' &nbsp;|&nbsp; <span style="color:#7c3aed" title="' + GV.escapeHtml(v.reprogramaciones.map(function(r){ return GV.fmtDate(r.fechaAnterior) + ' -> ' + GV.fmtDate(r.fechaNueva) + (r.motivo ? ' (' + r.motivo + ')' : ''); }).join(' | ')) + '">Reprogramado ' + v.reprogramaciones.length + (v.reprogramaciones.length === 1 ? ' vez' : ' veces') + ' (salida original: ' + GV.fmtDate(v.reprogramaciones[0].fechaAnterior) + ')</span>') : '') + '</div>' +
 (v.compartirToken ? ('<div id="gv-det-compartir-panel" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
 '<span style="font-size:.78rem;font-weight:700;color:#0c4a6e;white-space:nowrap">Link para el cliente:</span>' +
 '<input type="text" readonly id="gv-det-compartir-link" value="https://axel-valle-22.github.io/geotab-gestion-viajes/compartir.html?t=' + encodeURIComponent(v.compartirToken) + '" style="flex:1;min-width:220px;font-size:.78rem;padding:5px 8px;border:1px solid #bae6fd;border-radius:6px;background:#fff;color:#0c4a6e" onclick="this.select()">' +
@@ -7134,7 +7225,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-27j';
+var GV_BUILD = '2026-10-28a';
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
