@@ -119,7 +119,12 @@ function filasDeTablas(html, recibidoIso){
     for(const f of tabla){
       if(!idx){
         const m = mapearEncabezado(f);
-        if(m.origen != null && m.destino != null && m.patente != null && (m.hora != null || m.fecha != null)){ idx = m; }
+        if(m.origen != null && m.destino != null && m.patente != null && (m.hora != null || m.fecha != null)){
+          /* 28/10: la tabla de EXTENSIONES HORARIAS (columnas "Hora Desde / Hora Hasta / Pedido Extension") no es un
+             pedido de servicios: la lee parseExtensionSLB. */
+          if(esEncabezadoExtension(f)) break;
+          idx = m;
+        }
         continue;
       }
       const g = k => (idx[k] != null && f[idx[k]] != null) ? f[idx[k]] : '';
@@ -180,4 +185,68 @@ export function parseMailSLB(html, recibidoIso){
   }
   filas = filas.filter(f => !f.cancelado && !cancelados.has(f.cvu));
   return { filas, trs, recorrido, actualizacion, cancelados: [...cancelados] };
+}
+
+/* ================= 28/10: EXTENSIONES HORARIAS =================
+   Todo mail de SLB que hable de "extension" (en el asunto o en la parte NUEVA del texto) se analiza:
+   - Si trae la tabla de extensiones (Patente / Fecha / Hora Desde / Hora Hasta / Cantidad Hs), una extension por fila.
+   - Si no, se lee el texto ("Formalizo extension horaria hasta las 22:30hs", "desde las 20 hasta las 21") y la(s)
+     patente(s) salen del texto nuevo, del asunto o, si no aparecen, de la tabla del mail citado.
+   La fecha es la de la tabla o, si no hay, la del dia (Argentina) en que llego el mail.
+   No se registra si el texto dice que NO habra extension. */
+function esEncabezadoExtension(fila){ return fila.some(c => /hora hasta|hora desde|pedido extension|cantidad hs/.test(norm(c))); }
+const RE_PATENTE = /\b([A-Z]{2}\s?\d{3}\s?[A-Z]{2}|[A-Z]{3}\s?\d{3})\b/g;
+const NO_PATENTE = /^(PAD|DLS|RIG|LOC|BAT|POZ|SET|RDA|MMO|LLL|BPE|BPO|CAN|RAO|TLM|YPF|LAJ|RPS|GIN|CVU|TRA|LCH|LAC|HPE|RDL|EQP|EQU|KM|RUT)/;
+function patentesDe(txt){ return [...new Set((String(txt || '').toUpperCase().match(RE_PATENTE) || []).map(patenteNorm))].filter(p => !(p.length === 6 && NO_PATENTE.test(p))); }
+function horaTexto(t, palabra){
+  const re = new RegExp(palabra + '\\s*(?:las\\s*|la\\s*)?(\\d{1,2})(?:\\s*[:\\.h]\\s*(\\d{2}))?\\s*(?:hs?|horas)?\\b', 'i');
+  const m = String(t || '').match(re);
+  if(!m) return null;
+  const hh = +m[1]; if(hh > 24) return null;
+  return String(hh).padStart(2, '0') + ':' + (m[2] || '00');
+}
+export function parseExtensionSLB(html, recibidoIso, asunto){
+  const { nuevo, citado } = partesMail(html);
+  const texto = textoPlano(nuevo).replace(/[ \t]+/g, ' ');
+  const tieneExt = t => /extensi[oó]n/i.test(t);
+  if(!tieneExt(asunto) && !tieneExt(texto)) return null;
+  if(/\bno\s+(?:habr[ií]a|hay|habr[aá]|se\s+(?:requiere|necesita))\b[^.\n]{0,40}extensi[oó]n/i.test(texto)) return null;
+  const fechaMail = new Date(new Date(recibidoIso || Date.now()).getTime() - 3 * 3600000).toISOString().slice(0, 10);
+  const ext = [];
+  /* 1) tabla de extensiones */
+  for(const tabla of tablas(nuevo)){
+    let idx = null, cols = null;
+    for(const f of tabla){
+      if(!idx){
+        if(!esEncabezadoExtension(f)) continue;
+        const m = mapearEncabezado(f);
+        if(m.patente == null) continue;
+        idx = m; cols = {};
+        f.forEach((t, i) => { const n = norm(t); if(/desde/.test(n)) cols.desde = i; else if(/hasta/.test(n)) cols.hasta = i; else if(/cantidad/.test(n)) cols.horas = i; });
+        continue;
+      }
+      const g = k => (idx[k] != null && f[idx[k]] != null) ? f[idx[k]] : '';
+      const c = k => (cols[k] != null && f[cols[k]] != null) ? f[cols[k]] : '';
+      const pat = patenteNorm(g('patente'));
+      if(!pat) continue;
+      if(g('proveedor') && !/dolores|parra|tdp/i.test(g('proveedor'))) continue;
+      ext.push({ patente: pat, fecha: fechaISO(g('fecha'), recibidoIso) || fechaMail, desde: horaHHMM(c('desde')), hasta: horaHHMM(c('hasta')),
+        horas: c('horas') || '', cvu: g('cvu'), chofer: g('chofer'), obs: g('observaciones'), origen: 'tabla' });
+    }
+    if(ext.length) break;
+  }
+  /* 2) texto */
+  if(!ext.length){
+    let pats = patentesDe(texto);
+    if(!pats.length) pats = patentesDe(asunto);
+    let filasCit = [];
+    if(!pats.length && citado){ filasCit = filasDeTablas(citado, recibidoIso); pats = [...new Set(filasCit.map(f => f.patente))]; }
+    const desde = horaTexto(texto, 'desde'), hasta = horaTexto(texto, 'hasta');
+    pats.forEach(p => {
+      const fc = filasCit.filter(f => f.patente === p)[0] || {};
+      ext.push({ patente: p, fecha: fechaMail, desde, hasta, horas: '', cvu: fc.cvu || '', chofer: fc.chofer || '', obs: '', origen: 'texto' });
+    });
+  }
+  const resumen = texto.split(/\n+/).map(l => l.trim()).filter(Boolean).filter(l => !/^(buen[oa]s|saludos|hola)\b/i.test(l)).slice(0, 4).join(' ').slice(0, 400);
+  return { extensiones: ext, texto: resumen };
 }
