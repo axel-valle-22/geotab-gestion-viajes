@@ -2726,6 +2726,7 @@ function gvCerrarCompartidosFinalizados(){
 /* 19/10: legs de ruta (duracion de cada tramo) calculados por el panel (Seguimiento o detalle), por viaje, para que
    el link del cliente use los mismos tiempos de tramo que se ven en el detalle. */
 var gvRutaLegsCache = {};
+function gvSigPts(pts){ return (pts || []).map(function(p){ return Number(p && p.lat).toFixed(5) + ',' + Number(p && p.lng).toFixed(5); }).join(';'); }
 /* 19/10: horario PROGRAMADO (fijo) de cada sitio para el link del cliente. Sale solo de la programacion del viaje:
    salida programada + tiempo de cada tramo + permanencia programada (o la espera acordada, si la hay). No se
    recalcula con lo que va pasando en el viaje: queda guardado en el viaje (v.horarioProgramado) y solo se vuelve a
@@ -2778,8 +2779,11 @@ function gvHorarioProgramado(v, legs){
 }
 function gvEstimadosCompartir(v){
   var cache = gvRutaLegsCache[v.id];
-  var n = gvRutaPuntosViaje(v).length;
-  var hp = gvHorarioProgramado(v, (cache && cache.n === n) ? cache.legs : null);
+  /* 28/10: los tramos guardados solo sirven si los puntos son los MISMOS y en el MISMO orden. Antes se comparaba solo
+     la cantidad: al reordenar las paradas (misma cantidad) se usaban los tiempos del orden viejo y el horario quedaba
+     mal calculado (y guardado). */
+  var sig = gvSigPts(gvRutaPuntosViaje(v).map(function(x){ return x.p; }));
+  var hp = gvHorarioProgramado(v, (cache && cache.sig === sig) ? cache.legs : null);
   var res = {};
   Object.keys(hp).forEach(function(k){ res[k] = { ingresoEst: hp[k].ingreso, egresoEst: hp[k].egreso }; });
   return res;
@@ -3316,7 +3320,7 @@ function renderTracking(){
               var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
                 GV.getRoute(pts, { excluirViajeId: v.id }).then(function(route){
-                  try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC){}
+                  try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, sig: gvSigPts(pts), legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC){}
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
                     if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
@@ -6552,7 +6556,7 @@ if(addDestinoBtn) addDestinoBtn.addEventListener('click', agregarDestino);
 
 if(pts.length > 1){
 GV.getRoute(pts.map(function(p){ return { lat: p.lat, lng: p.lng }; }), { excluirViajeId: v.id }).then(function(route){
-try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC2){}
+try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, sig: gvSigPts(pts), legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC2){}
 if(route && route.coords){
 detLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
 } else {
@@ -7256,7 +7260,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-28c';
+var GV_BUILD = '2026-10-28e';
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
