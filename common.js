@@ -1942,7 +1942,7 @@ return new Promise(function(resolve){
 if(!api || !deviceId){ resolve([]); return; }
 api.call('Get', { typeName: 'LogRecord', search: { deviceSearch: { id: deviceId }, fromDate: fromISO, toDate: toISO } }, function(res){
 resolve((res || []).slice().sort(function(a,b){ return new Date(a.dateTime) - new Date(b.dateTime); }));
-}, function(){ resolve([]); });
+}, function(e){ try{ GV.ultimoErrorHistorial = { msg: String((e && (e.message || e.name)) || e || 'error'), t: Date.now() }; console.warn('GV.getHistory', e); }catch(_){} resolve([]); });
 });
 };
 
