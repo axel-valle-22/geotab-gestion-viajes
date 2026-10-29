@@ -56,4 +56,8 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run pedidos-slb.yml --ref main -R "${{ github.repository }}" || echo "No se pudo encadenar; la tarea de cada hora la vuelve a arrancar."
+        # 29/10: si la corrida fallo (por ejemplo la prueba del lector), se espera 15 min antes de relanzar. Antes se
+        # relanzaba al instante y quedaba en un bucle de miles de corridas fallidas por minuto.
+        run: |
+          if [ "${{ job.status }}" != "success" ]; then echo "La corrida fallo: se espera 15 min antes de relanzar."; sleep 900; fi
+          gh workflow run pedidos-slb.yml --ref main -R "${{ github.repository }}" || echo "No se pudo encadenar; la tarea de cada hora la vuelve a arrancar."
