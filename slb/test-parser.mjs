@@ -13,7 +13,8 @@ const html = `<p>Estimados, confirmamos el servicio de transporte solicitado:</p
 <ul><li><span>AF576JA</span> 8hs rao - ypf Lcav 174 - rao // <a>TR2600591149</a></li><ul><li>AG791PX&nbsp; 8hs Rao - ypf Lcav 174- Rao // 16hs Rao - vista pad 100- Rao. <i>TR2600591148</i></li></ul></ul><p>Saludos,<br>Pablo</p>`;
 const r = parseMailSLB(html, '2026-10-19T22:10:00Z');
 console.log(JSON.stringify(r, null, 1));
-const ok = r.filas.length === 6 && r.trs.AF576JA === 'TR2600591149' && r.trs.AG791PX === 'TR2600591148' && r.filas[0].fecha === '2026-10-20' && r.filas[1].hora === '11:00' && r.filas[0].origen.includes('Añelo');
+/* 29/10: las filas de otro proveedor ya no se descartan en el lector: vienen marcadas (proveedorAjeno) y el panel las usa solo si la patente es nuestra */
+const ok = r.filas.filter(f => !f.proveedorAjeno).length === 6 && r.filas.filter(f => f.proveedorAjeno).every(f => f.patente === 'AA000AA') && r.trs.AF576JA === 'TR2600591149' && r.trs.AG791PX === 'TR2600591148' && r.filas[0].fecha === '2026-10-20' && r.filas[1].hora === '11:00' && r.filas[0].origen.includes('Añelo');
 /* 20/10: formatos reales (datos inventados) */
 const T = (enc, filas) => '<table><tr>' + enc.map(c => '<td>' + c + '</td>').join('') + '</tr>' + filas.map(f => '<tr>' + f.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</table>';
 const ENC = ['CVU','Segmento','Fecha','Hora Carga','Origen','Destino','Tipo Unidad','Proveedor','Contrato','Chofer','Patente','GV','TR','SH','Detalle de carga'];
