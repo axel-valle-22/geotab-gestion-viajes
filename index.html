@@ -762,12 +762,16 @@ coordinador decida desde el detalle del viaje si cierra igual (Marcar finalizado
 espera en el sitio actual (Agregar espera) para retomar el resto del recorrido mas tarde. */
 function cerrarOAvisarLlegadaDestino(v, hitISO, destinoLabel){
 if(v.llegadaDestinoPendienteEn) return; // ya se aviso, se espera la decision del coordinador
+/* 02/11 (f): DTM con destino: al ingresar al destino termina el servicio; se descarta la vuelta empezada y sin descargar. */
+var __dtmPs = null; try{ __dtmPs = gvDtmRecortarPendiente(v); }catch(__eR){}
+if(__dtmPs){ v = Object.assign({}, v, { paradas: __dtmPs }); }
 var pendientes = paradasSinCompletar(v);
 if(pendientes.length){
 var srP = Object.assign({}, v.sitiosReal || {});
 srP.destino = Object.assign({}, srP.destino || {});
 if(!srP.destino.ingreso) srP.destino.ingreso = hitISO;
-GV.Storage.updateViaje(v.id, { sitiosReal: srP, llegadaDestinoPendienteEn: hitISO, dwellState: null });
+var __patchP = { sitiosReal: srP, llegadaDestinoPendienteEn: hitISO, dwellState: null }; if(__dtmPs) __patchP.paradas = __dtmPs;
+GV.Storage.updateViaje(v.id, __patchP);
 GV.Storage.addAlerta({ id: 'al_' + v.id + '_destino_pendiente', tipo: 'destino_pendiente', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad ingreso a ' + destinoLabel + ' pero quedan sitios sin completar (' + pendientes.map(function(p){ return p.label; }).join(', ') + '). Revisa el viaje para confirmar el cierre o agregar una espera.', fecha: new Date().toISOString(), viajeId: v.id });
 renderStats(); renderAlertas(); renderEventsWidget();
 if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
@@ -781,7 +785,8 @@ if(!sr2.destino.ingreso) sr2.destino.ingreso = hitISO;
    el recalculo encontro que el camion llego ayer), el viaje se cierra con esa hora real y no con la de ahora. Bug real:
    Wilheim T330 llego a Base TDP Plottier el 20/10 18:50 y quedaba "finalizado hoy" 21/10 11:58. */
 var __cierreReal = (yaIngreso && new Date(sr2.destino.ingreso) < new Date(hitISO)) ? sr2.destino.ingreso : hitISO;
-GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __cierreReal, sitiosReal: sr2, dwellState: null });
+var __patchC = { estado: 'completado', completadoEn: __cierreReal, sitiosReal: sr2, dwellState: null }; if(__dtmPs) __patchC.paradas = __dtmPs;
+GV.Storage.updateViaje(v.id, __patchC);
 if(!yaIngreso){ GV.Storage.addAlerta({ id: 'al_' + v.id + '_autocompletado', tipo: 'info', mensaje: v.conductor + ' - ' + v.vehiculo + ': el viaje FINALIZO. La unidad ingreso a ' + destinoLabel + ' y el viaje se cerro automaticamente.', fecha: new Date().toISOString(), viajeId: v.id }); }
 renderStats(); renderAlertas(); renderEventsWidget();
 if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
@@ -972,11 +977,95 @@ cerrarOAvisarLlegadaDestino(vv, hitISO, GV.siteNameFor(vv.destino) || 'Destino')
    GV.MIN_DWELL_MIN minutos seguidos adentro para contar un ingreso y afuera para contar un egreso, y
    si el ultimo sitio ya tiene egreso cierra el viaje con ESE horario. */
 var gSinDestinoScan = {};
+/* ---------------- 02/11: VIAJES DTM (ida y vuelta repetida entre un punto de carga y uno de descarga) ----------------
+   Con el boton "DTM" del detalle, las paradas 1 (carga) y 2 (descarga) quedan como modelo. Cada vez que la unidad termina
+   de descargar y vuelve a entrar al punto de carga, se agregan solas otra carga y otra descarga (puntos 3 y 4, 5 y 6...).
+   Cada llegada al punto de descarga cuenta como una vuelta. El viaje NO se cierra solo al terminar las paradas (siempre puede
+   haber otra vuelta): se cierra con "Marcar finalizado" o al llegar al destino, si tiene uno cargado. */
+function gvDtmActivo(v){ return !!(v && v.dtm && v.dtm.activo && v.dtm.carga && v.dtm.descarga); }
+function gvDtmMismo(p, m){ return !!(p && m && Math.abs(p.lat - m.lat) < 1e-6 && Math.abs(p.lng - m.lng) < 1e-6); }
+function gvDtmCopia(p, tipo){ var o = {}; ['lat', 'lng', 'direccion', 'poligono', 'duracionMin'].forEach(function(k){ if(p && p[k] !== undefined) o[k] = p[k]; }); o.tipo = tipo; return o; }
+function gvDtmVueltas(v){
+  if(!gvDtmActivo(v)) return 0;
+  var sr = v.sitiosReal || {}, n = 0;
+  (v.paradas || []).forEach(function(p, i){ var e = sr['parada' + i]; if(gvDtmMismo(p, v.dtm.descarga) && e && (e.ingreso || e.egreso)) n++; });
+  return n;
+}
+/* 02/11 (f): los DTM duran varios dias: las vueltas se cuentan tambien por dia (dia de la llegada a la descarga). */
+function gvDtmPorDia(v){
+  if(!gvDtmActivo(v)) return [];
+  var sr = v.sitiosReal || {}, m = {}, orden = [];
+  (v.paradas || []).forEach(function(p, i){
+    var e = sr['parada' + i]; if(!gvDtmMismo(p, v.dtm.descarga) || !e) return;
+    var t = e.ingreso || e.egreso; if(!t) return;
+    var d = new Date(t); if(isNaN(d)) return;
+    var k = GV.dateStr(d);
+    if(!m[k]){ m[k] = { dia: k, fecha: d, n: 0 }; orden.push(k); }
+    m[k].n++;
+  });
+  orden.sort();
+  return orden.map(function(k){ return m[k]; });
+}
+function gvDtmChipHtml(v){
+  if(!gvDtmActivo(v)) return '';
+  var n = gvDtmVueltas(v), dias = gvDtmPorDia(v), hoy = GV.dateStr(new Date()), nHoy = 0;
+  dias.forEach(function(x){ if(x.dia === hoy) nHoy = x.n; });
+  var tit = 'Servicio DTM: vueltas completas (llegadas al punto de descarga).' + (dias.length ? (' Por dia: ' + dias.map(function(x){ return x.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ': ' + x.n; }).join(' | ') + '.') : '') + (v.destino && typeof v.destino.lat === 'number' ? ' El servicio termina al ingresar al destino.' : '');
+  var txt = (dias.length > 1 || (dias.length === 1 && dias[0].dia !== hoy)) ? ('hoy ' + nHoy + ' &middot; total ' + n) : (n + (n === 1 ? ' vuelta' : ' vueltas'));
+  return ' <span title="' + GV.escapeHtml(tit) + '" style="display:inline-block;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;vertical-align:1px">DTM &middot; ' + txt + '</span>';
+}
+/* detalle: renglon con las vueltas de cada dia */
+function gvDtmDetalleHtml(v){
+  if(!gvDtmActivo(v)) return '';
+  var dias = gvDtmPorDia(v);
+  if(!dias.length) return '<div style="font-size:.75rem;font-weight:400;color:#92400e;margin-top:3px">DTM: todavia sin vueltas completas.</div>';
+  return '<div style="font-size:.75rem;font-weight:400;color:#92400e;margin-top:3px">Vueltas por dia: ' + dias.map(function(x){ return '<b>' + x.fecha.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' }) + '</b> ' + x.n; }).join(' &middot; ') + ' &middot; <b>Total ' + gvDtmVueltas(v) + '</b></div>';
+}
+/* Al llegar al destino (ej. Base TDP Plottier) se termina el DTM: la vuelta que quedo empezada y sin descargar
+   (carga + descarga agregadas al final, con la descarga sin ingreso) se saca, asi el viaje cierra solo. */
+function gvDtmRecortarPendiente(v){
+  if(!gvDtmActivo(v)) return null;
+  var ps = (v.paradas || []).slice(), sr = v.sitiosReal || {}, cambio = false;
+  while(ps.length > 2){
+    var li = ps.length - 1, eL = sr['parada' + li];
+    if(!gvDtmMismo(ps[li], v.dtm.descarga) || (eL && (eL.ingreso || eL.egreso))) break;
+    if(!gvDtmMismo(ps[li - 1], v.dtm.carga)) break;
+    ps = ps.slice(0, li - 1); cambio = true;
+  }
+  return cambio ? ps : null;
+}
+var __gvDtmVisto = {};
+function gvDtmChequear(){
+  if(!gApi) return;
+  GV.Storage.getViajes().forEach(function(v){
+    if(!gvDtmActivo(v) || !(v.estado === 'en_curso' || v.estado === 'demorado') || !v.vehiculoId) return; if(v.llegadaDestinoPendienteEn || (v.sitiosReal && v.sitiosReal.destino && v.sitiosReal.destino.ingreso)) return; /* ya llego al destino: termino el DTM */
+    var ps = v.paradas || [], li = ps.length - 1, sr = v.sitiosReal || {};
+    if(li < 1 || !gvDtmMismo(ps[li], v.dtm.descarga)) return;
+    var ult = sr['parada' + li];
+    if(!ult || !ult.egreso) return; /* todavia no termino de descargar */
+    if(__gvDtmVisto[v.id] && Date.now() - __gvDtmVisto[v.id] < 60000) return;
+    __gvDtmVisto[v.id] = Date.now();
+    gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
+      try{
+        if(!res || !res.length || res[0].latitude == null) return;
+        var pos = { lat: res[0].latitude, lng: res[0].longitude };
+        if(!GV.isWithinSite(pos, v.dtm.carga)) return;
+        var act = GV.Storage.getViaje(v.id) || v;
+        var ps2 = act.paradas || [];
+        if(ps2.length !== ps.length) return; /* otra pantalla ya agrego la vuelta */
+        var nuevas = ps2.concat([gvDtmCopia(act.dtm.carga, 'carga'), gvDtmCopia(act.dtm.descarga, 'descarga')]);
+        GV.Storage.updateViaje(v.id, { paradas: nuevas }).then(function(){ try{ renderTracking(); renderTrips(); }catch(e){} });
+        GV.Storage.addAlerta({ id: 'al_' + v.id + '_dtm_' + nuevas.length, tipo: 'info', viajeId: v.id, fecha: new Date().toISOString(),
+          mensaje: (act.conductor || '') + ' - ' + (act.vehiculo || '') + ': DTM - volvio al punto de carga, empieza la vuelta ' + (gvDtmVueltas(act) + 1) + '.' });
+      }catch(e){ console.error('gvDtmChequear', e); }
+    }, function(){});
+  });
+}
 function checkCierreSinDestino(){
 if(!gApi) return;
 var ahora = Date.now();
 GV.Storage.getViajes().filter(function(v){
-return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId && !(v.destino && typeof v.destino.lat === 'number');
+return (v.estado === 'en_curso' || v.estado === 'demorado') && v.vehiculoId && !(v.destino && typeof v.destino.lat === 'number') && !gvDtmActivo(v); /* 02/11: un viaje DTM no se cierra solo al terminar las paradas */
 }).forEach(function(v){
 if(gSinDestinoScan[v.id] && (ahora - gSinDestinoScan[v.id]) < 240000) return;
 gSinDestinoScan[v.id] = ahora;
@@ -3507,7 +3596,7 @@ var __hsChoferHtml = gvHsChoferHtml(v, hoyStr);
 var __cliTxt = gvClientesDeViaje(v).join(', ');
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
 '<div class="gv-trk-cell">' + (__cliTxt ? gvClientesDeViaje(v).map(GV.clienteBadgeHtml).join(' ') : '<span style="color:#9ca3af">-</span>') + '</div>' +
-'<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + (gvEsVehiculo24hs(v) ? ' <span class="gv-trk-24hs" title="Camion de 24 hs (grupo Camiones 24 hs en MyGeotab): la jornada del chofer se cuenta por turno">24hs</span>' : '') + '</div>' +
+'<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + (gvEsVehiculo24hs(v) ? ' <span class="gv-trk-24hs" title="Camion de 24 hs (grupo Camiones 24 hs en MyGeotab): la jornada del chofer se cuenta por turno">24hs</span>' : '') + gvDtmChipHtml(v) + '</div>' +
 '<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + gvSolicitudSub(v) + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
 '<div class="gv-trk-cell gv-trk-nav' + (__navInit ? (' gv-trk-nav-' + __navInit.kind) : '') + '" id="gv-track-nav-' + v.id + '" title="' + GV.escapeHtml(__navInitTxt) + '">' + GV.escapeHtml(__navInitTxt) + '</div>' +
@@ -4740,7 +4829,7 @@ overlay.className = 'gv-modal-overlay';
 overlay.innerHTML =
 '<div class="gv-modal" style="max-width:96vw;width:96vw;border-radius:18px">' +
 '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
-'<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + gvSolicitudChip(v) + '</h3>' +
+'<h3 style="margin:0">' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + gvSolicitudChip(v) + gvDtmChipHtml(v) + gvDtmDetalleHtml(v) + '</h3>' +
 '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
 ((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
 (v.estado==='completado' ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar" title="Corregir el chofer y/o el camion de este viaje (desde el inicio o desde una fecha y hora)">Corregir chofer/camion</button>' : '') + ((v.estado!=='completado'&&v.estado!=='cancelado') ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reasignar" title="' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? 'El viaje todavia no salio: se cambia el chofer y/o el camion asignados' : 'El viaje ya salio: cambio de chofer/camion desde ahora, o correccion desde el inicio del viaje o desde una fecha y hora') + '">Cambiar chofer/camion</button>' + ((v.estado==='planificado'||(v.estado==='demorado'&&!v.iniciadoEn)) ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-reprogramar" title="Cambia la fecha y hora de salida de este viaje y vuelve a elegir camion y chofer">Reprogramar viaje</button>' : '') + '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-completar">Marcar finalizado</button><button type="button" class="gv-btn gv-btn-danger gv-btn-sm" id="gv-det-cancelar">Cancelar viaje</button>' : '') +
@@ -4748,6 +4837,7 @@ overlay.innerHTML =
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-warn gv-btn-sm" id="gv-det-agregar-espera" title="La unidad ya llego al destino pero quedan sitios sin completar: agrega una escala de espera aca para retomar el resto del recorrido mas tarde">Agregar espera</button>' : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-solicitud" title="N° de solicitud de Gooper de este viaje">' + (v.solicitud ? ('Solicitud ' + GV.escapeHtml(gvSolicitudLabel(v))) : 'N° solicitud') + '</button>' +
+((v.estado !== 'completado' && v.estado !== 'cancelado') ? ('<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-dtm" title="' + (gvDtmActivo(v) ? 'DTM activado: cada vez que la unidad descarga y vuelve al punto de carga se agrega otra vuelta. Tocar para desactivar.' : 'Servicio DTM: toma la parada 1 (carga) y la 2 (descarga) como modelo y agrega una vuelta nueva cada vez que la unidad vuelve al punto de carga. Cuenta las vueltas por dia. Si el viaje tiene destino (ej. la base), sigue sumando vueltas hasta que la unidad ingresa ahi.') + '" style="padding:4px 9px;font-weight:700;' + (gvDtmActivo(v) ? 'background:#f59e0b;color:#fff;border-color:#d97706' : 'color:#92400e') + '">DTM</button>') : '') +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-clonar" title="Crea un viaje nuevo con el mismo recorrido (origen, puntos de carga/descarga y destino); solo se elige chofer, camion, dia y horario">Clonar viaje</button>' +
 '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-close">Cerrar</button>' +
 '</div>' +
@@ -5277,7 +5367,20 @@ document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
         GV.Storage.updateViaje(v.id, { solicitud: valS }).then(function(){ clS(); renderTrips(); renderTracking(); closeDetalle(); abrirDetalleViaje(v.id); });
       });
     }); }
-    var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = gvHoraCierreManual(v); GV.Storage.updateViaje(v.id, { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, completadoEnPrevio: v.completadoEn || v.completadoEnPrevio || null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
+    var __detDtmBtn = document.getElementById('gv-det-dtm'); if(__detDtmBtn){ __detDtmBtn.addEventListener('click', function(){
+      var __vD = GV.Storage.getViaje(v.id) || v;
+      if(gvDtmActivo(__vD)){
+        if(!confirm('¿Desactivar DTM en este viaje? Las vueltas ya registradas quedan; no se agregan mas.')) return;
+        GV.Storage.updateViaje(v.id, { dtm: Object.assign({}, __vD.dtm, { activo: false }) });
+      } else {
+        var __pD = __vD.paradas || [];
+        if(__pD.length < 2){ alert('Para DTM el viaje tiene que tener la parada 1 (punto de carga) y la parada 2 (punto de descarga).'); return; }
+        if(!confirm('Activar DTM: "' + (GV.siteNameFor(__pD[0]) || 'parada 1') + '" (carga) <-> "' + (GV.siteNameFor(__pD[1]) || 'parada 2') + '" (descarga). Cada vez que la unidad descargue y vuelva al punto de carga se agrega otra vuelta y se cuentan las vueltas. ¿Activar?')) return;
+        GV.Storage.updateViaje(v.id, { dtm: { activo: true, carga: gvDtmCopia(__pD[0], 'carga'), descarga: gvDtmCopia(__pD[1], 'descarga'), activadoEn: new Date().toISOString() } });
+      }
+      closeDetalle(); abrirDetalleViaje(v.id); try{ renderTracking(); renderTrips(); }catch(__eDr){}
+    }); }
+    var __detClonarBtn = document.getElementById('gv-det-clonar'); if(__detClonarBtn){ __detClonarBtn.addEventListener('click', abrirClonarViaje); } var __detCompBtn = document.getElementById('gv-det-completar'); if(__detCompBtn){ __detCompBtn.addEventListener('click', function(){ var __confMsg = v.llegadaDestinoPendienteEn ? ('¿Cerrar este viaje igual? Van a quedar sin completar: ' + paradasSinCompletar(v).map(function(p){ return p.label; }).join(', ') + '.') : '¿Marcar este viaje como finalizado?'; if(!confirm(__confMsg)) return; var __hitDetComp = gvHoraCierreManual(v); var __patchDC = { estado: 'completado', completadoEn: __hitDetComp, sitiosReal: sitiosRealAlCompletar(v, __hitDetComp), llegadaDestinoPendienteEn: null }; try{ var __dtmR = gvDtmRecortarPendiente(v); if(__dtmR) __patchDC.paradas = __dtmR; }catch(__eR2){} GV.Storage.updateViaje(v.id, __patchDC).then(function(){ return GV.Storage.removeAlerta('al_' + v.id + '_destino_pendiente'); }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); closeDetalle(); }); }); } var __detEsperaBtn = document.getElementById('gv-det-agregar-espera'); if(__detEsperaBtn){ __detEsperaBtn.addEventListener('click', function(){ agregarEspera(); }); } var __detCancBtn = document.getElementById('gv-det-cancelar'); if(__detCancBtn){ __detCancBtn.addEventListener('click', function(){ if(!confirm('¿Cancelar este viaje? Esta accion lo saca de Seguimiento y del Panel activo.')) return; GV.Storage.updateViaje(v.id, { estado: 'cancelado', canceladoEn: new Date().toISOString() }).then(function(){ renderStats(); renderTrips(); renderTracking(); closeDetalle(); }); }); } var __detReabrirBtn = document.getElementById('gv-det-reabrir'); if(__detReabrirBtn){ __detReabrirBtn.addEventListener('click', function(){ if(!confirm('¿Reabrir este viaje? Vuelve a "En curso" y se retoma el seguimiento en tiempo real. Usalo cuando el viaje se haya cerrado solo por error, por ejemplo origen y destino son el mismo predio y la unidad todavia no habia salido.')) return; /* Ajuste: antes esto borraba TODOS los horarios reales ya registrados (sitiosReal:{}), no solo los del sitio que motivaba la reapertura -- si el viaje se reabria para corregir la ubicacion de UNA parada, las demas perdian su ingreso/egreso ya bien detectado y quedaban dependiendo de que el historial de GPS lo pudiera reconstruir de cero otra vez (no siempre lo logra). Ahora se deja sitiosReal como esta: para corregir un sitio puntual no hace falta reabrir el viaje en absoluto, "Editar ubicacion" en ese sitio funciona igual en un viaje Finalizado y ya se encarga de borrar y recalcular SOLO el horario de ese sitio. Ajuste 3/10: este patch lleva reaperturaExplicita:true (en vez de autoIniciado:true, que era incorrecto aca -- esto no lo detecto el GPS, lo pidio un humano mirando este viaje) para que persist() en common.js lo distinga de una deduccion automatica de una sesion con datos viejos y lo deje pasar aunque el viaje ya este completado/cancelado en el servidor. */ GV.Storage.updateViaje(v.id, { estado: 'en_curso', completadoEn: null, completadoEnPrevio: v.completadoEn || v.completadoEnPrevio || null, dwellState: null, reaperturaExplicita: true }).then(function(){ renderStats(); renderTrips(); renderTracking(); renderAlertas(); renderEventsWidget(); closeDetalle(); }); }); }
 var __detJornadaEditarBtn = document.getElementById('gv-det-jornada-editar');
 if(__detJornadaEditarBtn){
   __detJornadaEditarBtn.addEventListener('click', function(){
@@ -7406,7 +7509,7 @@ function doInit(api){
 
   GV.Storage.init(api).then(function(){
     try{ gvEscucharPedidosSLB(); }catch(__ePS){}
-    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
+    checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados(); try{ gvDtmChequear(); }catch(__eDtm){}
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     /* Mantiene al dia, en segundo plano y como maximo una vez por dia, los sitios guardados que
@@ -7423,7 +7526,7 @@ function doInit(api){
     /* 02/11: la relectura completa de la base (1 MB) era cada 60 s ademas del aviso en tiempo real: ahora cada 5 min */
     var __gvTickRefresh = 0;
     setInterval(function(){
-      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
+      checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados(); try{ gvDtmChequear(); }catch(__eDtm){}
       (((__gvTickRefresh++) % 5 === 0) ? GV.Storage.refresh() : Promise.resolve()).then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
     setTimeout(gvAprenderRutas, 45000);
@@ -7468,7 +7571,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-02d';
+var GV_BUILD = '2026-11-02f';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
