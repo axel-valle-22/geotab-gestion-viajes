@@ -659,6 +659,9 @@ function checkDelays(){
         var st = v.demoraSalida || { lastAlertBucket: -1 };
         if(bucket > st.lastAlertBucket){
           var aid = 'al_' + v.id + ((v.reprogramaciones && v.reprogramaciones.length) ? '_r' + v.reprogramaciones.length : '') + '_sal_' + bucket;
+          /* 02/11: una sola alerta de "no inicio el recorrido" por viaje (se reemplaza la anterior). Antes se sumaba una nueva cada
+             media hora: llegaron a ser 1070 alertas y llenaron la base (ya no se podia guardar nada). */
+          try{ if(st.lastAlertBucket >= 0){ GV.Storage.removeAlerta('al_' + v.id + ((v.reprogramaciones && v.reprogramaciones.length) ? '_r' + v.reprogramaciones.length : '') + '_sal_' + st.lastAlertBucket); } }catch(__eRA){}
           var __motivoGer = !puedeIniciar(v) ? ' El gerenciamiento de riesgos todavia no fue aprobado.' : '';
           GV.Storage.addAlerta({ id: aid, tipo: 'demora', mensaje: v.conductor + ' - ' + v.vehiculo + ': la unidad no inicio aun el recorrido desde ' + (v.origen ? GV.siteNameFor(v.origen) : '') + ' (' + GV.fmtDurMin(elapsedMs) + ' de demora sobre lo programado).' + __motivoGer, fecha: new Date().toISOString(), viajeId: v.id });
           v.demoraSalida = { lastAlertBucket: bucket };
@@ -7408,7 +7411,14 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-10-28l';
+var GV_BUILD = '2026-11-02a';
+/* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
+   veian en pantalla y a los minutos volvian atras sin ningun aviso. */
+(function(){
+  function cartel(){ var b = document.getElementById('gv-guardado-cartel'); if(!b){ b = document.createElement('div'); b.id = 'gv-guardado-cartel'; b.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:200000;background:#b91c1c;color:#fff;padding:10px 16px;border-radius:8px;font:600 .85rem sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:90vw'; document.body.appendChild(b); } return b; }
+  window.addEventListener('gv-guardado-error', function(e){ try{ var d = e.detail || {}; cartel().textContent = d.lleno ? ('No se pudieron guardar los ultimos cambios: la base de datos esta llena. Se esta liberando espacio y se reintenta solo (intento ' + d.intento + ').') : ('No se pudieron guardar los ultimos cambios (' + (d.msg || 'sin conexion') + '). Se reintenta solo (intento ' + d.intento + ').' + (d.final ? ' Recarga el panel y volve a hacer el cambio.' : '')); cartel().style.display = 'block'; }catch(x){} });
+  window.addEventListener('gv-guardado-ok', function(){ try{ var b = document.getElementById('gv-guardado-cartel'); if(b){ b.style.background = '#047857'; b.textContent = 'Cambios guardados.'; setTimeout(function(){ b.style.display = 'none'; b.style.background = '#b91c1c'; }, 4000); } }catch(x){} });
+})();
 (function(){
   var base = (GV.__baseUrl || '').replace(/[^\/]*$/, '');
   if(!base) return;
