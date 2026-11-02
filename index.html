@@ -1035,31 +1035,85 @@ function gvDtmRecortarPendiente(v){
   return cambio ? ps : null;
 }
 var __gvDtmVisto = {};
+/* 02/11 (g): el DTM se reconstruye con el HISTORIAL de GPS (no con la posicion en vivo): asi al activarlo cuenta tambien
+   las vueltas que ya se hicieron en el dia, y no se pierde ninguna aunque el panel haya estado cerrado. Desde la ultima
+   salida de la descarga se recorre el historial buscando: permanencia en el punto de carga (ingreso/egreso) y despues
+   en el de descarga (ingreso/egreso), y se repite. Cada ingreso a la carga agrega un par carga+descarga nuevo con sus
+   horarios reales. Si la unidad entra al destino (ej. Base TDP Plottier), se corta: termino el servicio. */
+function gvDtmBarrer(v, forzar){
+  if(!gApi || !gvDtmActivo(v) || !(v.estado === 'en_curso' || v.estado === 'demorado') || !v.vehiculoId) return Promise.resolve(0);
+  if(v.llegadaDestinoPendienteEn || (v.sitiosReal && v.sitiosReal.destino && v.sitiosReal.destino.ingreso)) return Promise.resolve(0);
+  var ps = v.paradas || [], li = ps.length - 1, sr = v.sitiosReal || {};
+  if(li < 1 || !gvDtmMismo(ps[li], v.dtm.descarga)) return Promise.resolve(0);
+  var ult = sr['parada' + li];
+  if(!ult || !ult.egreso) return Promise.resolve(0); /* la vuelta en curso la sigue el barrido normal de paradas */
+  if(!forzar && __gvDtmVisto[v.id] && Date.now() - __gvDtmVisto[v.id] < 180000) return Promise.resolve(0);
+  __gvDtmVisto[v.id] = Date.now();
+  var desdeMs = new Date(ult.egreso).getTime() + 60000, ahora = Date.now();
+  if(isNaN(desdeMs) || desdeMs >= ahora) return Promise.resolve(0);
+  if(desdeMs < ahora - 72 * 3600000) desdeMs = ahora - 72 * 3600000;
+  var C = v.dtm.carga, D = v.dtm.descarga, X = (v.destino && typeof v.destino.lat === 'number') ? v.destino : null;
+  var minMs = (GV.MIN_DWELL_MIN || 3) * 60000;
+  return GV.getHistory(gApi, v.vehiculoId, new Date(desdeMs).toISOString(), new Date(ahora).toISOString()).then(function(hist){
+    hist = (hist || []).filter(function(r){ return r.latitude != null; });
+    if(!hist.length) return 0;
+    var vueltas = [], cur = null, fase = 'haciaC', cand = null, candX = null, fin = false;
+    function dentro(r, site){ return GV.isWithinSite({ lat: r.latitude, lng: r.longitude }, site); }
+    for(var i = 0; i < hist.length && !fin; i++){
+      var r = hist[i], t = new Date(r.dateTime).getTime();
+      if(X && fase === 'haciaC'){
+        if(dentro(r, X)){ if(!candX) candX = r; if(t - new Date(candX.dateTime).getTime() >= minMs){ fin = true; break; } } else candX = null;
+      }
+      if(fase === 'haciaC' || fase === 'haciaD'){
+        var sitio = fase === 'haciaC' ? C : D;
+        if(dentro(r, sitio)){
+          if(!cand) cand = r;
+          if(t - new Date(cand.dateTime).getTime() >= minMs){
+            if(fase === 'haciaC'){ cur = { cI: cand.dateTime }; vueltas.push(cur); fase = 'enC'; }
+            else { cur.dI = cand.dateTime; fase = 'enD'; }
+            cand = null;
+          }
+        } else cand = null;
+      } else {
+        var sitio2 = fase === 'enC' ? C : D;
+        if(!dentro(r, sitio2)){
+          if(!cand) cand = r;
+          if(t - new Date(cand.dateTime).getTime() >= minMs){
+            if(fase === 'enC'){ cur.cE = cand.dateTime; fase = 'haciaD'; }
+            else { cur.dE = cand.dateTime; fase = 'haciaC'; }
+            cand = null;
+          }
+        } else cand = null;
+      }
+    }
+    /* motor apagado adentro de un sitio: el ultimo punto quedo adentro hace mas de los minutos minimos */
+    if(!fin && cand && (fase === 'haciaC' || fase === 'haciaD') && ahora - new Date(cand.dateTime).getTime() >= minMs){
+      if(fase === 'haciaC'){ cur = { cI: cand.dateTime }; vueltas.push(cur); } else { cur.dI = cand.dateTime; }
+    }
+    if(!vueltas.length) return 0;
+    var act = GV.Storage.getViaje(v.id) || v;
+    var ps2 = act.paradas || [];
+    if(ps2.length !== ps.length || !gvDtmActivo(act)) return 0; /* otra pantalla ya lo actualizo */
+    var sr2 = Object.assign({}, act.sitiosReal || {}), nuevas = ps2.slice();
+    function iso(x){ return new Date(x).toISOString(); }
+    vueltas.forEach(function(vu){
+      var ic = nuevas.length, id = ic + 1;
+      nuevas.push(gvDtmCopia(act.dtm.carga, 'carga')); nuevas.push(gvDtmCopia(act.dtm.descarga, 'descarga'));
+      var eC = { ingreso: iso(vu.cI) }; if(vu.cE) eC.egreso = iso(vu.cE); sr2['parada' + ic] = eC;
+      if(vu.dI){ var eD = { ingreso: iso(vu.dI) }; if(vu.dE) eD.egreso = iso(vu.dE); sr2['parada' + id] = eD; }
+    });
+    return GV.Storage.updateViaje(v.id, { paradas: nuevas, sitiosReal: sr2 }).then(function(){
+      try{ renderTracking(); renderTrips(); }catch(e){}
+      var completas = vueltas.filter(function(x){ return x.dI; }).length;
+      GV.Storage.addAlerta({ id: 'al_' + v.id + '_dtm_' + nuevas.length, tipo: 'info', viajeId: v.id, fecha: new Date().toISOString(),
+        mensaje: (act.conductor || '') + ' - ' + (act.vehiculo || '') + ': DTM - se ' + (vueltas.length === 1 ? 'agrego 1 vuelta' : ('agregaron ' + vueltas.length + ' vueltas')) + ' (' + completas + ' con descarga). Total: ' + gvDtmVueltas(GV.Storage.getViaje(v.id) || act) + '.' });
+      return vueltas.length;
+    });
+  })['catch'](function(e){ console.error('gvDtmBarrer', e); return 0; });
+}
 function gvDtmChequear(){
   if(!gApi) return;
-  GV.Storage.getViajes().forEach(function(v){
-    if(!gvDtmActivo(v) || !(v.estado === 'en_curso' || v.estado === 'demorado') || !v.vehiculoId) return; if(v.llegadaDestinoPendienteEn || (v.sitiosReal && v.sitiosReal.destino && v.sitiosReal.destino.ingreso)) return; /* ya llego al destino: termino el DTM */
-    var ps = v.paradas || [], li = ps.length - 1, sr = v.sitiosReal || {};
-    if(li < 1 || !gvDtmMismo(ps[li], v.dtm.descarga)) return;
-    var ult = sr['parada' + li];
-    if(!ult || !ult.egreso) return; /* todavia no termino de descargar */
-    if(__gvDtmVisto[v.id] && Date.now() - __gvDtmVisto[v.id] < 60000) return;
-    __gvDtmVisto[v.id] = Date.now();
-    gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
-      try{
-        if(!res || !res.length || res[0].latitude == null) return;
-        var pos = { lat: res[0].latitude, lng: res[0].longitude };
-        if(!GV.isWithinSite(pos, v.dtm.carga)) return;
-        var act = GV.Storage.getViaje(v.id) || v;
-        var ps2 = act.paradas || [];
-        if(ps2.length !== ps.length) return; /* otra pantalla ya agrego la vuelta */
-        var nuevas = ps2.concat([gvDtmCopia(act.dtm.carga, 'carga'), gvDtmCopia(act.dtm.descarga, 'descarga')]);
-        GV.Storage.updateViaje(v.id, { paradas: nuevas }).then(function(){ try{ renderTracking(); renderTrips(); }catch(e){} });
-        GV.Storage.addAlerta({ id: 'al_' + v.id + '_dtm_' + nuevas.length, tipo: 'info', viajeId: v.id, fecha: new Date().toISOString(),
-          mensaje: (act.conductor || '') + ' - ' + (act.vehiculo || '') + ': DTM - volvio al punto de carga, empieza la vuelta ' + (gvDtmVueltas(act) + 1) + '.' });
-      }catch(e){ console.error('gvDtmChequear', e); }
-    }, function(){});
-  });
+  GV.Storage.getViajes().forEach(function(v){ if(gvDtmActivo(v)) gvDtmBarrer(v, false); });
 }
 function checkCierreSinDestino(){
 if(!gApi) return;
@@ -5376,7 +5430,7 @@ document.getElementById('gv-det-close').addEventListener('click', closeDetalle);
         var __pD = __vD.paradas || [];
         if(__pD.length < 2){ alert('Para DTM el viaje tiene que tener la parada 1 (punto de carga) y la parada 2 (punto de descarga).'); return; }
         if(!confirm('Activar DTM: "' + (GV.siteNameFor(__pD[0]) || 'parada 1') + '" (carga) <-> "' + (GV.siteNameFor(__pD[1]) || 'parada 2') + '" (descarga). Cada vez que la unidad descargue y vuelva al punto de carga se agrega otra vuelta y se cuentan las vueltas. ¿Activar?')) return;
-        GV.Storage.updateViaje(v.id, { dtm: { activo: true, carga: gvDtmCopia(__pD[0], 'carga'), descarga: gvDtmCopia(__pD[1], 'descarga'), activadoEn: new Date().toISOString() } });
+        GV.Storage.updateViaje(v.id, { dtm: { activo: true, carga: gvDtmCopia(__pD[0], 'carga'), descarga: gvDtmCopia(__pD[1], 'descarga'), activadoEn: new Date().toISOString() } }).then(function(){ var __vA = GV.Storage.getViaje(v.id); if(__vA) return gvDtmBarrer(__vA, true); }).then(function(n){ if(n){ closeDetalle(); abrirDetalleViaje(v.id); } });
       }
       closeDetalle(); abrirDetalleViaje(v.id); try{ renderTracking(); renderTrips(); }catch(__eDr){}
     }); }
@@ -7571,7 +7625,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-02f';
+var GV_BUILD = '2026-11-02g';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
