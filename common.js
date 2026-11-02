@@ -2656,9 +2656,13 @@ GV.Storage = (function(){
           var __msgE = String((err && err.message) || err || '');
           var __lleno = /exceed|maximum|too large|1048576|bytes/i.test(__msgE) || (err && err.code === 'invalid-argument');
           if(__lleno){ _archivadoCorrido = false; archivarAntiguos(); }
-          if(_reintentosEscritura >= 3) window.dispatchEvent(new CustomEvent('gv-guardado-error', { detail: { lleno: __lleno, msg: __msgE, intento: _reintentosEscritura, final: _reintentosEscritura > 12 } }));
+          /* 02/11 (b): choque con otra pantalla que guardo al mismo tiempo ("stored version ... does not match"): se
+             resuelve solo en el reintento, asi que no se muestra el cartel rojo salvo que siga fallando muchas veces. */
+          var __conflicto = /does not match|contention|aborted|failed.precondition/i.test(__msgE) || (err && (err.code === 'aborted' || err.code === 'failed-precondition'));
+          if(_reintentosEscritura >= ((__conflicto && !__lleno) ? 8 : 3)) window.dispatchEvent(new CustomEvent('gv-guardado-error', { detail: { lleno: __lleno, msg: __msgE, intento: _reintentosEscritura, final: _reintentosEscritura > 12 } }));
         }catch(__eLl){}
-        if(_reintentosEscritura <= 12) setTimeout(function(){ persist(); }, Math.min(30000, 1000 * Math.pow(2, _reintentosEscritura - 1)));
+        /* con un poco de azar en la espera, para que dos pantallas que chocaron no vuelvan a guardar en el mismo instante */
+        if(_reintentosEscritura <= 12) setTimeout(function(){ persist(); }, Math.round(Math.min(30000, 1000 * Math.pow(2, _reintentosEscritura - 1)) * (0.6 + Math.random() * 0.8)));
       });
     }
     saveToLS();
