@@ -3119,6 +3119,37 @@ setInterval(function(){
   }catch(e){}
 }, 30000);
 
+/* 02/11: Seguimiento se redibuja cada 15 s y por CADA viaje activo pedia a Geotab todo el historial de GPS desde la
+   medianoche del dia de salida (en viajes de varios dias, miles de posiciones) y las horas de manejo: con muchos viajes
+   eran decenas de consultas pesadas cada 15 s y el panel se ponia lento. Ahora el historial queda guardado en memoria y
+   cada vez solo se piden las posiciones nuevas (como mucho una vez por minuto por viaje); las horas de manejo, cada 2 min. */
+var gvHistTrkCache = {}, gvManejoCache = {};
+function gvHistTracking(v, desde){
+  var firma = (v.vehiculoId || '') + '|' + JSON.stringify((v.tramos || []).map(function(t){ return [t.vehiculoId, t.desde, t.hasta]; })) + '|' + desde.getTime();
+  var c = gvHistTrkCache[v.id];
+  if(c && c.firma === firma){
+    if(Date.now() - c.t < 60000) return c.p || Promise.resolve(c.hist);
+    if(c.p) return c.p;
+    var ult = c.hist.length ? new Date(c.hist[c.hist.length - 1].dateTime).getTime() : desde.getTime();
+    var dsd = new Date(Math.max(desde.getTime(), ult - 120000));
+    c.p = fetchHistoryForViaje(v, dsd, new Date()).then(function(nuevos){
+      var corte = dsd.getTime();
+      c.hist = c.hist.filter(function(r){ return new Date(r.dateTime).getTime() < corte; }).concat(nuevos || []);
+      c.t = Date.now(); c.p = null; return c.hist;
+    })['catch'](function(){ c.p = null; return c.hist; });
+    return c.p;
+  }
+  var nc = gvHistTrkCache[v.id] = { firma: firma, hist: [], t: 0, p: null };
+  nc.p = fetchHistoryForViaje(v, desde, new Date()).then(function(h){ nc.hist = h || []; nc.t = Date.now(); nc.p = null; return nc.hist; })['catch'](function(){ nc.p = null; delete gvHistTrkCache[v.id]; return []; });
+  return nc.p;
+}
+function gvManejoTracking(v, desde){
+  var k = v.id + '|' + desde.getTime(), c = gvManejoCache[k];
+  if(c && (Date.now() - c.t) < 120000) return c.p;
+  var p = GV.getTripsToday(gApi, v.vehiculoId, desde.toISOString(), new Date().toISOString());
+  gvManejoCache[k] = { t: Date.now(), p: p };
+  return p;
+}
 function updateTrackBadges(v){
   if(!gApi || !v.vehiculoId) return;
   /* HS Manejo es siempre "lo manejado HOY" (no desde el inicio del viaje completo, que puede venir
@@ -3131,13 +3162,13 @@ function updateTrackBadges(v){
      (por ejemplo el nocturno). Si todavia no hay jornada calculada, se usa la medianoche. */
   var __jnHoy = v.jornadas && v.jornadas[GV.dateStr(new Date())];
   var __desdeManejo = (__jnHoy && __jnHoy.inicio && new Date(__jnHoy.inicio) > hoyInicio) ? new Date(__jnHoy.inicio) : hoyInicio;
-  GV.getTripsToday(gApi, v.vehiculoId, __desdeManejo.toISOString(), new Date().toISOString()).then(function(ms){
+  gvManejoTracking(v, __desdeManejo).then(function(ms){
     var __hsmEl = document.getElementById('gv-trk-hsmanejo-' + v.id);
     if(__hsmEl) __hsmEl.textContent = GV.fmtDurMin(ms);
   });
   var dayStart = new Date(v.fechaSalida); dayStart.setHours(0,0,0,0);
   var __sigTB = gvSigParadas(v);
-  fetchHistoryForViaje(v, dayStart, new Date()).then(function(hist){
+  gvHistTracking(v, dayStart).then(function(hist){
     /* 28/10: si mientras se pedia el GPS se reordenaron/agregaron/quitaron paradas, este calculo es del orden viejo: no se usa */
     var __vSigTB = GV.Storage.getViaje(v.id) || v;
     if(gvSigParadas(__vSigTB) !== __sigTB) return;
@@ -7365,9 +7396,11 @@ function doInit(api){
 
   if(api){
     loadMasterData(api);
+    /* 02/11: la relectura completa de la base (1 MB) era cada 60 s ademas del aviso en tiempo real: ahora cada 5 min */
+    var __gvTickRefresh = 0;
     setInterval(function(){
       checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados();
-      GV.Storage.refresh().then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
+      (((__gvTickRefresh++) % 5 === 0) ? GV.Storage.refresh() : Promise.resolve()).then(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
     }, 60000);
     setTimeout(gvAprenderRutas, 45000);
     setInterval(gvAprenderRutas, 180000);
@@ -7411,7 +7444,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-02a';
+var GV_BUILD = '2026-11-02b';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
