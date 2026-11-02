@@ -2247,7 +2247,7 @@ GV.Storage = (function(){
   /* 02/11: 1 dia (antes 3). El documento principal llego al limite de 1 MiB de Firestore (quedaban 9 bytes libres) y ya no
      se podia guardar nada: los cambios se veian en pantalla y a los minutos volvian atras. Las alertas eran la mitad del peso. */
   var DIAS_HISTORICO_ALERTAS = 1; // las alertas se archivan mucho antes que los viajes: son ruido operativo del dia a dia, no un registro que haga falta conservar a mano en el Panel
-  var MAX_POR_CORRIDA = 300; // tope de viajes/alertas movidos por vez (el resto en la proxima)
+  var MAX_POR_CORRIDA = 1000; // tope de viajes/alertas movidos por vez (el resto en la proxima). 02/11: antes 300 (con 1600 alertas tardaba horas en liberar lugar)
   var MAX_BYTES_MES = 800 * 1024; // margen bajo el limite de 1 MiB por documento
   var _hist = { viajes: [], alertaIds: {}, docDeViaje: {}, cargado: false };
   var _archivadoCorrido = false;
