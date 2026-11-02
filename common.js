@@ -2244,7 +2244,9 @@ GV.Storage = (function(){
      siguen devolviendo, asi el calendario, la lista y las estadisticas muestran todo igual.
      Si alguien edita un viaje ya archivado, vuelve solo al documento principal. */
   var DIAS_HISTORICO = 30; /* 26/10: antes 90. El documento principal (que todas las pantallas leen y escriben a la vez) ya pesaba ~550 KB de 1 MB maximo; los viajes cerrados de mas de 30 dias pasan al historico (se siguen viendo igual). */
-  var DIAS_HISTORICO_ALERTAS = 3; // las alertas se archivan mucho antes que los viajes: son ruido operativo del dia a dia, no un registro que haga falta conservar a mano en el Panel
+  /* 02/11: 1 dia (antes 3). El documento principal llego al limite de 1 MiB de Firestore (quedaban 9 bytes libres) y ya no
+     se podia guardar nada: los cambios se veian en pantalla y a los minutos volvian atras. Las alertas eran la mitad del peso. */
+  var DIAS_HISTORICO_ALERTAS = 1; // las alertas se archivan mucho antes que los viajes: son ruido operativo del dia a dia, no un registro que haga falta conservar a mano en el Panel
   var MAX_POR_CORRIDA = 300; // tope de viajes/alertas movidos por vez (el resto en la proxima)
   var MAX_BYTES_MES = 800 * 1024; // margen bajo el limite de 1 MiB por documento
   var _hist = { viajes: [], alertaIds: {}, docDeViaje: {}, cargado: false };
@@ -2314,6 +2316,8 @@ GV.Storage = (function(){
 
   // Mueve al historico lo viejo. Una transaccion de Firestore garantiza que se saque del
   // documento principal y se agregue al mes al mismo tiempo (o nada, si algo falla).
+  /* 02/11: el pase al historico corria UNA vez por apertura del panel (una pestaña abierta varios dias no lo volvia a correr) */
+  setInterval(function(){ try{ _archivadoCorrido = false; archivarAntiguos(); }catch(e){} }, 30 * 60000);
   function archivarAntiguos(){
     if(_archivadoCorrido || !_fbDb || !_fbDocRef) return Promise.resolve(0);
     var limiteViajes = Date.now() - DIAS_HISTORICO * 24 * 3600 * 1000;
@@ -2635,7 +2639,7 @@ GV.Storage = (function(){
       /* 26/10: si el guardado falla (conflicto con otra pantalla que guardo al mismo tiempo, corte de red), los cambios
          vuelven a la cola y se reintenta solo (1, 2, 4... hasta 30 s). Antes se perdian en silencio y el viaje "volvia"
          al estado anterior con la siguiente actualizacion. */
-      _writeOp.then(function(){ _pendingWrites--; _reintentosEscritura = 0; __limpiarPend(); }).catch(function(err){
+      _writeOp.then(function(){ _pendingWrites--; if(_reintentosEscritura >= 3){ try{ window.dispatchEvent(new CustomEvent('gv-guardado-ok')); }catch(__eOk){} } _reintentosEscritura = 0; __limpiarPend(); }).catch(function(err){
         _pendingWrites--;
         _dirtyIdsSnapshot.forEach(function(id){
           var vieja = _dirtyEntriesSnapshot[id], nueva = _dirtyViajeIds[id];
@@ -2647,6 +2651,13 @@ GV.Storage = (function(){
         ['sitios', 'alertas', 'gerenciamientos'].forEach(function(l){ Object.assign(_dirtyLista[l], _dirtyListaSnap[l]); Object.assign(_removedLista[l], _removedListaSnap[l]); });
         _reintentosEscritura++;
         try{ console.warn('[GV] no se pudo guardar (' + ((err && err.code) || err) + '), reintento ' + _reintentosEscritura); }catch(e){}
+        /* 02/11: documento lleno (limite de 1 MiB): se pasa enseguida lo viejo al historico para liberar lugar, y se avisa en pantalla */
+        try{
+          var __msgE = String((err && err.message) || err || '');
+          var __lleno = /exceed|maximum|too large|1048576|bytes/i.test(__msgE) || (err && err.code === 'invalid-argument');
+          if(__lleno){ _archivadoCorrido = false; archivarAntiguos(); }
+          if(_reintentosEscritura >= 3) window.dispatchEvent(new CustomEvent('gv-guardado-error', { detail: { lleno: __lleno, msg: __msgE, intento: _reintentosEscritura, final: _reintentosEscritura > 12 } }));
+        }catch(__eLl){}
         if(_reintentosEscritura <= 12) setTimeout(function(){ persist(); }, Math.min(30000, 1000 * Math.pow(2, _reintentosEscritura - 1)));
       });
     }
