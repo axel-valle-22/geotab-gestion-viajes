@@ -1019,7 +1019,21 @@ function gvDtmDetalleHtml(v){ return ''; }
 document.addEventListener('click', function(e){ var c = e.target && e.target.closest && e.target.closest('.gv-dtm-chip'); if(c){ window.gvDtmPopover({ stopPropagation: function(){ e.stopPropagation(); }, preventDefault: function(){ e.preventDefault(); }, target: c }, c.getAttribute('data-vid')); } }, true);
 /* 02/11 (o): los botones del encabezado del detalle se alinean para que el espacio entre los de la izquierda
    (Compartir, Clonar, Reprogramar) y los de la derecha (Cancelar, Finalizar) caiga sobre la columna "Ingreso est." */
+/* 02/11 (q): la columna derecha (jornada + tabla) empieza a la altura del mapa y termina a la altura del borde
+   inferior del reproductor; si la tabla es mas larga, se desplaza adentro (no se pasa de esos bordes). */
+function gvDetAjustarAlto(){
+  var der = document.querySelector('.gv-det-col-der'), mapa = document.getElementById('gv-det-map-wrap');
+  if(!der || !mapa) return;
+  der.style.marginTop = '0px';
+  if(window.innerWidth <= 1100){ der.style.maxHeight = ''; return; }
+  var abajo = document.getElementById('gv-det-playback') || mapa;
+  var mt = mapa.getBoundingClientRect().top, rt = der.getBoundingClientRect().top, ab = abajo.getBoundingClientRect().bottom;
+  if(!(ab > mt)) return;
+  der.style.marginTop = Math.max(0, Math.round(mt - rt)) + 'px';
+  der.style.maxHeight = Math.round(ab - mt) + 'px';
+}
 function gvDetAlinearAcciones(){
+  try{ gvDetAjustarAlto(); }catch(__eAa){}
   var a = document.getElementById('gv-det-acciones'); if(!a) return;
   var th = [].slice.call(document.querySelectorAll('#gv-det-itin th')).filter(function(t){ return /Ingreso est/.test(t.textContent); })[0];
   var bs = [].slice.call(a.children).filter(function(b){ return b.tagName === 'BUTTON' && getComputedStyle(b).display !== 'none'; });
@@ -3251,13 +3265,22 @@ function gvJornadaTextoInfo(v){
   if(!jn) return { texto: inf.texto, detalle: inf.texto, esEstimado: inf.esEstimado };
   var horaTxt = GV.fmtDate(jn.inicio).split(' ')[1] || '';
   var hsTxt = GV.fmtDurMin(Math.max(0, Date.now() - new Date(jn.inicio).getTime()));
-  return { texto: horaTxt + (inf.esEstimado ? ' (estimado)' : '') + ' \u00b7 Lleva ' + hsTxt + ' en servicio.', detalle: inf.texto, esEstimado: inf.esEstimado };
+  return { texto: horaTxt + (inf.esEstimado ? ' (estimado)' : '') + ' \u00b7 ' + hsTxt + ' en servicio', detalle: inf.texto, esEstimado: inf.esEstimado, conManejo: true };
+}
+/* 02/11 (q): al lado de las horas en servicio se agregan las horas de MANEJO de hoy (mismo dato que la columna HS Manejo). */
+function gvJornadaManejoFill(v, info){
+  var el = document.getElementById('gv-det-jornada-manejo'); if(!el) return;
+  if(!info || !info.conManejo || !gApi || !v.vehiculoId){ el.textContent = ''; return; }
+  var hoyInicio = new Date(); hoyInicio.setHours(0,0,0,0);
+  var jn = v.jornadas && v.jornadas[GV.dateStr(new Date())];
+  var desde = (jn && jn.inicio && new Date(jn.inicio) > hoyInicio) ? new Date(jn.inicio) : hoyInicio;
+  gvManejoTracking(v, desde).then(function(ms){ var e2 = document.getElementById('gv-det-jornada-manejo'); if(e2 && typeof ms === 'number') e2.textContent = ' / ' + GV.fmtDurMin(ms) + ' de manejo'; })['catch'](function(){});
 }
 function gvJornadaBlockHtml(v){
   var info = gvJornadaTextoInfo(v);
   return '<div id="gv-det-jornada" style="background:' + (info.esEstimado ? '#fffbeb' : '#f9fafb') + ';border:1px solid ' + (info.esEstimado ? '#fcd34d' : '#e5e7eb') + ';border-radius:8px;padding:6px 6px 6px 12px;margin-bottom:10px;font-size:.82rem">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">' +
-    '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b>Jornada del chofer (hoy):</b> <span id="gv-det-jornada-txt" title="' + GV.escapeHtml(info.detalle || info.texto) + '">' + GV.escapeHtml(info.texto) + '</span></div>' +
+    '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b>Jornada del chofer (hoy):</b> <span id="gv-det-jornada-txt" title="' + GV.escapeHtml(info.detalle || info.texto) + '">' + GV.escapeHtml(info.texto) + '</span><span id="gv-det-jornada-manejo" title="Horas de manejo real de hoy (tramos con la unidad circulando)"></span></div>' +
     '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-jornada-editar" style="padding:3px 9px;font-size:.78rem;white-space:nowrap;flex-shrink:0">Editar hora de inicio</button>' +
     '</div>' +
     '<div id="gv-det-jornada-edit" style="display:none;margin-top:8px">' +
@@ -3273,6 +3296,7 @@ function gvActualizarJornadaTexto(v){
   if(!el) return;
   var info = gvJornadaTextoInfo(v);
   el.textContent = info.texto; el.title = info.detalle || info.texto;
+  try{ gvJornadaManejoFill(v, info); }catch(__eMj){}
   var box = document.getElementById('gv-det-jornada');
   if(box){ box.style.background = info.esEstimado ? '#fffbeb' : '#f9fafb'; box.style.borderColor = info.esEstimado ? '#fcd34d' : '#e5e7eb'; }
 }
@@ -4991,6 +5015,8 @@ retrasosHtml +
 '</div></div>' +
 '</div>';
 document.body.appendChild(overlay);
+try{ var __vJ0 = GV.Storage.getViaje(v.id) || v; if(document.getElementById('gv-det-jornada-txt')) gvActualizarJornadaTexto(__vJ0); }catch(__eJ0){}
+setTimeout(function(){ try{ gvDetAjustarAlto(); }catch(__eA0){} }, 50);
 
 var detMap = null, detLayer = null, detHistLayer = null, detHistPts = [], detInterval = null, detRefreshInterval = null, detLiveMarker = null, detRafId = null, detPlaying = false, detSimTime = null, detLastFrameTs = null;
 var detCamInfo = null, detCamBox = null, detCamEl = null, detCamLastTs = null, detCamEvents = [], detCamMarkers = [];
@@ -7719,7 +7745,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-02p';
+var GV_BUILD = '2026-11-02q';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
