@@ -3469,11 +3469,26 @@ function gvClienteBadgesHtml(v, editable){
   return gvClientesDeViaje(v).map(function(c){
     var html = GV.clienteBadgeHtml(c);
     if(!gvEsOnCall(c)) return html;
+    /* 03/11: ON CALL con cliente elegido toma el color de ese cliente (SLB azul, HASA/Halliburton rojo, Shell amarillo...);
+       si el cliente no tiene color propio, queda negro como ON CALL. */
+    if(v.onCallCliente){
+      var __base = /^HASA$/i.test(v.onCallCliente) ? 'HALLIBURTON' : v.onCallCliente;
+      var __u = String(__base).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]+/g, ' ');
+      var __tiene = (GV.CLIENTE_COLORES || []).some(function(k){ return k.clave !== 'ON CALL' && __u.indexOf(k.clave) >= 0; });
+      if(__tiene) html = GV.clienteBadgeHtml(__base);
+    }
     var txt = 'ON CALL' + (v.onCallCliente ? (' - ' + v.onCallCliente) : '');
     html = html.replace(/>[^<]*<\/span>$/, '>' + GV.escapeHtml(txt) + (editable ? ' &#9662;' : '') + '</span>');
     if(editable) html = html.replace('<span ', '<span class="gv-oncall-chip" data-vid="' + GV.escapeHtml(v.id) + '" title="Tocar para elegir el cliente del viaje" ').replace('style="', 'style="cursor:pointer;');
     return html;
   }).join(' ');
+}
+/* 03/11: para el filtro de Cliente de Seguimiento, un ON CALL con cliente elegido figura tambien como "ON CALL - <cliente>"
+   (asi se pueden ver juntas todas las unidades ON CALL afectadas a ese cliente; "ON CALL" sigue mostrando todas). */
+function gvClientesFiltro(v){
+  var cs = gvClientesDeViaje(v), out = cs.slice();
+  if(v && v.onCallCliente && cs.some(gvEsOnCall)){ var k = 'ON CALL - ' + v.onCallCliente; if(out.indexOf(k) < 0) out.push(k); }
+  return out;
 }
 function gvOnCallPopover(chip){
   var vid = chip.getAttribute('data-vid');
@@ -3656,11 +3671,11 @@ function renderTracking(){
     /* Ajuste 15/10: filtro por cliente (columna Cliente). */
     var __todosSinFiltro = todos;
     var __clientesHoy = [];
-    todos.forEach(function(v){ var cs = gvClientesDeViaje(v); if(!cs.length) cs = ['Sin cliente']; cs.forEach(function(c){ if(__clientesHoy.indexOf(c) < 0) __clientesHoy.push(c); }); });
+    todos.forEach(function(v){ var cs = gvClientesFiltro(v); if(!cs.length) cs = ['Sin cliente']; cs.forEach(function(c){ if(__clientesHoy.indexOf(c) < 0) __clientesHoy.push(c); }); });
     __clientesHoy.sort(function(a, b){ if(a === 'Sin cliente') return 1; if(b === 'Sin cliente') return -1; return a.localeCompare(b); });
     if(gTrackCliente && __clientesHoy.indexOf(gTrackCliente) < 0) gTrackCliente = null;
     if(gTrackCliente){
-      todos = todos.filter(function(v){ var cs = gvClientesDeViaje(v); return gTrackCliente === 'Sin cliente' ? !cs.length : cs.indexOf(gTrackCliente) >= 0; });
+      todos = todos.filter(function(v){ var cs = gvClientesFiltro(v); return gTrackCliente === 'Sin cliente' ? !cs.length : cs.indexOf(gTrackCliente) >= 0; });
     }
     /* 21/10: buscador de Seguimiento (unidad, chofer, patente, solicitud, cliente, sitio): filtra al instante. */
     var __qTrack = ((document.getElementById('gv-track-buscar') || {}).value || '').trim();
@@ -3735,7 +3750,7 @@ function renderTracking(){
 '<div class="gv-trk-row gv-trk-head">' +
 '<div class="gv-trk-cell gv-trk-cli-head" id="gv-trk-cli-head" title="Filtrar por cliente" style="cursor:pointer;position:relative;user-select:none">Cliente ' + (gTrackCliente ? ('<span style="background:var(--gv-accent);color:#fff;border-radius:6px;padding:0 5px;font-size:.62rem">' + GV.escapeHtml(gTrackCliente) + '</span>') : '') + ' &#9662;' +
 '<div id="gv-trk-cli-menu" style="display:none;position:fixed;z-index:100050;background:#fff;border:1px solid var(--gv-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:170px;padding:4px;text-transform:none;font-weight:500;letter-spacing:0">' +
-['__todos'].concat(__clientesHoy).map(function(c){ var act = (c === '__todos') ? !gTrackCliente : (gTrackCliente === c); var n = (c === '__todos') ? __todosSinFiltro.length : __todosSinFiltro.filter(function(v){ var cs = gvClientesDeViaje(v); return c === 'Sin cliente' ? !cs.length : cs.indexOf(c) >= 0; }).length; return '<div class="gv-trk-cli-opt" data-cli="' + GV.escapeHtml(c) + '" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '">' + (c === '__todos' ? 'Todos los clientes' : GV.escapeHtml(c)) + ' <span style="color:#9ca3af">(' + n + ')</span></div>'; }).join('') +
+['__todos'].concat(__clientesHoy).map(function(c){ var act = (c === '__todos') ? !gTrackCliente : (gTrackCliente === c); var n = (c === '__todos') ? __todosSinFiltro.length : __todosSinFiltro.filter(function(v){ var cs = gvClientesFiltro(v); return c === 'Sin cliente' ? !cs.length : cs.indexOf(c) >= 0; }).length; return '<div class="gv-trk-cli-opt" data-cli="' + GV.escapeHtml(c) + '" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '">' + (c === '__todos' ? 'Todos los clientes' : GV.escapeHtml(c)) + ' <span style="color:#9ca3af">(' + n + ')</span></div>'; }).join('') +
 '</div></div>' +
 '<div class="gv-trk-cell">Unidad</div>' +
 '<div class="gv-trk-cell">Conductor</div>' +
@@ -7796,7 +7811,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-03b';
+var GV_BUILD = '2026-11-03d';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
