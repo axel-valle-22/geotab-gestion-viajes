@@ -3473,6 +3473,10 @@ function gvPermaRealHtml(r){
   var min = Math.round(ms / 60000), h = Math.floor(min / 60), m = min % 60;
   return '<div title="Tiempo real en el sitio (egreso real - ingreso real)" style="font-weight:600;white-space:nowrap;border-left:1.5px solid #d1d5db;padding-left:8px">' + h + ':' + (m < 10 ? '0' : '') + m + 'hs</div>';
 }
+/* 03/11: viajes NOCTURNOS (salida programada entre las 18:00 y las 06:00) y camiones de 24 hs: trabajan de noche, asi
+   que no se les aplica el pernocte (los horarios siguen corridos y en la tabla solo se marca el cambio de dia). */
+function gvViajeNocturno(v){ var d = v && v.fechaSalida ? new Date(v.fechaSalida) : null; if(!d || isNaN(d.getTime())) return false; var h = d.getHours(); return h >= 18 || h < 6; }
+function gvSinPernocte(v){ return gvViajeNocturno(v) || (typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v)); }
 var GV_PERNOCTE_HORA = 8; /* 03/11: hora por defecto en que se retoma el recorrido al dia siguiente */
 function gvComodinTipo(c){ c = String(c || ''); if(/ON[\s_-]*CALL/i.test(c)) return 'ON CALL'; if(/BACK[\s_-]*UP/i.test(c)) return 'BACK UP'; return null; }
 function gvClienteBadgesHtml(v, editable){
@@ -6586,7 +6590,7 @@ accDist += route.legs[i-1].distance;
    (salvo camiones de 24 hs): el viaje sigue al dia siguiente desde las 08:00 (o desde el inicio real de la
    jornada del chofer de ese dia, si ya arranco) y desde ahi se recalculan los horarios estimados. */
 try{
-  if(GV.dateStr(t) !== GV.dateStr(__tPrev) && !(typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v))){
+  if(GV.dateStr(t) !== GV.dateStr(__tPrev) && !gvSinPernocte(v)){
     var __re = new Date(__tPrev); __re.setDate(__re.getDate() + 1); __re.setHours(GV_PERNOCTE_HORA, 0, 0, 0);
     var __jnSig = v.jornadas && v.jornadas[GV.dateStr(__re)];
     if(__jnSig && __jnSig.inicio && __jnSig.fuente !== 'estimado' && GV.dateStr(__jnSig.inicio) === GV.dateStr(__re)) __re = new Date(__jnSig.inicio);
@@ -6748,7 +6752,7 @@ try{ if(typeof detHistPts !== 'undefined' && detHistPts && detHistPts.length > 1
   var __legs = (route && route.legs) || [];
   var __ahora = Date.now();
   var __enCursoV = (v.estado === 'en_curso' || v.estado === 'demorado');
-  var __es24 = (typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v));
+  var __es24 = gvSinPernocte(v);
   function __legReal(a, b){
     var sum = 0, n = 0;
     for(var k = 1; k < rows.length; k++){
@@ -6991,14 +6995,14 @@ continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 1
     if(k > 0 && prev && dr && dr !== prev){
       var f = new Date(ref);
       var txt = f.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' });
-      r.sepDia = (r.pernocte && !r.realIn) ? ('Pernocte \u00b7 contin\u00faa ' + txt + ' desde ' + gvHoraCorta(r.pernocte)) : ('Pernocte \u00b7 ' + txt);
+      r.sepDia = gvSinPernocte(v) ? txt : ((r.pernocte && !r.realIn) ? ('Pernocte \u00b7 contin\u00faa ' + txt + ' desde ' + gvHoraCorta(r.pernocte)) : ('Pernocte \u00b7 ' + txt));
     }
     if(dr) prev = dr;
   });
   /* Si la unidad paso la noche EN un sitio (ingreso real un dia, egreso real otro dia, o sigue ahi desde ayer), el
      egreso estimado pasa a ser la hora de reinicio del dia siguiente (08:00 o el inicio real de la jornada), asi la
      demora se mide desde ahi y no desde la noche anterior. */
-  if(typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v)) return;
+  if(gvSinPernocte(v)) return;
   rows.forEach(function(r){
     if(!r.tipo || !r.realIn || !r.egreso) return;
     var fin = r.realOut || new Date();
@@ -7903,7 +7907,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-03k';
+var GV_BUILD = '2026-11-03l';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
