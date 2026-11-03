@@ -2243,7 +2243,7 @@ GV.Storage = (function(){
      sigue en AAAA-MM_2, _3...). No se pierde nada: se leen al abrir y getViajes()/getViaje() los
      siguen devolviendo, asi el calendario, la lista y las estadisticas muestran todo igual.
      Si alguien edita un viaje ya archivado, vuelve solo al documento principal. */
-  var DIAS_HISTORICO = 30; /* 26/10: antes 90. El documento principal (que todas las pantallas leen y escriben a la vez) ya pesaba ~550 KB de 1 MB maximo; los viajes cerrados de mas de 30 dias pasan al historico (se siguen viendo igual). */
+  var DIAS_HISTORICO = 7; /* 03/11: antes 30. El documento llego a ~775 KB y cada pantalla tardaba hasta 70 s en leerlo, asi los guardados chocaban entre si (cartel rojo "stored version ... does not match"). Los viajes cerrados de mas de 7 dias pasan al historico (se siguen viendo igual). */ /* 26/10: antes 90. El documento principal (que todas las pantallas leen y escriben a la vez) ya pesaba ~550 KB de 1 MB maximo; los viajes cerrados de mas de 30 dias pasan al historico (se siguen viendo igual). */
   /* 02/11: 1 dia (antes 3). El documento principal llego al limite de 1 MiB de Firestore (quedaban 9 bytes libres) y ya no
      se podia guardar nada: los cambios se veian en pantalla y a los minutos volvian atras. Las alertas eran la mitad del peso. */
   var DIAS_HISTORICO_ALERTAS = 1; // las alertas se archivan mucho antes que los viajes: son ruido operativo del dia a dia, no un registro que haga falta conservar a mano en el Panel
