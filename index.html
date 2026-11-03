@@ -3473,6 +3473,7 @@ function gvPermaRealHtml(r){
   var min = Math.round(ms / 60000), h = Math.floor(min / 60), m = min % 60;
   return '<div title="Tiempo real en el sitio (egreso real - ingreso real)" style="font-weight:600;white-space:nowrap;border-left:1.5px solid #d1d5db;padding-left:8px">' + h + ':' + (m < 10 ? '0' : '') + m + 'hs</div>';
 }
+var GV_PERNOCTE_HORA = 8; /* 03/11: hora por defecto en que se retoma el recorrido al dia siguiente */
 function gvComodinTipo(c){ c = String(c || ''); if(/ON[\s_-]*CALL/i.test(c)) return 'ON CALL'; if(/BACK[\s_-]*UP/i.test(c)) return 'BACK UP'; return null; }
 function gvClienteBadgesHtml(v, editable){
   return gvClientesDeViaje(v).map(function(c){
@@ -6561,9 +6562,23 @@ if(isNaN(__floorTs)) return;
 while(__histCursor < fullHist.length && new Date(fullHist[__histCursor].dateTime).getTime() < __floorTs){ __histCursor++; }
 })();
 pts.forEach(function(p, i){
+var __pernocteRow = null;
 if(i > 0 && route && route.legs && route.legs[i-1]){
+var __tPrev = new Date(t);
 t = new Date(t.getTime() + route.legs[i-1].duration * 1000);
 accDist += route.legs[i-1].distance;
+/* 03/11 (pernocte): si el tramo hacia este punto termina despues de las 23:59, la unidad no se mueve de noche
+   (salvo camiones de 24 hs): el viaje sigue al dia siguiente desde las 08:00 (o desde el inicio real de la
+   jornada del chofer de ese dia, si ya arranco) y desde ahi se recalculan los horarios estimados. */
+try{
+  if(GV.dateStr(t) !== GV.dateStr(__tPrev) && !(typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v))){
+    var __re = new Date(__tPrev); __re.setDate(__re.getDate() + 1); __re.setHours(GV_PERNOCTE_HORA, 0, 0, 0);
+    var __jnSig = v.jornadas && v.jornadas[GV.dateStr(__re)];
+    if(__jnSig && __jnSig.inicio && __jnSig.fuente !== 'estimado' && GV.dateStr(__jnSig.inicio) === GV.dateStr(__re)) __re = new Date(__jnSig.inicio);
+    t = new Date(__re.getTime() + route.legs[i-1].duration * 1000);
+    __pernocteRow = __re;
+  }
+}catch(__ePn){}
 }
 var ingreso = new Date(t);
 var egreso = ingreso;
@@ -6655,6 +6670,7 @@ if(p.id === 'origen' && __srP && __srP.egreso && __realOutAuto && v.salidaOrigen
 var __choferMarcoIngresoTs = (p.tipo && __srP && __srP.choferMarcoIngreso) ? __srP.choferMarcoIngreso : null;
 var __choferMarcoEgresoTs = (p.tipo && __srP && __srP.choferMarcoEgreso) ? __srP.choferMarcoEgreso : null;
 rows.push({ id: p.id, lat: p.lat, lng: p.lng, label: p.label, dir: p.dir, tipo: p.tipo, permaneceHasta: p.permaneceHasta || null, llegadaProgramada: p.llegadaProgramada || null, esperaAcordada: p.esperaAcordada || null, durProg: p.tipo ? gvDurProgMin(p) : null, dist: accDist/1000, ingreso: ingreso, egreso: egreso, dwell: p.tipo ? p.dur : null, realIn: __realIn ? new Date(__realIn) : null, realOut: __realOut ? new Date(__realOut) : null, realInAuto: __realInAuto ? new Date(__realInAuto) : null, realOutAuto: __realOutAuto ? new Date(__realOutAuto) : null, choferMarcoIngreso: __choferMarcoIngresoTs ? new Date(__choferMarcoIngresoTs) : null, choferMarcoEgreso: __choferMarcoEgresoTs ? new Date(__choferMarcoEgresoTs) : null, coincideConSiguiente: __coincideConSiguiente });
+if(__pernocteRow) rows[rows.length-1].pernocte = __pernocteRow;
 });
 
 /* 20/10: sitio repetido en el recorrido (carga en Solalique ... descarga final en Solalique). La segunda aparicion
@@ -6927,6 +6943,23 @@ if(!__partes.length) return;
 __partes.push('Los horarios de la tabla llevan la fecha del dia al que corresponden: en gris el dia de salida y en azul los dias posteriores.');
 continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81">' + __partes.join(' ') + '</div>';
 })();
+/* 03/11: fila separadora cuando el recorrido salta de un dia al otro: por los horarios reales (la unidad ya
+   paso la noche) o por el pernocte previsto en los estimados. */
+(function(){
+  function dia(d){ return (d && !isNaN(d.getTime && d.getTime())) ? GV.dateStr(d) : null; }
+  var prev = null;
+  rows.forEach(function(r, k){
+    var ref = r.realIn || r.realOut || r.ingreso;
+    var dr = dia(ref);
+    if(k > 0 && prev && dr && dr !== prev){
+      var f = new Date(ref);
+      var txt = f.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+      r.sepDia = (r.pernocte && !r.realIn) ? ('Pernocte \u00b7 contin\u00faa ' + txt + ' desde ' + gvHoraCorta(r.pernocte)) : ('Pernocte \u00b7 ' + txt);
+    }
+    var fin = r.realOut || r.realIn || r.egreso || r.ingreso;
+    if(dia(fin)) prev = dia(fin);
+  });
+})();
 /* 02/11 (i): "Distancia acum." con km REALES. Antes era siempre la distancia de la ruta calculada por calles (Google),
    que en yacimiento no coincide con los caminos internos (caso M349: RIG 234 -> MMO PADC52 figuraba 44 km por tramo).
    Ahora: tramo ya recorrido = km del recorrido GPS entre la salida del sitio anterior y el ingreso a este; tramo
@@ -7018,7 +7051,7 @@ var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagI
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
 /* 19/10: con espera acordada el Egreso est. es solo el horario acordado (r.egreso ya lo tiene en cuenta). */
 var __egresoRealCell = __isDestino ? '-' : ('<span class="gv-er">' + (enSitioNote || fmtTimeCell(r.realOut)) + __salidaNote + '</span>' + __choferTagOut + (r.realOutDudoso ? __dudosoTag : ''));
-return '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
+return (r.sepDia ? ('<tr class="gv-sep-dia"><td colspan="9" style="padding:3px 10px;border-top:2px solid #93c5fd;background:#eff6ff;color:#1d4ed8;font-size:.72rem;font-weight:700;text-transform:capitalize">' + GV.escapeHtml(r.sepDia) + '</td></tr>') : '') + '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
 '<span class="gv-site-nom" title="' + GV.escapeHtml(String(r.label || '').replace(/<[^>]*>/g, '') + ' ' + (r.dir || '')) + '">' + (__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') + '<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</span>' +
 '</div>' +
@@ -7821,7 +7854,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-03g';
+var GV_BUILD = '2026-11-03h';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
