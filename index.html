@@ -1066,11 +1066,12 @@ function gvDtmPorDia(v){
   return orden.map(function(k){ return m[k]; });
 }
 function gvDtmChipHtml(v){
-  if(!gvDtmActivo(v)) return '';
+  var __nocChip = (v && v.nocturno) ? ' <span title="Viaje nocturno" style="display:inline-block;font-size:.66rem;font-weight:700;background:#1e3a8a;color:#fff;border-radius:4px;padding:1px 5px;vertical-align:1px">Nocturno</span>' : '';
+  if(!gvDtmActivo(v)) return __nocChip;
   var dias = gvDtmPorDia(v), hoy = GV.dateStr(new Date()), nHoy = 0;
   dias.forEach(function(x){ if(x.dia === hoy) nHoy = x.n; });
   /* 02/11 (i): el chip muestra siempre los viajes del DIA; al tocarlo se despliega la cantidad de cada dia. */
-  return ' <span class="gv-dtm-chip" data-vid="' + GV.escapeHtml(v.id) + '" title="Tocar para ver los viajes de cada dia" style="cursor:pointer;display:inline-block;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;vertical-align:1px">DTM &middot; ' + nHoy + (nHoy === 1 ? ' viaje' : ' viajes') + '</span>';
+  return __nocChip + ' <span class="gv-dtm-chip" data-vid="' + GV.escapeHtml(v.id) + '" title="Tocar para ver los viajes de cada dia" style="cursor:pointer;display:inline-block;font-size:.66rem;font-weight:700;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;vertical-align:1px">DTM &middot; ' + nHoy + (nHoy === 1 ? ' viaje' : ' viajes') + '</span>';
 }
 /* 02/11 (i): el renglon de "vueltas por dia" debajo del titulo se saco (era confuso): el detalle va en el chip. */
 function gvDtmDetalleHtml(v){ return ''; }
@@ -1384,20 +1385,25 @@ function gvEsVehiculo24hs(v){
   var interno = String((v && v.vehiculo) || '').split(' - ')[0].trim().toUpperCase();
   return !!interno && GV.VEHICULOS_24HS.map(function(x){ return String(x).toUpperCase(); }).indexOf(interno) >= 0;
 }
-/* 03/11: camiones NOCTURNOS (grupo de MyGeotab "Camiones nocturnos", hoy T329 y T291 de SLB): el turno del chofer
+/* 04/11: VIAJE NOCTURNO = se marca a mano con el boton "Nocturno" del itinerario (al lado de DTM). Ya no se deduce
+   por la hora de salida (18 a 6 h) ni por el grupo de MyGeotab "Camiones nocturnos", ni el turno arranca fijo a las 19:00:
+   el turno arranca cuando sale el viaje (o cuando la unidad vuelve a manejar despues de estar detenida mas de
+   GV_FIN_TURNO_MIN), cruza la medianoche sin reiniciarse y termina cuando queda detenida mas de GV_FIN_TURNO_MIN.
+   No se le aplica el pernocte.
+   (historico) 03/11: camiones NOCTURNOS (grupo de MyGeotab "Camiones nocturnos", hoy T329 y T291 de SLB): el turno del chofer
    arranca a las 19:00 (o antes si el viaje salio antes esa tarde), cruza la medianoche sin reiniciarse y termina
    cuando la unidad queda detenida mas de GV_FIN_TURNO_MIN minutos. No se les aplica el pernocte. */
 GV.GRUPO_NOCTURNOS_NOMBRE = GV.GRUPO_NOCTURNOS_NOMBRE || 'Camiones nocturnos';
 GV.__vehNocIds = GV.__vehNocIds || {};
 GV.__finTurno = GV.__finTurno || {};
 var GV_TURNO_NOCHE_HORA = 19, GV_FIN_TURNO_MIN = 180;
-function gvEsVehiculoNocturno(v){ return !!(v && v.vehiculoId && GV.__vehNocIds[v.vehiculoId]); }
+function gvEsVehiculoNocturno(v){ return !!(v && v.nocturno); }
 function gvInicioTurnoNocturno(v){
-  var ahora = new Date(), base = new Date(ahora); base.setHours(GV_TURNO_NOCHE_HORA, 0, 0, 0);
-  if(ahora < base) base.setDate(base.getDate() - 1);
-  var ini = v && v.iniciadoEn ? new Date(v.iniciadoEn) : null;
-  if(ini && !isNaN(ini.getTime()) && ini < base && (base.getTime() - ini.getTime()) <= 7 * 3600000) base = ini;
-  return base;
+  var ahora = Date.now(), mejor = null;
+  Object.keys((v && v.jornadas) || {}).forEach(function(k){ var j = v.jornadas[k]; if(j && j.fuente === 'nocturno' && j.inicio){ var t = new Date(j.inicio).getTime(); if(!isNaN(t) && t <= ahora && (mejor === null || t > mejor)) mejor = t; } });
+  var ini = (v && v.iniciadoEn) ? new Date(v.iniciadoEn).getTime() : ((v && v.fechaSalida) ? new Date(v.fechaSalida).getTime() : NaN);
+  if(mejor === null || (!isNaN(ini) && ini > mejor)) mejor = isNaN(ini) ? ahora : ini;
+  return new Date(mejor);
 }
 /* fin del turno nocturno (si la unidad ya esta detenida hace mas de GV_FIN_TURNO_MIN): se calcula con el GPS en Seguimiento */
 function gvFinTurno(v, jn){
@@ -1587,7 +1593,7 @@ function checkJornadas(){
   });
   activos.forEach(function(v){
     var jornadas = v.jornadas || {};
-    /* 03/11: camion nocturno: la jornada es el turno que arranca a las 19:00 (no se detecta por el dia calendario) */
+    /* 04/11: viaje nocturno (marcado a mano): la jornada es el turno en curso, que arranca con la salida del viaje (no se detecta por el dia calendario) */
     if(gvEsVehiculoNocturno(v) && !(jornadas[hoyStr] && jornadas[hoyStr].fuente === 'manual')){
       var __iniN = gvInicioTurnoNocturno(v).toISOString();
       if(!jornadas[hoyStr] || jornadas[hoyStr].inicio !== __iniN || jornadas[hoyStr].fuente !== 'nocturno'){
@@ -1949,6 +1955,70 @@ function gvBackfillParadasPrevias(v){
    Una parada con ingreso y sin egreso hace que Seguimiento diga "En sitio" aunque la unidad ya este en otro lado.
    Cada 5 minutos, si la unidad esta a mas de 500 m de esa parada, se revisa el GPS desde ese ingreso: si nunca
    estuvo adentro, el ingreso era falso y se borra; si estuvo, se registra el egreso con la hora real en que salio. */
+/* 04/11: la unidad sale de un punto, NO llega al siguiente y VUELVE al mismo punto (caso real: M349 Brandt 3/11,
+   salio de MMO PADC52 19:43, vio que no llegaba al RIG y volvio 20:12 a pernoctar ahi). Antes quedaba la salida de
+   las 19:43: permanencia de 31 min, el pernocte "en la ruta" y los horarios estimados del dia siguiente corridos.
+   Ahora, si volvio y se quedo al menos GV_REINGRESO_MIN minutos antes de llegar al punto siguiente, la salida de
+   ese punto pasa a ser la ULTIMA (la de la manana siguiente) y la permanencia, el pernocte y los horarios estimados
+   se recalculan solos. Si todavia esta adentro, el punto vuelve a quedar abierto ("En sitio").
+   Se guarda egresoPrevio (la salida que se descarto) y reingreso (cuando volvio) para que quede registro. */
+var GV_REINGRESO_MIN = 15;
+var __gvReing = {};
+function gvCorregirReingresos(v){
+  try{
+    if(!v || !gApi || !v.vehiculoId) return;
+    if(v.estado !== 'en_curso' && v.estado !== 'demorado') return;
+    if(__gvReing[v.id] && Date.now() - __gvReing[v.id] < 600000) return;
+    __gvReing[v.id] = Date.now();
+    var sr = v.sitiosReal || {}, sites = siteListFor(v), ahora = Date.now(), cands = [];
+    for(var i = 0; i < sites.length; i++){
+      var s = sites[i]; if(String(s.id).indexOf('parada') !== 0) continue;
+      var e = sr[s.id]; if(!e || !e.ingreso || !e.egreso || e.egresoManual) continue;
+      var eg = new Date(e.egreso).getTime(); if(!(eg > 0) || ahora - eg > 40 * 3600000) continue;
+      var T = ahora, sig = null;
+      for(var j = i + 1; j < sites.length; j++){ var ej = sr[sites[j].id]; if(ej && ej.ingreso){ T = new Date(ej.ingreso).getTime(); sig = sites[j].id; break; } }
+      if(T - eg < GV_REINGRESO_MIN * 60000) continue;
+      var clave = v.id + '|' + s.id + '|' + e.egreso + '|' + (sig || '');
+      if(sig && __gvReing[clave]) continue;
+      cands.push({ site: s, e: e, eg: eg, T: T, sig: sig, clave: clave });
+    }
+    if(!cands.length) return;
+    var desde = Math.min.apply(null, cands.map(function(c){ return c.eg; }));
+    GV.getHistory(gApi, v.vehiculoId, new Date(desde).toISOString(), new Date().toISOString()).then(function(h){
+      if(!h || !h.length) return;
+      var act = GV.Storage.getViaje(v.id); if(!act) return;
+      var srN = Object.assign({}, act.sitiosReal || {}), patch = {}, hubo = false, reabierto = null;
+      cands.forEach(function(c){
+        var e = srN[c.site.id]; if(!e || e.egreso !== c.e.egreso) return;
+        var visitas = [], ini = null;
+        for(var k = 0; k < h.length; k++){
+          var p = h[k]; if(p.latitude == null) continue;
+          var t = new Date(p.dateTime).getTime(); if(t <= c.eg) continue; if(t > c.T) break;
+          var dentro = GV.isWithinSiteEx({ lat: p.latitude, lng: p.longitude }, c.site, sites, 0);
+          if(dentro){ if(ini == null) ini = t; }
+          else if(ini != null){ visitas.push({ ini: ini, fin: t }); ini = null; }
+        }
+        if(ini != null) visitas.push({ ini: ini, fin: null });
+        var buenas = visitas.filter(function(x){ return ((x.fin || c.T) - x.ini) >= GV_REINGRESO_MIN * 60000; });
+        if(!buenas.length){ if(c.sig) __gvReing[c.clave] = 1; return; }
+        var ult = buenas[buenas.length - 1];
+        var nuevo = Object.assign({}, e, { egresoPrevio: e.egresoPrevio || e.egreso, reingreso: new Date(ult.ini).toISOString() });
+        if(ult.fin){
+          if(Math.abs(ult.fin - c.eg) < 120000) return;
+          nuevo.egreso = new Date(ult.fin).toISOString(); nuevo.egresoGps = true;
+        } else if(!c.sig && !reabierto && !(act.dwellState && act.dwellState.confirmado !== false && act.dwellState.siteId !== c.site.id)){
+          delete nuevo.egreso; delete nuevo.egresoGps; reabierto = c.site.id;
+        } else { if(c.sig) __gvReing[c.clave] = 1; return; }
+        srN[c.site.id] = nuevo; hubo = true;
+      });
+      if(!hubo) return;
+      patch.sitiosReal = srN;
+      if(reabierto) patch.dwellState = { siteId: reabierto, arrivedAt: srN[reabierto].ingreso, alertado: true, lastAlertBucket: 999, confirmado: true };
+      GV.Storage.updateViaje(v.id, patch).then(function(){ try{ renderTrips(); renderTracking(); }catch(e){} });
+    })['catch'](function(){});
+  }catch(e){ console.error('gvCorregirReingresos', e); }
+}
+
 var __gvVerifAbiertos = {};
 function gvVerificarParadasAbiertas(v, pos){
   try{
@@ -2145,6 +2215,7 @@ try{
       gvRefinarSalidaOrigenGps(v);
       gvBackfillParadasPrevias(v);
       gvVerificarParadasAbiertas(v, { lat: r.latitude, lng: r.longitude });
+      gvCorregirReingresos(v);
       if(v.llegadaDestinoPendienteEn) return;
       if(v.estado === 'planificado'){
         /* Antes se exigia puedeIniciar(v) aca: si el gerenciamiento de riesgos no estaba aprobado el
@@ -3366,7 +3437,7 @@ function gvJornadaTextoInfoLargo(v){
     return { texto: horaTxt + ' — desde la salida del viaje (camion de 24 hs con chofer de turno). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
   }
   if(jn.fuente === 'nocturno'){
-    return { texto: horaTxt + ' — inicio del turno nocturno (camion nocturno: el turno arranca a las 19:00 y termina cuando la unidad queda detenida mas de 3 h).', esEstimado: false };
+    return { texto: horaTxt + ' — inicio del turno nocturno (viaje nocturno: el turno arranca con la salida y termina cuando la unidad queda detenida mas de 3 h).', esEstimado: false };
   }
   if(jn.fuente === 'cambio_chofer'){
     return { texto: horaTxt + ' — primer arranque de la unidad despues del cambio de chofer (la unidad venia de otro viaje con otro chofer). Lleva ' + hsTxt + ' en servicio.', esEstimado: false };
@@ -3527,13 +3598,23 @@ function updateTrackBadges(v){
              por ejemplo acomodar el camion en el sitio, no estira el turno */
           var __iniT = new Date(__jnT.inicio).getTime(), __ult = null, __seg = null;
           var __movs = (hist || []).filter(function(rr){ return (rr.speed || 0) > 5 && rr.latitude != null && new Date(rr.dateTime).getTime() >= __iniT; }).sort(function(a, b){ return new Date(a.dateTime) - new Date(b.dateTime); });
-          var __cierraSeg = function(){ if(__seg && ((__seg.t1 - __seg.t0) >= 600000 || (GV.distKm(__seg.p0, __seg.p1) || 0) >= 2)) __ult = __seg.t1; };
+          var __segsOk = [];
+          var __cierraSeg = function(){ if(__seg && ((__seg.t1 - __seg.t0) >= 600000 || (GV.distKm(__seg.p0, __seg.p1) || 0) >= 2)){ __ult = __seg.t1; __segsOk.push(__seg); } };
           __movs.forEach(function(rr){
             var tt = new Date(rr.dateTime).getTime(), pp = { lat: rr.latitude, lng: rr.longitude };
             if(__seg && tt - __seg.t1 <= 300000){ __seg.t1 = tt; __seg.p1 = pp; }
             else { __cierraSeg(); __seg = { t0: tt, t1: tt, p0: pp, p1: pp }; }
           });
           __cierraSeg();
+          /* 04/11: si despues de un corte de mas de GV_FIN_TURNO_MIN la unidad volvio a manejar, arranco un turno nuevo */
+          var __nuevoT = null;
+          for(var __q = 1; __q < __segsOk.length; __q++){ if(__segsOk[__q].t0 - __segsOk[__q - 1].t1 >= GV_FIN_TURNO_MIN * 60000) __nuevoT = __segsOk[__q].t0; }
+          if(__nuevoT && __jnT.fuente !== 'manual' && __nuevoT > __iniT){
+            var __hkN = GV.dateStr(new Date()), __jjNT = Object.assign({}, v.jornadas || {});
+            __jjNT[__hkN] = { inicio: new Date(__nuevoT).toISOString(), fuente: 'nocturno', confirmado: true, alertado12hs: false };
+            GV.Storage.updateViaje(v.id, { jornadas: __jjNT });
+            __jnT = __jjNT[__hkN];
+          }
           GV.__finTurno[v.id] = { inicio: __jnT.inicio, fin: (__ult && (Date.now() - __ult) >= GV_FIN_TURNO_MIN * 60000) ? new Date(__ult).toISOString() : null };
         }
       }
@@ -3621,7 +3702,8 @@ function gvPermaRealHtml(r){
 /* 03/11: viajes NOCTURNOS (salida programada entre las 18:00 y las 06:00) y camiones de 24 hs: trabajan de noche, asi
    que no se les aplica el pernocte (los horarios siguen corridos y en la tabla solo se marca el cambio de dia). */
 function gvViajeNocturno(v){ var d = v && v.fechaSalida ? new Date(v.fechaSalida) : null; if(!d || isNaN(d.getTime())) return false; var h = d.getHours(); return h >= 18 || h < 6; }
-function gvSinPernocte(v){ return gvViajeNocturno(v) || gvEsVehiculoNocturno(v) || (typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v)); }
+/* 04/11: el pernocte ya no se saca por la hora de salida (gvViajeNocturno queda sin uso): solo viaje marcado Nocturno o camion de 24 hs */
+function gvSinPernocte(v){ return gvEsVehiculoNocturno(v) || (typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v)); }
 var GV_PERNOCTE_HORA = 8; /* 03/11: hora por defecto en que se retoma el recorrido al dia siguiente */
 function gvComodinTipo(c){ c = String(c || ''); if(/ON[\s_-]*CALL/i.test(c)) return 'ON CALL'; if(/BACK[\s_-]*UP/i.test(c)) return 'BACK UP'; return null; }
 function gvClienteBadgesHtml(v, editable){
@@ -7267,9 +7349,16 @@ return (r.sepDia ? ('<tr class="gv-sep-dia"><td colspan="9" style="padding:1px 1
 '<td>' + __egresoEstCell + '</td>' +
 '<td>' + __egresoRealCell + '</td></tr>';
 }).join('') + '</tbody></table>' +
-'<div style="margin-top:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-parada">+ Agregar parada</button>' + ((v.estado !== 'completado' && v.estado !== 'cancelado') ? ' <button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-destino" title="' + (v.destino ? 'El destino actual pasa a ser una parada y el nuevo punto queda como destino final' : 'Este viaje no tiene destino: agrega el punto final') + '">+ Agregar destino</button>' : '') + ((v.estado !== 'completado' && v.estado !== 'cancelado') ? (' <button type="button" class="gv-btn gv-btn-sm" id="gv-det-dtm-it" title="' + (gvDtmActivo(v) ? 'DTM activado: tocar para desactivar' : 'Servicio DTM: cuenta los viajes entre la parada 1 (carga) y la 2 (descarga)') + '" style="margin-left:6px;border-radius:999px;padding:2px 12px;font-size:.75rem;font-weight:700;' + (gvDtmActivo(v) ? 'background:#f59e0b;color:#fff;border:1px solid #d97706' : 'background:#fff;color:#92400e;border:1px solid #fcd34d') + '">DTM</button>') : '') + '</div>';
+'<div style="margin-top:10px"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-parada">+ Agregar parada</button>' + ((v.estado !== 'completado' && v.estado !== 'cancelado') ? ' <button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-add-destino" title="' + (v.destino ? 'El destino actual pasa a ser una parada y el nuevo punto queda como destino final' : 'Este viaje no tiene destino: agrega el punto final') + '">+ Agregar destino</button>' : '') + ((v.estado !== 'completado' && v.estado !== 'cancelado') ? (' <button type="button" class="gv-btn gv-btn-sm" id="gv-det-dtm-it" title="' + (gvDtmActivo(v) ? 'DTM activado: tocar para desactivar' : 'Servicio DTM: cuenta los viajes entre la parada 1 (carga) y la 2 (descarga)') + '" style="margin-left:6px;border-radius:999px;padding:2px 12px;font-size:.75rem;font-weight:700;' + (gvDtmActivo(v) ? 'background:#f59e0b;color:#fff;border:1px solid #d97706' : 'background:#fff;color:#92400e;border:1px solid #fcd34d') + '">DTM</button>') : '') + ' <button type="button" class="gv-btn gv-btn-sm" id="gv-det-noc-it" title="' + (v.nocturno ? 'Viaje NOCTURNO: la jornada arranca con la salida, cruza la medianoche y termina cuando la unidad queda detenida mas de 3 h; sin pernocte. Tocar para desactivar.' : 'Marcar como viaje nocturno (jornada continua desde la salida, sin pernocte)') + '" style="margin-left:6px;border-radius:999px;padding:2px 12px;font-size:.75rem;font-weight:700;' + (v.nocturno ? 'background:#1e3a8a;color:#fff;border:1px solid #1e3a8a' : 'background:#fff;color:#1e3a8a;border:1px solid #93c5fd') + '">Nocturno</button></div>';
 try{ gvDetAlinearAcciones(); }catch(__eAl){}
 (function(){ var __bi = itinEl.querySelector('#gv-det-dtm-it'); if(__bi){ __bi.addEventListener('click', function(){ var b = document.getElementById('gv-det-dtm'); if(b) b.click(); }); } })();
+(function(){ var __bn = itinEl.querySelector('#gv-det-noc-it'); if(__bn){ __bn.addEventListener('click', function(){
+  var __vN = GV.Storage.getViaje(v.id) || v, __act = !!__vN.nocturno;
+  if(!confirm(__act ? '¿Sacar la marca de viaje NOCTURNO? Vuelve a calcularse como viaje de dia: jornada por dia y pernocte.' : 'Marcar como viaje NOCTURNO: la jornada del chofer arranca con la salida del viaje, cruza la medianoche sin reiniciarse y termina cuando la unidad queda detenida mas de 3 h. No se marca pernocte. ¿Marcar?')) return;
+  var __jjB = Object.assign({}, __vN.jornadas || {}), __hkB = GV.dateStr(new Date());
+  if(__jjB[__hkB] && __jjB[__hkB].fuente !== 'manual') delete __jjB[__hkB];
+  GV.Storage.updateViaje(v.id, { nocturno: !__act, nocturnoCambiadoEn: new Date().toISOString(), jornadas: __jjB }).then(function(){ var __cx = document.getElementById('gv-det-close'); if(__cx) __cx.click(); abrirDetalleViaje(v.id); try{ renderTracking(); renderTrips(); checkJornadas(); }catch(__eNb){} });
+}); } })();
 itinEl.querySelectorAll('.gv-dwell-edit').forEach(function(el){
 el.addEventListener('click', function(){ abrirEditorSitio(el.getAttribute('data-site-id')); });
 });
@@ -8057,7 +8146,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-04b';
+var GV_BUILD = '2026-11-04d';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
