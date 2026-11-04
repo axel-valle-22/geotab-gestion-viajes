@@ -96,6 +96,10 @@ var GV_CHOFER_CSS = "body.gv-chofer{font-size:18px;-webkit-text-size-adjust:100%
 ".gv-r-na-sel{background:#e5e7eb !important;border-color:#6b7280 !important;color:#111827 !important;font-weight:700}" +
 ".gv-chofer .gv-radio-pair button{flex:1;min-height:58px;font-size:1.2rem !important;border-radius:12px !important;border-width:2px !important}" +
 ".gv-chofer .gv-motivo-list label,.gv-chofer .gv-fatiga-list label{font-size:1.12rem !important;padding:16px 14px !important;min-height:58px;box-sizing:border-box}" +
+/* 04/11: las opciones del paso "El viaje" estan dentro de .gv-form-row, cuya regla de inputs (ancho 100%, alto 54 px)
+   agrandaba los circulitos de radio y no dejaba lugar al texto. Los radio vuelven a su tamano. */
+".gv-chofer .gv-form-row .gv-motivo-list label{display:flex !important;align-items:center;gap:12px;font-weight:500;line-height:1.3}" +
+".gv-chofer .gv-form-row .gv-motivo-list input[type=radio]{width:22px !important;height:22px !important;min-width:22px;min-height:0 !important;padding:0 !important;margin:0;flex:0 0 22px}" +
 ".gv-chofer input[type=radio],.gv-chofer input[type=checkbox]{transform:scale(1.6);transform-origin:center;margin:0 10px 0 4px;flex-shrink:0}" +
 ".gv-chofer .gv-form-row label{font-size:1.05rem}" +
 ".gv-chofer .gv-form-row input,.gv-chofer .gv-form-row select,.gv-chofer .gv-form-row textarea{font-size:1.12rem !important;min-height:54px;padding:12px !important;box-sizing:border-box;width:100%}" +
@@ -624,6 +628,8 @@ return false;
 }
 function claseParaRespuesta(q, v){
 if(v === 'na') return 'gv-r-na-sel';
+if(v === 'bueno') return 'gv-r-yes-sel';
+if(v === 'malo') return 'gv-r-no-sel';
 var esBueno = (v === 'si') === siEsPositivo(q);
 return esBueno ? 'gv-r-yes-sel' : 'gv-r-no-sel';
 }
@@ -739,7 +745,9 @@ var __grupos = [['Equipo de seguridad', [['cinturon','Cinturon de seguridad'],['
   ['Condicion general', [['neumaticos','Neumaticos'],['parabrisas','Parabrisas'],['espejos','Espejos'],['bocinaRetroceso','Bocina y alarma de retroceso'],['ruedaAuxilio','Rueda de auxilio']]]];
 body = '<h3>4. Checklist previaje<span class="gv-req">*</span></h3>' +
 __grupos.map(function(g){ return '<div style="font-weight:700;margin:12px 0 2px">' + g[0] + '</div>' + g[1].map(function(it){
-  return '<div class="gv-check-row"><span>' + it[1] + '</span><div class="gv-radio-pair" data-q="chk_' + it[0] + '"><button data-v="si">Si</button><button data-v="no">No</button><button data-v="na">No aplica</button></div></div>';
+  /* 04/11: "Condicion general" se contesta Bueno / Malo / No aplica (el equipo de seguridad sigue Si / No / No aplica) */
+  var __bm = g[0] === 'Condicion general';
+  return '<div class="gv-check-row"><span>' + it[1] + '</span><div class="gv-radio-pair" data-q="chk_' + it[0] + '">' + (__bm ? '<button data-v="bueno">Bueno</button><button data-v="malo">Malo</button>' : '<button data-v="si">Si</button><button data-v="no">No</button>') + '<button data-v="na">No aplica</button></div></div>';
 }).join(''); }).join('') +
 '<div class="gv-form-row" style="margin-top:10px"><label>Observacion adicional</label><textarea id="gv-checklist-obs" rows="2">' + GV.escapeHtml(respuestas.checklistObs) + '</textarea></div>';
 } else if(steps[stepIdx] === 'resultado'){
@@ -767,7 +775,7 @@ pair.querySelectorAll('button').forEach(function(b){
 b.addEventListener('click', function(){
 var v = b.getAttribute('data-v');
 if(q.indexOf('chk_') === 0){ respuestas.checklist[q.slice(4)] = v; } else { respuestas[q] = v; }
-pair.querySelectorAll('button').forEach(function(x){ x.classList.remove('gv-r-yes-sel','gv-r-no-sel'); });
+pair.querySelectorAll('button').forEach(function(x){ x.classList.remove('gv-r-yes-sel','gv-r-no-sel','gv-r-na-sel'); });
 b.classList.add(claseParaRespuesta(q, v));
 renderActions();
 });
@@ -1068,11 +1076,11 @@ if(respuestas.horas === 'hx') cortes.push('Mas de 16 h de trabajo + viaje');
 if(respuestas.cargaPeligrosa === 'si' && respuestas.rotulosEquipo === 'no') cortes.push('Carga peligrosa sin rotulos o equipo de emergencia');
 if(respuestas.cargaPeligrosa === 'si' && respuestas.hojaSeguridadGuia === 'no') cortes.push('Carga peligrosa sin hoja de seguridad o guia');
 var chkNo = []; var NOM = { cinturon: 'cinturon', botiquin: 'botiquin', extintores: 'extintores', balizas: 'balizas', chaleco: 'chaleco', criquet: 'criquet y llave', kitAntiderrame: 'kit antiderrame', neumaticos: 'neumaticos', parabrisas: 'parabrisas', espejos: 'espejos', bocinaRetroceso: 'bocina/alarma de retroceso', ruedaAuxilio: 'rueda de auxilio' };
-Object.keys(respuestas.checklist).forEach(function(k){ if(respuestas.checklist[k] === 'no') chkNo.push(NOM[k] || k); });
+Object.keys(respuestas.checklist).forEach(function(k){ if(respuestas.checklist[k] === 'no' || respuestas.checklist[k] === 'malo') chkNo.push(NOM[k] || k); });
 var nivel = puntaje > 22 ? 'alto' : (puntaje >= 17 ? 'medio' : 'bajo');
 if(respuestas.nocturno){ nivel = 'alto'; motivos.push('Viaje en horario nocturno (22 a 6 h)'); }
 if(cortes.length){ nivel = 'alto'; motivos = cortes.concat(motivos); }
-if(chkNo.length){ if(nivel === 'bajo') nivel = 'medio'; motivos.push('Checklist con items en No: ' + chkNo.join(', ')); }
+if(chkNo.length){ if(nivel === 'bajo') nivel = 'medio'; motivos.push('Checklist con items faltantes o en mal estado: ' + chkNo.join(', ')); }
 if(puntaje > 22) motivos.push('Puntaje ' + puntaje + ' (mas de 22)');
 else if(puntaje >= 17) motivos.push('Puntaje ' + puntaje + ' (17 a 22)');
 var resultado = nivel === 'alto' ? 'rojo' : (nivel === 'medio' ? 'amarillo' : 'verde');
