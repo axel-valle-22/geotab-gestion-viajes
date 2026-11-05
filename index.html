@@ -5220,6 +5220,287 @@ function gvEscucharPedidosSLB(){
     }, function(err){ try{ console.warn('[GV] pedidos SLB', err && err.message); }catch(e){} });
   })['catch'](function(){});
 }
+/* ================= 05/11: Pedidos SHELL (carpeta Shell de Outlook) =================
+   El proceso de GitHub (shell/leer-mails.mjs) deja cada mail "Recorrido DD.MM.YYYY" de Shell (y sus respuestas) en
+   Firestore (gv_pedidos_shell, estado "pendiente"). Aca se arma solo UN viaje por dia, siempre con el chofer VESCHI TOMAS
+   en la unidad C258 (reglas de Logistica):
+   - Origen y destino: Base TDP Plottier (como se cargaban a mano).
+   - Primero los depositos donde hay que CARGAR material para llevar a un proveedor (ej. material a inspeccionar).
+   - Despues los proveedores (retiros y entregas) en el orden MAS CORTO (se prueban todas las combinaciones).
+   - Al final las descargas en los depositos: primero WH SIERRAS BLANCAS y despues WH BAJO AÑELO, salvo que el mail diga
+     otro orden ("Primer destino: WH BAN, segundo destino: WH SB").
+   - La hora del mail ("debe estar en el primer punto a las 08:00") es la llegada al primer punto; la salida se calcula.
+   - Las respuestas que suman proveedores o cambian el orden actualizan el viaje solo (lo ya visitado no se toca).
+   - Proveedor que no esta en Sitios: se ubica con la direccion del mail como "(ubicacion a confirmar)".
+   - Si ese dia la C258 ya tiene un viaje cargado a mano, no se crea otro: queda un aviso en Alertas. */
+var GV_SHELL_VEH_ID = 'b30';           /* C258 - PGC931 */
+var GV_SHELL_VEH_RE = /\bC?258\b/i;
+var GV_SHELL_CHOFER = 'VESCHI TOMAS';
+var GV_SHELL_BASE = 'Base TDP Plottier';
+var gPedidosShell = [];
+var __gvShellHecho = {}, __gvShellEnCurso = false;
+function gvShellCodWH(txt){
+  var n = gvSlbNorm(txt).replace(/[:.]/g, ' ');
+  if(/sierra|\bsb\b|\bsbl\b/.test(n)) return 'SB';
+  if(/\bban\b|a[nñ]elo|bajada|bajo/.test(n)) return 'BAN';
+  return null;
+}
+function gvShellSitioWH(cod){
+  var k = cod === 'SB' ? ['sierrasblancas'] : ['bajoanelo', 'bajadadeanelo', 'bajadaanelo'];
+  var ss = gvSlbSitios().filter(function(s){ var c = gvSlbCompact(s.nombre); return k.some(function(x){ return c.indexOf(x) >= 0; }); });
+  return ss.filter(function(s){ return /^wh/.test(gvSlbCompact(s.nombre)); })[0] || ss[0] || null;
+}
+function gvShellSitioBase(){ var k = gvSlbCompact(GV_SHELL_BASE); return gvSlbSitios().filter(function(s){ return gvSlbCompact(s.nombre) === k; })[0] || null; }
+var GV_SHELL_STOP = ['sa', 'srl', 'sas', 'sac', 'saic', 'argentina', 'arg', 'sucursal', 'suc', 'neuquen', 'base', 'cia', 'de', 'la', 'el', 'los', 'del', 'y'];
+/* Sitio guardado del proveedor: lo aprendido / nombre exacto (como SLB) y si no, por la primera palabra del nombre
+   ("FINNING ARGENTINA SA" -> "Finning Cat - Sucursal Neuquén", "SUPPLY" -> "Supply Petrolero SRL", "MAV" -> "MAV ..."). */
+function gvShellResolverVendor(vendor){
+  var s = gvSlbResolverSitio(vendor); if(s) return s;
+  var pal = gvSlbNorm(vendor).replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(function(w){ return w.length >= 3 && GV_SHELL_STOP.indexOf(w) < 0; });
+  if(!pal.length) return null;
+  var w = pal[0];
+  var cands = gvSlbSitios().filter(function(x){
+    if(x.aConfirmar) return false;
+    var ws = gvSlbNorm(x.nombre).replace(/[^a-z0-9 ]/g, ' ').split(' ');
+    return ws.indexOf(w) >= 0 || (w.length >= 5 && gvSlbCompact(x.nombre).indexOf(w) === 0);
+  });
+  if(!cands.length) return null;
+  var nqn = { lat: -38.9516, lng: -68.0591 };
+  /* si hay varios, el que mas palabras del mail tenga y despues el mas cercano a Neuquen capital (donde estan los proveedores) */
+  var puntos = function(x){ var n = gvSlbNorm(x.nombre); return pal.filter(function(p){ return n.indexOf(p) >= 0; }).length; };
+  return cands.sort(function(a, b){ return (puntos(b) - puntos(a)) || ((GV.distKm(nqn, a) || 999) - (GV.distKm(nqn, b) || 999)); })[0];
+}
+/* Proveedor que no esta en Sitios: ubicacion provisoria con la direccion del mail (solo en memoria; el sitio de verdad se
+   crea cuando alguien marca la ubicacion correcta en el viaje). */
+function gvShellProvisorio(vendor, direccion){
+  var c = gvSlbCompact(vendor);
+  if(gvSlbProvMem[c]) return Promise.resolve(gvSlbProvMem[c]);
+  var enZona = function(q){ return q && q.lat < -37 && q.lat > -40.6 && q.lng < -66 && q.lng > -70.6; };
+  var dir = String(direccion || '').replace(/\s*-\s*/g, ', ').replace(/\bCP\s*\d{4}\b/i, '').trim();
+  var q1 = dir ? (dir + ', Argentina') : '';
+  var geo = q1 && GV.geocodeSearch ? GV.geocodeSearch(q1).then(function(l){ return (l || []).filter(enZona)[0] || null; })['catch'](function(){ return null; }) : Promise.resolve(null);
+  return geo.then(function(g){
+    if(g) return { lat: g.lat, lng: g.lng, fuente: 'direccion del mail' };
+    /* sin numero: la ciudad del final ("..., Centenario") */
+    var ciudad = dir.split(',').map(function(x){ return x.trim(); }).filter(Boolean).pop();
+    if(ciudad && GV.geocodeSearch) return GV.geocodeSearch(ciudad + ', Argentina').then(function(l){ var x = (l || []).filter(enZona)[0]; return x ? { lat: x.lat, lng: x.lng, fuente: 'ciudad del mail' } : null; })['catch'](function(){ return null; });
+    return null;
+  }).then(function(u){
+    u = u || { lat: -38.9516, lng: -68.0591, fuente: 'sin datos (Neuquen)' };
+    var nombre = String(vendor || '').trim() + ' (ubicacion a confirmar)';
+    var pt = { lat: u.lat, lng: u.lng };
+    gvSlbProvMem[c] = { id: 'prov_' + c, nombre: nombre, direccion: nombre, lat: u.lat, lng: u.lng, poligono: [pt, pt, pt], tipo: 'carga', duracionMin: 60, aliasMail: [c], aConfirmar: true, aConfirmarFuente: u.fuente };
+    return gvSlbProvMem[c];
+  });
+}
+function gvShellKeyFila(f){ return [gvSlbCompact(f.vendor), String(f.po || '').trim(), gvShellCodWH(f.desde) || 'V', gvShellCodWH(f.hasta) || 'V'].join('|'); }
+function gvShellCopiaSitio(s, tipo){ var o = gvSlbCopiaSitio(s, tipo); o.duracionMin = s.duracionMin || 60; return o; }
+function gvShellDistM(a, b){ var d = (a && b) ? GV.distKm(a, b) : null; return (d == null || isNaN(d)) ? 1e9 : d * 1000; }
+function gvShellHoyAR(){ return new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10); }
+/* Junta los pedidos por dia de servicio. Lo que ya tiene el viaje (shellFilas / shellOrden / shellHora) es la base y los mails
+   pendientes se suman arriba (una fila con el mismo proveedor, PO y tramo reemplaza a la anterior). */
+function gvShellAgrupar(){
+  var viajes = GV.Storage.getViajes() || [];
+  var porDia = {};
+  var dia = function(f){ if(!porDia[f]){ var v = GV.Storage.getViaje('shell_' + f.replace(/-/g, '')); porDia[f] = { fecha: f, viaje: v || null, filas: {}, orden: v && v.shellOrden || null, hora: v && v.shellHora || null, docs: [], asunto: v && v.shellAsunto || '', convs: (v && v.shellConversaciones || []).slice() }; ((v && v.shellFilas) || []).forEach(function(r){ porDia[f].filas[gvShellKeyFila(r)] = r; }); } return porDia[f]; };
+  var docs = gPedidosShell.slice().sort(function(a, b){ return String(a.recibido).localeCompare(String(b.recibido)); });
+  /* dia de cada mail: el de sus filas; un mail que solo cambia el orden va al dia de su conversacion */
+  var diaConv = {};
+  docs.forEach(function(p){ if((p.filas || []).length && p.fecha && p.conversacion) diaConv[p.conversacion] = p.fecha; });
+  viajes.forEach(function(v){ if(v.origenPedidoShell) (v.shellConversaciones || []).forEach(function(c){ if(!diaConv[c]) diaConv[c] = String(v.fechaSalida || '').slice(0, 10); }); });
+  docs.forEach(function(p){
+    var f = (!(p.filas || []).length && p.conversacion && diaConv[p.conversacion]) || p.fecha || diaConv[p.conversacion];
+    if(!f) return;
+    var g = dia(f);
+    g.docs.push(p);
+    (p.filas || []).forEach(function(r){ g.filas[gvShellKeyFila(r)] = r; });
+    if(p.ordenWH && p.ordenWH.length) g.orden = p.ordenWH;
+    if(p.hora && (p.filas || []).length) g.hora = p.hora;
+    if((p.filas || []).length && !/^\s*re\s*:/i.test(p.asunto || '')) g.asunto = p.asunto;
+    if(!g.asunto) g.asunto = String(p.asunto || '').replace(/^\s*re\s*:\s*/i, '');
+    if(p.conversacion && g.convs.indexOf(p.conversacion) < 0) g.convs.push(p.conversacion);
+  });
+  return Object.keys(porDia).sort().map(function(k){ var g = porDia[k]; g.lista = Object.keys(g.filas).map(function(x){ return g.filas[x]; }); return g; });
+}
+/* Recorrido optimizado. Devuelve una Promise con { paradas: [{sitio, tipo, txt}], faltan: [...] } */
+function gvShellArmarRecorrido(g, desdePunto){
+  var orden = (g.orden && g.orden.length ? g.orden.slice() : ['SB', 'BAN']);
+  ['SB', 'BAN'].forEach(function(c){ if(orden.indexOf(c) < 0) orden.push(c); });
+  var porOrden = function(a, b){ return orden.indexOf(a) - orden.indexOf(b); };
+  var inicio = [], fin = [], vend = {}, vendOrden = [];
+  g.lista.forEach(function(r){
+    var cd = gvShellCodWH(r.desde), ch = gvShellCodWH(r.hasta);
+    if(cd && inicio.indexOf(cd) < 0) inicio.push(cd);
+    if(ch && fin.indexOf(ch) < 0) fin.push(ch);
+    var k = gvSlbCompact(r.vendor); if(!k) return;
+    if(!vend[k]){ vend[k] = { vendor: r.vendor, direccion: r.direccion, carga: false, descarga: false }; vendOrden.push(k); }
+    if(!cd) vend[k].carga = true;      /* se retira en el proveedor */
+    if(!ch) vend[k].descarga = true;   /* se entrega en el proveedor */
+  });
+  inicio.sort(porOrden); fin.sort(porOrden);
+  var faltan = [];
+  return Promise.all(vendOrden.map(function(k){
+    var x = vend[k];
+    var s = gvShellResolverVendor(x.vendor);
+    if(s) return Promise.resolve(Object.assign(x, { sitio: s }));
+    return gvShellProvisorio(x.vendor, x.direccion).then(function(p){ return Object.assign(x, { sitio: p }); });
+  })).then(function(vs){
+    var wh = function(c, tipo){ var s = gvShellSitioWH(c); if(!s) faltan.push('WH ' + c); return { sitio: s, tipo: tipo, txt: 'WH ' + c }; };
+    var ini = inicio.map(function(c){ return wh(c, 'carga'); });
+    var end = fin.map(function(c){ return wh(c, 'descarga'); });
+    var p0 = (ini.length && ini[ini.length - 1].sitio) || desdePunto || null;
+    var pf = (end[0] && end[0].sitio) || null;
+    var d = function(a, b){ return (a && b) ? (GV.distKm(a, b) || 0) : 0; };
+    var costo = function(seq){ var t = 0, ant = p0; seq.forEach(function(x){ t += d(ant, x.sitio); ant = x.sitio; }); return t + d(ant, pf); };
+    var mejor = vs.slice();
+    if(vs.length > 1 && vs.length <= 8){
+      var best = null, bestC = Infinity;
+      var perm = function(rest, acc){
+        if(!rest.length){ var c = costo(acc); if(c < bestC - 1e-9){ bestC = c; best = acc.slice(); } return; }
+        for(var i = 0; i < rest.length; i++){ acc.push(rest[i]); perm(rest.slice(0, i).concat(rest.slice(i + 1)), acc); acc.pop(); }
+      };
+      perm(vs, []);
+      mejor = best || vs;
+    } else if(vs.length > 8){
+      /* muchos proveedores: el mas cercano cada vez */
+      var quedan = vs.slice(); mejor = []; var ant = p0;
+      while(quedan.length){ quedan.sort(function(a, b){ return d(ant, a.sitio) - d(ant, b.sitio); }); var x = quedan.shift(); mejor.push(x); ant = x.sitio; }
+    }
+    var paradas = ini.concat(mejor.map(function(x){ return { sitio: x.sitio, tipo: (x.carga && x.descarga) ? 'ambos' : (x.descarga ? 'descarga' : 'carga'), txt: x.vendor }; })).concat(end);
+    /* el mismo lugar seguido = una sola parada */
+    var out = [];
+    paradas.forEach(function(p){
+      var u = out[out.length - 1];
+      if(u && u.sitio && p.sitio && (u.sitio.id === p.sitio.id || gvShellDistM(u.sitio, p.sitio) < 150)){ if(u.tipo !== p.tipo) u.tipo = 'ambos'; return; }
+      out.push(p);
+    });
+    return { paradas: out, faltan: faltan };
+  });
+}
+function gvShellObservaciones(g){
+  var TXT = function(r){ var cd = gvShellCodWH(r.desde), ch = gvShellCodWH(r.hasta); return (cd ? ('WH ' + cd) : r.vendor) + ' -> ' + (ch ? ('WH ' + ch) : r.vendor); };
+  return g.lista.map(function(r){ return (r.po ? ('PO ' + r.po + ' ') : '') + r.vendor + ': ' + TXT(r) + (r.detalle ? (' - ' + r.detalle) : '') + (r.bultos ? (' - ' + r.bultos + ' bulto(s)') : '') + (r.peso ? (' - ' + r.peso) : '') + (r.horario ? (' - Horario ' + r.horario) : ''); }).join(' / ') +
+    '. Descarga: ' + (g.orden && g.orden.length ? g.orden : ['SB', 'BAN']).map(function(c){ return 'WH ' + c; }).join(' > ') +
+    '. Cargado desde mail Shell "' + (g.asunto || '') + '".';
+}
+function gvShellVehiculo(){
+  var o = gvSlbOpcion('gv-vehiculo', function(){ return true; });
+  return o.filter(function(x){ return x.id === GV_SHELL_VEH_ID; })[0] || o.filter(function(x){ return GV_SHELL_VEH_RE.test(x.text); })[0] || null;
+}
+function gvShellFirma(g){ return g.lista.map(gvShellKeyFila).sort().join(';') + '#' + (g.orden || []).join('>') + '#' + (g.hora || ''); }
+function gvShellAviso(id, msg, viajeId){ try{ GV.Storage.addAlerta({ id: id, tipo: 'info', mensaje: msg, fecha: new Date().toISOString(), viajeId: viajeId || null }); }catch(e){} }
+function gvShellMarcarDocs(docs, estado, extra){
+  return GV.loadFirebase().then(function(firebase){
+    if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
+    var col = firebase.firestore().collection('gv_pedidos_shell');
+    return Promise.all(docs.map(function(p){ return col.doc(p._id).set(Object.assign({ estado: estado, procesadoEn: new Date().toISOString() }, extra || {}), { merge: true }); }));
+  })['catch'](function(){});
+}
+/* salida = hora de llegada al primer punto - tiempo de viaje desde el origen (redondeado a 5 min para abajo) */
+function gvShellSalida(fecha, hora, org, p1){
+  var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+  var hm = String(hora || '08:00').split(':'), minL = (+hm[0]) * 60 + (+hm[1] || 0), legSeg = 0;
+  try{
+    var dKm = (org && p1) ? (GV.distKm(org, p1) || 0) : 0;
+    if(dKm > 0.3){ var ra = GV.buscarRutaAprendida ? GV.buscarRutaAprendida(org, p1) : null; legSeg = (ra && ra.r && ra.r.minProm) ? ra.r.minProm * 60 : GV.duracionCamionSeg(dKm * 1.35 * 1000, 0); }
+  }catch(e){}
+  var minSal = Math.floor(Math.max(0, minL - Math.round(legSeg / 60)) / 5) * 5;
+  return fecha + 'T' + pad(Math.floor(minSal / 60)) + ':' + pad(minSal % 60) + ':00';
+}
+function gvShellProcesar(){
+  if(__gvShellEnCurso || !gPedidosShell.length) return;
+  if(!gvSlbAutoListo()){ setTimeout(gvShellProcesar, 20000); return; }
+  __gvShellEnCurso = true;
+  var hoy = gvShellHoyAR();
+  var grupos = gvShellAgrupar().filter(function(g){ return g.docs.length; });
+  var tareas = grupos.map(function(g){
+    /* dias pasados: ya no se tocan */
+    if(g.fecha < hoy){ return gvShellMarcarDocs(g.docs, 'vencido'); }
+    var v = g.viaje;
+    if(!v){
+      var aMano = (GV.Storage.getViajes() || []).filter(function(x){ return x.estado !== 'cancelado' && !x.origenPedidoShell && x.vehiculoId === GV_SHELL_VEH_ID && GV.dateStr(x.fechaSalida) === g.fecha; })[0];
+      if(aMano){
+        g.docs.forEach(function(p){ gvShellAviso('al_shellmano_' + p._id, 'Shell: llego el mail "' + (p.asunto || '') + '" para el ' + g.fecha.slice(8, 10) + '/' + g.fecha.slice(5, 7) + ', pero la C258 ya tiene un viaje cargado a mano ese dia: no se creo otro. Revisa si hay que sumar algo.', aMano.id); });
+        return gvShellMarcarDocs(g.docs, 'procesado', { nota: 'viaje cargado a mano ' + aMano.id });
+      }
+    }
+    if(!g.lista.length) return Promise.resolve(); /* solo cambio de orden y todavia no hay viaje: se espera la tabla */
+    if(v && (v.estado === 'completado' || v.estado === 'cancelado')){
+      g.docs.forEach(function(p){ gvShellAviso('al_shelltarde_' + p._id, 'Shell: llego "' + (p.asunto || '') + '" pero el viaje del ' + g.fecha.slice(8, 10) + '/' + g.fecha.slice(5, 7) + ' ya esta ' + v.estado + '. No se cambio nada.', v.id); });
+      return gvShellMarcarDocs(g.docs, 'procesado', { nota: 'viaje ya ' + v.estado });
+    }
+    var veh = gvShellVehiculo(), cho = gvSlbChofer(GV_SHELL_CHOFER, GV_SHELL_VEH_ID);
+    if(!veh || !cho){
+      gvShellAviso('al_shellfalta_' + g.fecha, 'Shell: no se pudo crear el viaje del ' + g.fecha + ': no se encontro ' + (!veh ? 'la unidad C258' : 'el chofer ' + GV_SHELL_CHOFER) + ' en la lista.', null);
+      return Promise.resolve();
+    }
+    var base = gvShellSitioBase();
+    var origen = base ? { lat: base.lat, lng: base.lng, direccion: base.direccion || base.nombre, poligono: base.poligono || null } : null;
+    return gvShellArmarRecorrido(g, origen).then(function(rec){
+      if(rec.faltan.length){ gvShellAviso('al_shellwh_' + g.fecha, 'Shell: falta cargar en Sitios ' + rec.faltan.join(', ') + '.', null); return; }
+      var firma = gvShellFirma(g);
+      var paradas = rec.paradas.map(function(x){ return gvShellCopiaSitio(x.sitio, x.tipo); });
+      var hora = g.hora || '08:00';
+      if(paradas[0]){ var dl = new Date(g.fecha + 'T' + (hora.length === 4 ? '0' + hora : hora) + ':00-03:00'); if(!isNaN(dl.getTime())) paradas[0].llegadaProgramada = dl.toISOString(); }
+      var prov = rec.paradas.filter(function(x){ return x.sitio && x.sitio.aConfirmar; }).map(function(x){ return x.txt; });
+      var txtProv = prov.length ? (' FALTA CONFIRMAR LA UBICACION de: ' + prov.join(', ') + ' (abri el viaje, toca el sitio y "Editar ubicacion").') : '';
+      var ruta = rec.paradas.map(function(x){ return x.sitio ? (x.sitio.nombre || x.txt) : x.txt; }).join(' > ');
+      var comun = { observaciones: gvShellObservaciones(g), shellFilas: g.lista, shellOrden: g.orden || null, shellHora: g.hora || null, shellFirma: firma, shellAsunto: g.asunto || '', shellConversaciones: g.convs,
+        shellPedidos: ((v && v.shellPedidos) || []).concat(g.docs.map(function(p){ return p._id; })).filter(function(x, i, a){ return a.indexOf(x) === i; }) };
+      if(!v){
+        var id = 'shell_' + g.fecha.replace(/-/g, '');
+        if(__gvShellHecho[id] || GV.Storage.getViaje(id)) return;
+        __gvShellHecho[id] = 1;
+        var sal = gvShellSalida(g.fecha, hora, origen, paradas[0]);
+        var viaje = Object.assign({
+          id: id, conductorId: cho.id, conductor: cho.text, vehiculoId: veh.id, vehiculo: veh.text,
+          fechaSalida: sal, origen: origen, destino: origen ? Object.assign({}, origen) : null, paradas: paradas, solicitud: '',
+          estado: 'planificado', creadoEn: new Date().toISOString(), notificado: false, gerenciamiento: null,
+          origenPedidoShell: true, shellAuto: true,
+          tramos: [{ conductorId: cho.id, conductor: cho.text, vehiculoId: veh.id, vehiculo: veh.text, desde: sal, hasta: null, motivo: null, motivoDetalle: '' }]
+        }, comun);
+        return GV.Storage.addViaje(viaje).then(function(){
+          gvShellAviso('al_' + id + '_shellalta', 'Shell: viaje creado automaticamente desde el mail "' + (g.asunto || '') + '" - ' + cho.text + ' - ' + veh.text + ', salida ' + sal.slice(8, 10) + '/' + sal.slice(5, 7) + ' ' + sal.slice(11, 16) + '. Recorrido: ' + ruta + '.' + txtProv, id);
+          try{ renderTracking(); renderStats(); if(gPanelView === 'calendario') renderCalendar(); }catch(e){}
+          return gvShellMarcarDocs(g.docs, 'procesado', { viajeId: id });
+        })['catch'](function(){ delete __gvShellHecho[id]; });
+      }
+      /* viaje ya creado: si cambio algo, se rearman solo los puntos que faltan */
+      if(v.shellFirma === firma) return gvShellMarcarDocs(g.docs, 'procesado', { viajeId: v.id, nota: 'sin cambios' });
+      var key = v.id + '|' + firma; if(__gvShellHecho[key]) return; __gvShellHecho[key] = 1;
+      var sr = v.sitiosReal || {}, ultima = -1;
+      (v.paradas || []).forEach(function(p, i){ var x = sr['parada' + i]; if(x && (x.ingreso || x.egreso)) ultima = i; });
+      var hechas = (v.paradas || []).slice(0, ultima + 1);
+      /* de lo nuevo se sacan los primeros puntos que coinciden con lo ya visitado, y las cargas en lugares ya visitados */
+      var j = 0;
+      hechas.forEach(function(h){ if(j < paradas.length && gvShellDistM(h, paradas[j]) < 300) j++; });
+      var nuevas = paradas.slice(j).filter(function(p){ return !(p.tipo === 'carga' && hechas.some(function(h){ return gvShellDistM(h, p) < 300; })); });
+      var srN = {}; Object.keys(sr).forEach(function(k2){ var m = /^parada(\d+)$/.exec(k2); srN[k2] = (m && +m[1] > ultima) ? null : sr[k2]; });
+      var patch = Object.assign({ paradas: hechas.concat(nuevas), sitiosReal: srN }, comun);
+      if(v.estado === 'planificado' && ultima < 0){
+        var sal2 = gvShellSalida(g.fecha, hora, v.origen || origen, paradas[0]);
+        if(v.tramos && v.tramos[0] && v.tramos[0].desde === v.fechaSalida){ var tr = v.tramos.slice(); tr[0] = Object.assign({}, tr[0], { desde: sal2 }); patch.tramos = tr; }
+        patch.fechaSalida = sal2;
+      }
+      return GV.Storage.updateViaje(v.id, patch).then(function(){
+        gvShellAviso('al_' + v.id + '_shellcambio_' + Date.now(), 'Shell: cambio aplicado automaticamente desde el mail "' + ((g.docs[g.docs.length - 1] || {}).asunto || '') + '" - ' + (v.conductor || '') + ' - ' + (v.vehiculo || '') + '. Recorrido: ' + ruta + '.' + txtProv, v.id);
+        try{ renderTracking(); renderTrips(); }catch(e){}
+        return gvShellMarcarDocs(g.docs, 'procesado', { viajeId: v.id });
+      })['catch'](function(){ delete __gvShellHecho[key]; });
+    })['catch'](function(e){ try{ console.warn('[GV] Shell', e && e.message); }catch(x){} });
+  });
+  Promise.all(tareas).then(function(){ __gvShellEnCurso = false; }, function(){ __gvShellEnCurso = false; });
+}
+function gvEscucharPedidosShell(){
+  if(!window.__gvShellIntervalo) window.__gvShellIntervalo = setInterval(function(){ try{ gvShellProcesar(); }catch(e){} }, 5 * 60000);
+  GV.loadFirebase().then(function(firebase){
+    if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
+    firebase.firestore().collection('gv_pedidos_shell').where('estado', '==', 'pendiente').onSnapshot(function(qs){
+      gPedidosShell = qs.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); });
+      gvShellProcesar();
+    }, function(err){ try{ console.warn('[GV] pedidos Shell', err && err.message); }catch(e){} });
+  })['catch'](function(){});
+}
 function gvAbrirPedidosSLB(){
   var ov = document.createElement('div');
   ov.className = 'gv-modal-overlay'; ov.style.zIndex = '99990';
@@ -8363,6 +8644,7 @@ function doInit(api){
   GV.Storage.init(api).then(function(){
     try{ gvCargarUsuarioPanel(); }catch(__eUP){}
     try{ gvEscucharPedidosSLB(); }catch(__ePS){}
+    try{ gvEscucharPedidosShell(); }catch(__ePSh){}
     checkDelays(); checkDwellAlerts(); checkDestinoLlegadas(); checkCierreSinDestino(); checkJornadas(); gvCerrarCompartidosFinalizados(); try{ gvDtmChequear(); }catch(__eDtm){}
     renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); }
     GV.Storage.onChange(function(){ renderStats(); renderAlertas(); renderGerenciamientos(); renderEventsWidget(); if(gPanelView === 'calendario'){ renderCalendar(); } else { renderTrips(); } });
@@ -8425,7 +8707,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-05h';
+var GV_BUILD = '2026-11-05i';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
