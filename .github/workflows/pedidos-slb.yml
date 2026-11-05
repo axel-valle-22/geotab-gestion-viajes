@@ -37,6 +37,7 @@ jobs:
           SLB_BUZON: ${{ secrets.SLB_BUZON }}
           SLB_CARPETA: ${{ vars.SLB_CARPETA }}
           SHELL_CARPETA: ${{ vars.SHELL_CARPETA }}
+          SHELL_BUZON: ${{ secrets.SHELL_BUZON }}
         run: |
           fin=$(( $(date +%s) + 330 * 60 ))
           while true; do
