@@ -28,6 +28,7 @@ jobs:
         with:
           node-version: '20'
       - run: node slb/test-parser.mjs > /dev/null
+      - run: node shell/test-parser.mjs > /dev/null
       - name: Leer mails cada 30 min (06:00 a 00:00 hs de Argentina)
         env:
           MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
@@ -35,6 +36,7 @@ jobs:
           MS_CLIENT_SECRET: ${{ secrets.MS_CLIENT_SECRET }}
           SLB_BUZON: ${{ secrets.SLB_BUZON }}
           SLB_CARPETA: ${{ vars.SLB_CARPETA }}
+          SHELL_CARPETA: ${{ vars.SHELL_CARPETA }}
         run: |
           fin=$(( $(date +%s) + 330 * 60 ))
           while true; do
@@ -45,6 +47,8 @@ jobs:
               # 28/10: cada vuelta toma la ultima version del codigo (si se cambio el lector, no hay que esperar la proxima corrida)
               git fetch -q --depth 1 origin main && git reset -q --hard origin/main || echo "No se pudo actualizar el codigo; se usa el que ya estaba."
               node slb/leer-mails.mjs || echo "Esta vuelta fallo; se reintenta en 30 min."
+              # 05/11: carpeta Shell (viajes de VESCHI TOMAS en la C258)
+              node shell/leer-mails.mjs || echo "Shell: esta vuelta fallo; se reintenta en 30 min."
             else
               echo "$(TZ=America/Argentina/Buenos_Aires date '+%H:%M'): fuera de horario, no se lee."
             fi
