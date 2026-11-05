@@ -2726,7 +2726,7 @@ try{
        que aparecia en lugar de "GONZALEZ LEOPOLDO DAMIAN", el usuario vigente). */
     var __ahoraU = Date.now();
     res = (res || []).filter(function(u){ return !u.activeTo || new Date(u.activeTo).getTime() > __ahoraU; });
-    gState.conductores = (res||[]).map(function(u){ return {id:u.id, nombre:((u.firstName||'')+' '+(u.lastName||'')).trim(), name:u.name}; });
+    gState.conductores = (res||[]).map(function(u){ return {id:u.id, nombre:((u.firstName||'')+' '+(u.lastName||'')).trim(), name:u.name, grupos:(u.driverGroups||[]).map(function(g){ return g && g.id; }).filter(Boolean)}; });
     gState.conductores.sort(function(a,b){ return (a.nombre||'').localeCompare((b.nombre||''), 'es', { sensitivity: 'base' }); });
     var sel = document.getElementById('gv-conductor');
     if(sel && gState.conductores.length){
@@ -3933,6 +3933,109 @@ function gvViajeNocturno(v){ var d = v && v.fechaSalida ? new Date(v.fechaSalida
 /* 04/11: el pernocte ya no se saca por la hora de salida (gvViajeNocturno queda sin uso): solo viaje marcado Nocturno o camion de 24 hs */
 function gvSinPernocte(v){ return gvEsVehiculoNocturno(v) || (typeof gvEsVehiculo24hs === 'function' && gvEsVehiculo24hs(v)); }
 var GV_PERNOCTE_HORA = 8; /* 03/11: hora por defecto en que se retoma el recorrido al dia siguiente */
+/* 05/11: HORAS DE PERNOCTE y si es pernocte o noche en la base del chofer.
+   - La parada larga de la noche se busca en el GPS del viaje: el camion queda quieto (velocidad <= 5 km/h) cruzando la
+     medianoche. Movimientos cortos en el mismo lugar (calentar el motor, acomodar el camion: menos de 20 min y a menos de
+     400 m) no la cortan: cuenta el arranque SOSTENIDO.
+   - Despues se afina con el encendido del motor (Geotab, diagnostico de ignicion): apagado = primer "motor apagado" al
+     llegar; arranque = ultimo "motor encendido" antes de salir.
+   - Base del chofer = su grupo de conductores en Geotab (Conductores_Neuquen = Base TDP Plottier, Conductores_Anielo =
+     TDP AÑELO, Conductores_RDLS = base de Rincon). Si el camion pasa la noche FUERA de la base del chofer es "Pernocte";
+     si queda en la base del chofer (aunque quede cargado) es "Noche en base". Si no se conoce la base, queda "Pernocte". */
+var GV_BASE_POR_GRUPO = [
+  { grupo: 'b2851', re: /tdp.*plottier|plottier.*tdp/i },          /* Conductores_Neuquen */
+  { grupo: 'b2852', re: /tdp\s*a[nñ]elo|base\s*tdp\s*a[nñ]elo/i }, /* Conductores_Anielo */
+  { grupo: 'b2853', re: /(tdp|base).*(rinc[oó]n|rdls)|(rinc[oó]n|rdls).*(tdp|base)/i } /* Conductores_RDLS */
+];
+var __gvPernIgn = {};
+function gvBaseDelChofer(conductorId){
+  var c = (gState.conductores || []).filter(function(x){ return x.id === conductorId; })[0];
+  if(!c || !c.grupos || !c.grupos.length) return null;
+  var S = GV.Storage.getSitios() || []; if(!Array.isArray(S)) S = Object.values(S);
+  for(var i = 0; i < GV_BASE_POR_GRUPO.length; i++){
+    var m = GV_BASE_POR_GRUPO[i];
+    if(c.grupos.indexOf(m.grupo) < 0) continue;
+    var s = S.filter(function(x){ return x && !x.aConfirmar && typeof x.lat === 'number' && m.re.test(x.nombre || ''); })[0];
+    if(s) return s;
+  }
+  return null;
+}
+function gvChoferEnHora(v, t){
+  var tr = null;
+  (v.tramos || []).forEach(function(x){ if(new Date(x.desde || 0).getTime() <= t) tr = x; });
+  return (tr && tr.conductorId) || v.conductorId;
+}
+/* Parada de la noche que cruza la medianoche D (Date a las 00:00 del dia nuevo). Devuelve {desde, hasta, lat, lng, sigue} o null. */
+function gvPernocteDetectar(H, D, fin){
+  var d0 = D.getTime(), lo = d0 - 16 * 3600000, hi = d0 + 16 * 3600000;
+  var pts = H.filter(function(r){ var t = new Date(r.dateTime).getTime(); return t >= lo && t <= hi; });
+  if(pts.length < 2) return null;
+  var mov = function(r){ return (r.speed || 0) > 5; };
+  var stops = [], cur = null;
+  pts.forEach(function(r){
+    var t = new Date(r.dateTime).getTime();
+    if(!mov(r)){ if(!cur) cur = { desde: t, hasta: t, lat: r.latitude, lng: r.longitude }; else cur.hasta = t; }
+    else if(cur){ cur.hasta = t; cur.salio = true; stops.push(cur); cur = null; }
+  });
+  if(cur){ cur.hasta = Math.max(cur.hasta, Math.min(fin, hi)); cur.sigue = fin >= Date.now() - 5 * 60000; stops.push(cur); }
+  /* movimientos cortos en el mismo lugar no cortan la parada */
+  var m = [];
+  stops.forEach(function(s){
+    var u = m[m.length - 1];
+    if(u && (s.desde - u.hasta) < 20 * 60000 && (GV.distKm(u, s) || 0) < 0.4){ u.hasta = s.hasta; u.sigue = s.sigue; u.salio = s.salio; return; }
+    m.push({ desde: s.desde, hasta: s.hasta, lat: s.lat, lng: s.lng, sigue: !!s.sigue, salio: !!s.salio });
+  });
+  var best = null, bestOv = 0;
+  m.forEach(function(s){
+    if(s.hasta - s.desde < 3 * 3600000) return;
+    var ov = Math.min(s.hasta, d0 + 10 * 3600000) - Math.max(s.desde, d0 - 6 * 3600000);
+    if(ov > bestOv){ bestOv = ov; best = s; }
+  });
+  return best;
+}
+function gvDurTxt(ms){ var min = Math.max(0, Math.round(ms / 60000)), h = Math.floor(min / 60), mm = min % 60; return h + ' h' + (mm ? (' ' + (mm < 10 ? '0' : '') + mm + ' min') : ''); }
+function gvPernocteTexto(p){
+  return (p.sigue ? ('detenido desde ' + gvHoraCorta(new Date(p.desde)) + ' (sigue), ' + gvDurTxt(Date.now() - p.desde) + ' hasta ahora')
+    : (gvDurTxt(p.hasta - p.desde) + ' (motor apagado ' + gvHoraCorta(new Date(p.desde)) + ' → arranque ' + gvHoraCorta(new Date(p.hasta)) + ')'));
+}
+/* Completa las filas separadoras de dia (r.sepDia) con las horas de la noche y el texto Pernocte / Noche en base. */
+function gvPernocteHoras(v, rows, fullHist){
+  if(gvSinPernocte(v)) return;
+  var H = (fullHist || []).filter(function(r){ return r.latitude != null && r.latitude !== 0; });
+  if(H.length < 2) return;
+  var fin = new Date(v.completadoEn || Date.now()).getTime();
+  rows.forEach(function(r){
+    if(!r.sepDia || !/^Pernocte/.test(r.sepDia)) return;
+    var ref = r.realIn || r.realOut || r.ingreso; if(!ref) return;
+    var D = new Date(ref); D.setHours(0, 0, 0, 0);
+    var p = gvPernocteDetectar(H, D, fin);
+    if(!p) return;
+    var base = gvBaseDelChofer(gvChoferEnHora(v, p.desde));
+    var enBase = !!(base && (GV.isWithinSite({ lat: p.lat, lng: p.lng }, base) || (GV.distKm(p, base) || 99) < 0.5));
+    if(enBase) r.sepDia = r.sepDia.replace(/^Pernocte/, 'Noche en base (' + base.nombre + ')');
+    var key = 'pn_' + v.vehiculoId + '_' + p.desde;
+    r.sepPernKey = key;
+    r.sepPernTxt = (enBase ? 'detenido ' : 'pernocte de ') + gvPernocteTexto(p);
+    /* se afina con el encendido del motor (una sola consulta por noche y por unidad) */
+    if(__gvPernIgn[key] === undefined && gApi && v.vehiculoId){
+      __gvPernIgn[key] = null;
+      GV.getIgnitionHistory(gApi, v.vehiculoId, new Date(p.desde - 30 * 60000).toISOString(), new Date((p.sigue ? Date.now() : p.hasta) + 10 * 60000).toISOString()).then(function(ig){
+        var off = null, on = null;
+        (ig || []).forEach(function(x){
+          var t = new Date(x.dateTime).getTime();
+          if(x.data === 0 && off == null && t >= p.desde - 20 * 60000 && t <= p.desde + 2 * 3600000) off = t;
+          if(x.data === 1 && !p.sigue && t > (off || p.desde) && t <= p.hasta + 5 * 60000) on = t;
+        });
+        var q = Object.assign({}, p, { desde: off || p.desde, hasta: on || p.hasta });
+        __gvPernIgn[key] = q;
+        var el = document.querySelector('[data-pern-key="' + key + '"]');
+        if(el) el.textContent = (enBase ? 'detenido ' : 'pernocte de ') + gvPernocteTexto(q);
+      });
+    } else if(__gvPernIgn[key]){
+      r.sepPernTxt = (enBase ? 'detenido ' : 'pernocte de ') + gvPernocteTexto(__gvPernIgn[key]);
+    }
+  });
+}
 function gvComodinTipo(c){ c = String(c || ''); if(/ON[\s_-]*CALL/i.test(c)) return 'ON CALL'; if(/BACK[\s_-]*UP/i.test(c)) return 'BACK UP'; return null; }
 function gvClienteBadgesHtml(v, editable){
   return gvClientesDeViaje(v).map(function(c){
@@ -7769,6 +7872,7 @@ continuidadHtml = '<div style="font-size:.82rem;margin-bottom:10px;padding:8px 1
     }
     if(dr) prev = dr;
   });
+  try{ gvPernocteHoras(v, rows, fullHist); }catch(__ePH){}
   /* Si la unidad paso la noche EN un sitio (ingreso real un dia, egreso real otro dia, o sigue ahi desde ayer), el
      egreso estimado pasa a ser la hora de reinicio del dia siguiente (08:00 o el inicio real de la jornada), asi la
      demora se mide desde ahi y no desde la noche anterior. */
@@ -7882,7 +7986,7 @@ var __ingresoRealCell = __isOrigen ? '-' : (fmtTimeCell(r.realIn) + __choferTagI
 var __egresoEstCell = (__isDestino || r.coincideConSiguiente) ? '-' : fmtTimeCell(r.egreso);
 /* 19/10: con espera acordada el Egreso est. es solo el horario acordado (r.egreso ya lo tiene en cuenta). */
 var __egresoRealCell = __isDestino ? '-' : ('<span class="gv-er">' + (enSitioNote || fmtTimeCell(r.realOut)) + __salidaNote + '</span>' + __choferTagOut + (r.realOutDudoso ? __dudosoTag : ''));
-return (r.sepDia ? ('<tr class="gv-sep-dia"><td colspan="9" style="padding:1px 10px;border-top:1px solid #dbeafe;background:#f8fbff;color:#60a5fa;font-size:.66rem;font-weight:600;text-transform:capitalize">' + GV.escapeHtml(r.sepDia) + '</td></tr>') : '') + '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
+return (r.sepDia ? ('<tr class="gv-sep-dia"><td colspan="9" style="padding:1px 10px;border-top:1px solid #dbeafe;background:#f8fbff;color:#60a5fa;font-size:.66rem;font-weight:600;text-transform:capitalize">' + GV.escapeHtml(r.sepDia) + (r.sepPernTxt ? (' <span style="text-transform:none;color:#2563eb;font-weight:700">\u00b7 <span data-pern-key="' + r.sepPernKey + '">' + GV.escapeHtml(r.sepPernTxt) + '</span></span>') : '') + '</td></tr>') : '') + '<tr' + (__isParada ? (' data-parada-row-idx="' + __paradaIdx + '"') : '') + '><td>' +
 '<div class="gv-site-block" data-site-id="' + r.id + '"' + ((typeof r.lat === 'number') ? (' data-gv-coords="' + r.lat + ',' + r.lng + '" data-gv-coords-tit="' + GV.escapeHtml(r.dir || r.label || '') + '"') : '') + (__isParada ? (' draggable="true" data-parada-idx="' + __paradaIdx + '"') : '') + ' style="cursor:' + (__isParada ? 'grab' : 'pointer') + ';padding:6px 9px;border:1px solid #d1d5db;border-radius:8px;background:#f9fafb" title="' + (__isParada ? 'Click para editar o quitar. Arrastra para reordenar.' : 'Click para editar ubicacion') + '">' +
 '<span class="gv-site-nom" title="' + GV.escapeHtml(String(r.label || '').replace(/<[^>]*>/g, '') + ' ' + (r.dir || '')) + '">' + (__isParada ? '<span style="color:#9ca3af;margin-right:4px" aria-hidden="true">&#8942;&#8942;</span>' : '') + '<b>' + r.label + '</b> ' + GV.escapeHtml(r.dir||'') + '</span>' +
 '</div>' +
@@ -8707,7 +8811,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-05i';
+var GV_BUILD = '2026-11-05j';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
