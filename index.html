@@ -2723,6 +2723,10 @@ try{
   function onDone(){ done++; if(done >= 3 && loading) loading.style.display = 'none'; }
 
   api.call('Get', {typeName:'User', search:{isDriver:true}}, function(res){
+    /* 05/11: solo choferes ACTIVOS. MyGeotab devuelve tambien los usuarios dados de baja (ej. un "LEOPOLDO GONZALEZ" viejo
+       que aparecia en lugar de "GONZALEZ LEOPOLDO DAMIAN", el usuario vigente). */
+    var __ahoraU = Date.now();
+    res = (res || []).filter(function(u){ return !u.activeTo || new Date(u.activeTo).getTime() > __ahoraU; });
     gState.conductores = (res||[]).map(function(u){ return {id:u.id, nombre:((u.firstName||'')+' '+(u.lastName||'')).trim(), name:u.name}; });
     gState.conductores.sort(function(a,b){ return (a.nombre||'').localeCompare((b.nombre||''), 'es', { sensitivity: 'base' }); });
     var sel = document.getElementById('gv-conductor');
@@ -2747,6 +2751,12 @@ try{
   }, function(){ onDone(); });
 
   api.call('Get', {typeName:'Device', search:{}}, function(res){
+    /* 05/11: en las listas de unidades no van los REMOLQUES (MyGeotab los devuelve tambien como dispositivos del grupo de
+       remolques, sin equipo GO) ni las unidades dadas de baja. */
+    var __ahoraD = Date.now();
+    var __esRemolque = function(d){ return (d.groups || []).some(function(g){ return g && g.id === 'GroupTrailerId'; }) || (/^None$/i.test(d.deviceType || '') && /^[RA]\d/i.test(String(d.name || '').trim())); };
+    gState.vehiculosTodos = (res || []).map(function(d){ return {id:d.id, nombre:d.name||d.id}; });
+    res = (res || []).filter(function(d){ return d && !__esRemolque(d) && (!d.activeTo || new Date(d.activeTo).getTime() > __ahoraD); });
     gState.vehiculos = (res||[]).map(function(d){ return {id:d.id, nombre:d.name||d.id}; });
     /* 27/10: lista de unidades para la app del chofer. En MyGeotab Drive el usuario chofer no tiene permiso para leer
        las unidades y en "Gerenciamiento sin viaje programado" la lista quedaba vacia. El panel la publica en la base
@@ -4026,7 +4036,7 @@ function gvRenderMasHoy(forzar){
       if(v.estado === 'en_curso' || v.estado === 'demorado') conViaje[v.vehiculoId] = true;
       else if(v.estado === 'planificado' && GV.dateStr(v.fechaSalida) <= hoyStr) conViaje[v.vehiculoId] = true;
     });
-    var nomVeh = {}; (gState.vehiculos || []).forEach(function(x){ nomVeh[x.id] = x.nombre; });
+    var nomVeh = {}; (gState.vehiculosTodos || gState.vehiculos || []).forEach(function(x){ nomVeh[x.id] = x.nombre; });
     var nomCond = {}; (gState.conductores || []).forEach(function(c){ nomCond[c.id] = c.nombre; });
     var ahora = Date.now();
     /* 20/10: tambien entran las unidades DETENIDAS fuera de las bases operativas de TDP (Plottier, Añelo, RDLS):
@@ -8411,7 +8421,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-05c';
+var GV_BUILD = '2026-11-05d';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
