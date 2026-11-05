@@ -4158,8 +4158,13 @@ function renderTracking(){
     (function(){
       var pos = {}, idx = {};
       todos.forEach(function(v, i){ idx[v.id] = i; var k = v.vehiculoId || v.id; if(pos[k] == null) pos[k] = i; });
+      /* 05/11: los viajes CONTINUADOS (salieron un dia anterior) van arriba de todo, primero el mas antiguo; despues los de hoy */
+      var cont = {};
+      todos.forEach(function(v){ var k = v.vehiculoId || v.id; if(v.fechaSalida && GV.dateStr(v.fechaSalida) < hoyStr){ var t = new Date(v.fechaSalida).getTime(); if(cont[k] == null || t < cont[k]) cont[k] = t; } });
       todos = todos.slice().sort(function(a, b){
         var ka = a.vehiculoId || a.id, kb = b.vehiculoId || b.id;
+        var ca = cont[ka], cb = cont[kb];
+        if(ka !== kb && (ca != null || cb != null)){ if(ca == null) return 1; if(cb == null) return -1; if(ca !== cb) return ca - cb; }
         if(ka !== kb) return pos[ka] - pos[kb];
         var d = new Date(a.fechaSalida) - new Date(b.fechaSalida);
         return d || (idx[a.id] - idx[b.id]);
@@ -8421,7 +8426,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-05d';
+var GV_BUILD = '2026-11-05e';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
