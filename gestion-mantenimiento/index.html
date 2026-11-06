@@ -470,7 +470,7 @@ function persistObj(){var fi={};
     if(!u.tel||u.odoFuente==='Manual'){f.odo=u.odo;f.odoF=u.odoFecha}
     if(!u.tel||u.horasFuente==='Manual'){f.hs=u.horas;f.hsF=u.horasFecha}
     fi[u.gt.id]=f});
-  return {v:1,cfg:S.cfg,talleres:S.talleres,planes:S.planes,svc:S.svc,ots:S.ots,averias:S.averias,vales:S.vales,cubiertas:S.cubiertas,cubLib:S.cubLib||null,nextOT:S.nextOT,nextAv:S.nextAv,nextChk:S.nextChk,audit:S.audit||[],engrases:S.engrases||[],
+  return {v:1,cfg:S.cfg,talleres:S.talleres,planes:S.planes,svc:S.svc,ots:S.ots,averias:S.averias,vales:S.vales,cubiertas:S.cubiertas,cubLib:S.cubLib||null,nextOT:S.nextOT,nextAv:S.nextAv,nextChk:S.nextChk,audit:S.audit||[],engrases:S.engrases||[],ypfCfg:S.ypfCfg||null,
     fichas:fi,manualChecks:S.checks.filter(function(c){return c.origen==='Manual'})}}
 function persistAddin(){
   clearTimeout(ADDIN.saveT);
@@ -513,7 +513,7 @@ function buildState(devs,trs,groups,users,persist){
   (groups||[]).filter(function(g){return String(g.name||'').trim().toLowerCase()==='clientes'}).forEach(function(raiz){(raiz.children||[]).forEach(function(ch){var cg=gById[ch.id];if(!cg)return;var pila=[cg.id];while(pila.length){var gid=pila.pop();ADDIN.cliDe[gid]=cg.name;((gById[gid]||{}).children||[]).forEach(function(c2){pila.push(c2.id)})}})});
   var uname={};(users||[]).forEach(function(u){uname[u.id]=((u.firstName||'')+' '+(u.lastName||'')).trim()||u.name||u.id});ADDIN.uname=uname;
   S={v:3,demo:false,cfg:Object.assign(def.cfg,p.cfg||{}),talleres:p.talleres||def.talleres,planes:p.planes||def.planes,units:[],svc:p.svc||{},ots:p.ots||[],averias:p.averias||[],vales:p.vales||[],ralenti:[],cubiertas:p.cubiertas||[],mensual:{},
-    nextOT:p.nextOT||1,nextAv:p.nextAv||1,nextChk:p.nextChk||1,audit:p.audit||[],engrases:p.engrases||[],checks:(p.manualChecks||[]).slice(),docs:[],geotab:[]};
+    nextOT:p.nextOT||1,nextAv:p.nextAv||1,nextChk:p.nextChk||1,audit:p.audit||[],engrases:p.engrases||[],ypfCfg:p.ypfCfg||null,checks:(p.manualChecks||[]).slice(),docs:[],geotab:[]};
   S.cfg.refL100=S.cfg.refL100||def.cfg.refL100;
   var fi=p.fichas||{};
   /* Geotab devuelve cada remolque dos veces: como Remolque (Trailer) y como Device tipo "None" del grupo de remolques. Se deja solo el Remolque. */
@@ -660,7 +660,7 @@ function phase2(){ADDIN.phase2=true;render();
   Promise.resolve().then(step('estado',readStatus)).then(step('odómetro',readOdoHours)).then(step('servicios',ensureSvc)).then(step('viajes',readTrips7)).then(step('checklists',readDvir)).then(step('fallas',readFaults)).then(step('ralentí',readRalenti)).then(step('mensual',readMonthly)).then(step('combustible',readFuel)).then(function(){ADDIN.phase2=false;ADDIN.loadedAt=new Date();softRender()})}
 function subscribe(){
   if(ADDIN.docRef)ADDIN.docRef.onSnapshot(function(s){if(!s.exists)return;var d=s.data();if(d._writer===ADDIN.writer)return;
-    try{var p=JSON.parse(d.payload);['cfg','talleres','planes','svc','ots','averias','vales','cubiertas','cubLib','nextOT','nextAv','nextChk','audit','engrases'].forEach(function(k){if(p[k]!==undefined)S[k]=p[k]});
+    try{var p=JSON.parse(d.payload);['cfg','talleres','planes','svc','ots','averias','vales','cubiertas','cubLib','nextOT','nextAv','nextChk','audit','engrases','ypfCfg'].forEach(function(k){if(p[k]!==undefined)S[k]=p[k]});
       var fi=p.fichas||{};S.units.forEach(function(u){var f=fi[u.gt.id];if(!f)return;['tipo','funcion','flota','anio','motor','planes','estado','vida','comb'].forEach(function(k){if(f[k]!==undefined)u[k]=f[k]});if(!u.tel&&f.odo!==undefined){u.odo=f.odo;u.odoFecha=f.odoF;u.odoFuente='Manual'}if(!u.tel&&f.hs!==undefined){u.horas=f.hs;u.horasFecha=f.hsF;u.horasFuente='Manual'}});
       if(!$('#gm-modal').innerHTML)softRender()}catch(e){aErr('sincronización',e)}},function(e){aErr('onSnapshot gm',e)});
   if(ADDIN.gdRef)ADDIN.gdRef.onSnapshot(function(s){if(!s.exists)return;ADDIN.gd=s.data();applyDocs(ADDIN.gd);softRender()},function(e){aErr('onSnapshot gd',e)});
@@ -1000,7 +1000,8 @@ function vOT(){
 
 /* ================= COMBUSTIBLE Y RALENTÍ ================= */
 function vComb(){
-  var tabs=tabsHtml('combTab',[['consumo','Consumo'],['vales','Vales de combustible'],['rend','Rendimiento'],['ral','Ralentí']],UI.combTab),b='';
+  var tabs=tabsHtml('combTab',[['consumo','Consumo'],['llen','Llenados detectados'],['ypf','YPF en Ruta'],['vales','Vales de combustible'],['rend','Rendimiento'],['ral','Ralentí']],UI.combTab),b='';
+  if(UI.combTab==='llen'||UI.combTab==='ypf')return tabs+(UI.combTab==='llen'?llView():ypfView());
   if(UI.combTab==='consumo'){var ms=mesesVentana(),mi=+UI.combMes;
     var rows=S.units.filter(function(u){return u.tel&&u.motor&&S.mensual[u.id]}).map(function(u){var x=S.mensual[u.id][mi];return {u:u,x:x}});
     var noL=MODE==='addin'&&!haySCombustible(),tl=0,tk=0,tr=0;rows.forEach(function(r){tl+=(r.x.lit||0);tk+=r.x.km;tr+=r.x.ral});
@@ -1551,7 +1552,7 @@ var MENU=[
  {id:'g-ent',t:'Entidades y vehículos',i:'ent',ch:[{t:'Entidades de Geotab',v:'ent',cnt:'ent'},{t:'Estado de la flota',v:'flota'}]},
  {t:'Checklists',i:'chk',v:'chk'},
  {id:'g-cub',t:'Cubiertas',i:'cub',ch:[{t:'Configuración y biblioteca',v:'cub',s:{cubSec:'lib'}},{t:'Gestión',v:'cub',s:{cubSec:'ges'}},{t:'Listado de cubiertas',v:'cub',s:{cubSec:'list'}}]},
- {id:'g-comb',t:'Combustible',i:'comb',ch:[{t:'Consumo',v:'comb',s:{combTab:'consumo'}},{t:'Vales de combustible',v:'comb',s:{combTab:'vales'}},{t:'Rendimiento',v:'comb',s:{combTab:'rend'}}]},
+ {id:'g-comb',t:'Combustible',i:'comb',ch:[{t:'Consumo',v:'comb',s:{combTab:'consumo'}},{t:'Llenados detectados',v:'comb',s:{combTab:'llen'}},{t:'YPF en Ruta',v:'comb',s:{combTab:'ypf'}},{t:'Vales de combustible',v:'comb',s:{combTab:'vales'}},{t:'Rendimiento',v:'comb',s:{combTab:'rend'}}]},
  {t:'Ralentí',i:'ral',v:'comb',s:{combTab:'ral'}},
  {id:'g-prev',t:'Mantenimiento preventivo',i:'prev',ch:[{t:'Calendario y services',v:'prev',s:{prevTab:'cal'},cnt:'prev'},{t:'Planes de mantenimiento',v:'prev',s:{prevTab:'planes'}},{t:'Engrase',v:'eng',cnt:'eng'},{t:'VTV y vencimientos legales',v:'vtv',cnt:'vtv'}]},
  {id:'g-corr',t:'Mantenimiento correctivo',i:'corr',ch:[{t:'Averías',v:'corr',cnt:'corr'}]},
@@ -1929,6 +1930,280 @@ var SVCACT={
    save();closeModal();render();toast('Último service y preaviso guardados. Los vencimientos se recalcularon.')}
 };
 for(var k4_ in SVCACT)ACT[k4_]=SVCACT[k4_];
+
+/* ================= YPF en Ruta: tickets del Excel vs llenados detectados por Geotab =================
+   Los tickets se guardan por mes en gm_data/ypf_AAAA-MM (fuera del documento principal para no llegar al límite de 1 MB).
+   Los llenados (FillUp) se leen de MyGeotab cuando se abre el mes. Se agrupan los tickets de la misma patente
+   separados por menos de 90 minutos (una carga partida en dos operaciones) y se busca el llenado de Geotab
+   de esa unidad dentro de ±3 horas. */
+var YPF={st:null,loading:false,err:null,fill:{},fillLoading:{},fillErr:{}};
+var YPF_GAP=90*60000,YPF_WIN=3*3600000,YPF_ROWS_DOC=2500;
+function ypfCfg(){if(!S.ypfCfg)S.ypfCfg={};var c=S.ypfCfg;if(c.tol==null)c.tol=15;if(c.tolL==null)c.tolL=25;if(!c.cap)c.cap={};return c}
+function ypfPat(s){return String(s==null?'':s).toUpperCase().replace(/[^A-Z0-9]/g,'')}
+function ypfNorm(s){return String(s==null?'':s).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim()}
+function ypfNum(v){if(v==null||v==='')return null;if(typeof v==='number')return v;var s=String(v).trim();if(/,\d{1,3}$/.test(s)&&s.indexOf('.')>=0)s=s.replace(/\./g,'').replace(',','.');else s=s.replace(',','.');var n=parseFloat(s);return isNaN(n)?null:n}
+/* fecha del Excel (hora de Argentina, UTC-3) -> milisegundos UTC */
+function ypfTime(v){var y,mo,d,h=0,mi=0,se=0;
+  if(v instanceof Date){y=v.getFullYear();mo=v.getMonth()+1;d=v.getDate();h=v.getHours();mi=v.getMinutes();se=v.getSeconds()}
+  else if(typeof v==='number'){var ms=Math.round((v-25569)*864e5),x=new Date(ms);y=x.getUTCFullYear();mo=x.getUTCMonth()+1;d=x.getUTCDate();h=x.getUTCHours();mi=x.getUTCMinutes();se=x.getUTCSeconds()}
+  else{var m=String(v||'').trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);if(!m)return null;d=+m[1];mo=+m[2];y=+m[3];if(y<100)y+=2000;h=+(m[4]||0);mi=+(m[5]||0);se=+(m[6]||0)}
+  return Date.UTC(y,mo-1,d,h+3,mi,se)}
+function ypfLocal(t){var x=new Date(t-3*3600000);return x.getUTCFullYear()+'-'+('0'+(x.getUTCMonth()+1)).slice(-2)+'-'+('0'+x.getUTCDate()).slice(-2)+' '+('0'+x.getUTCHours()).slice(-2)+':'+('0'+x.getUTCMinutes()).slice(-2)}
+function ypfFmt(t){var s=ypfLocal(t);return s.slice(8,10)+'/'+s.slice(5,7)+' '+s.slice(11)}
+function ypfMesOf(t){return ypfLocal(t).slice(0,7)}
+function ypfMesTxt(m){var p=m.split('-');return MESC[+p[1]-1]+' '+p[0]}
+function ypfEsAdBlue(p){return /AZUL|ADBLUE|UREA/i.test(p||'')}
+
+/* ---------- lectura del Excel ---------- */
+function ypfLoadXLSX(){return new Promise(function(res,rej){if(window.XLSX)return res(window.XLSX);var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=function(){res(window.XLSX)};s.onerror=function(){rej(new Error('No se pudo cargar el lector de Excel'))};document.head.appendChild(s)})}
+var YPF_COLS={f:['FECHA'],pat:['IDENTIFICACION TARJETA','PATENTE'],ti:['TIPO IDENTIFICACION TARJETA'],l:['LITROS UNIDADES','LITROS'],i:['IMP TOT YER'],v:['IMP TOT PVP ESTABLECIMIENTO'],pr:['PRECIO YER'],pv:['PRECIO PVP ESTABLECIMIENTO'],pd:['PRODUCTO'],e:['ESTABLECIMIENTO'],lo:['LOCALIDAD'],c:['CONDUCTOR'],o:['ODOMETRO'],r:['REMITO'],fa:['FACTURA'],or:['ORIGEN DE TRANSACCION'],tj:['TARJETA'],ex:['EXTRACTO']};
+function ypfParse(rows){
+  if(!rows.length)throw new Error('El archivo está vacío.');
+  var hi=-1,idx={};
+  for(var r=0;r<Math.min(rows.length,15)&&hi<0;r++){var h=(rows[r]||[]).map(ypfNorm);if(h.indexOf('FECHA')>=0&&(h.indexOf('LITROS UNIDADES')>=0||h.indexOf('LITROS')>=0)){hi=r;Object.keys(YPF_COLS).forEach(function(k){for(var j=0;j<YPF_COLS[k].length;j++){var p=h.indexOf(YPF_COLS[k][j]);if(p>=0){idx[k]=p;break}}})}}
+  if(hi<0)throw new Error('No encontré las columnas FECHA y LITROS UNIDADES. ¿Es el reporte de consumos de YPF en Ruta?');
+  if(idx.pat==null)throw new Error('Falta la columna IDENTIFICACION TARJETA (patente).');
+  var out=[],bad=0;
+  for(var i=hi+1;i<rows.length;i++){var w=rows[i]||[];if(!w.length||w.every(function(x){return x==null||x===''}))continue;
+    var g=function(k){return idx[k]==null?null:w[idx[k]]},t=ypfTime(g('f')),l=ypfNum(g('l')),p=ypfPat(g('pat'));
+    if(t==null||l==null||!p){bad++;continue}
+    var tk={t:t,p:p,l:Math.round(l*1000)/1000,i:ypfNum(g('i')),v:ypfNum(g('v')),pr:ypfNum(g('pr')),pd:String(g('pd')||'').trim(),e:String(g('e')||'').trim(),lo:String(g('lo')||'').trim(),c:String(g('c')||'').trim(),o:ypfNum(g('o')),r:String(g('r')||'').trim(),fa:String(g('fa')||'').trim(),or:String(g('or')||'').trim(),ti:String(g('ti')||'').trim(),tj:String(g('tj')||'').trim()};
+    tk.k=(tk.r?tk.r+'|'+tk.p:tk.t+'|'+tk.p+'|'+tk.l);out.push(tk)}
+  return {rows:out,bad:bad}}
+
+/* ---------- guardado por mes ---------- */
+function ypfCol(){try{return ADDIN.docRef?ADDIN.docRef.parent:null}catch(e){return null}}
+function ypfEnsure(){if(YPF.st||YPF.loading)return;YPF.loading=true;
+  var col=ypfCol(),done=function(st){YPF.st=st;YPF.loading=false;var ms=ypfMeses();if(!UI.ypfMes||ms.indexOf(UI.ypfMes)<0)UI.ypfMes=ms[0]||'';softRender()};
+  if(!col){var ls=null;try{ls=JSON.parse(localStorage.getItem('gm_ypf_v1')||'null')}catch(e){}done(ls||{});return}
+  col.where('_reg','==','ypf').get().then(function(sn){var st={};sn.docs.forEach(function(d){var x=d.data();if(!x.mes)return;try{st[x.mes]=(st[x.mes]||[]).concat(JSON.parse(x.rows||'[]'))}catch(e){aErr('YPF '+d.id,e)}});done(st)})
+    .catch(function(e){aErr('YPF leer',e);YPF.err='No se pudieron leer los tickets guardados ('+((e&&e.code)||'error')+').';done({})})}
+function ypfMeses(){return Object.keys(YPF.st||{}).filter(function(m){return YPF.st[m]&&YPF.st[m].length}).sort().reverse()}
+function ypfSaveMes(m){var rows=(YPF.st[m]||[]).slice().sort(function(a,b){return a.t-b.t}),col=ypfCol();
+  if(!col){try{localStorage.setItem('gm_ypf_v1',JSON.stringify(YPF.st))}catch(e){}return Promise.resolve()}
+  var parts=[];for(var i=0;i<rows.length;i+=YPF_ROWS_DOC)parts.push(rows.slice(i,i+YPF_ROWS_DOC));if(!parts.length)parts.push([]);
+  return col.where('_reg','==','ypf').where('mes','==',m).get().then(function(sn){
+    var keep={},w=parts.map(function(p,j){var id='ypf_'+m+(j?'_'+(j+1):'');keep[id]=1;return col.doc(id).set({_reg:'ypf',mes:m,parte:j+1,n:p.length,rows:JSON.stringify(p),_savedAt:Date.now(),_writer:ADDIN.writer})});
+    sn.docs.forEach(function(d){if(!keep[d.id])w.push(d.ref.delete())});return Promise.all(w)})}
+
+/* ---------- llenados de Geotab ---------- */
+function ypfFillEnsure(m){if(!m||YPF.fill[m]||YPF.fillLoading[m]||!ADDIN.api)return;YPF.fillLoading[m]=true;
+  var p=m.split('-'),a=Date.UTC(+p[0],+p[1]-1,1,3)-864e5,b=Date.UTC(+p[0],+p[1],1,3)+864e5,step=4*864e5,wins=[];for(var t=a;t<b;t+=step)wins.push([t,Math.min(b,t+step)]);
+  var all=[],get=function(f,to){return aCall('Get',{typeName:'FillUp',search:{fromDate:new Date(f).toISOString(),toDate:new Date(to).toISOString()},resultsLimit:5000}).then(function(r){r=r||[];if(r.length>=5000&&to-f>3600000){var mid=Math.floor((f+to)/2);return get(f,mid).then(function(){return get(mid,to)})}all=all.concat(r)})};
+  wins.reduce(function(pr,w){return pr.then(function(){return get(w[0],w[1])})},Promise.resolve()).then(function(){
+    var seen={};YPF.fill[m]=all.filter(function(f){if(!f||!f.device||seen[f.id])return false;seen[f.id]=1;return true}).map(function(f){var ex=f.tankLevelExtrema||{},mn=ex.minimaPoint||{},mx=ex.maximaPoint||{};
+      return {id:f.id,dev:f.device.id,t:new Date(f.dateTime).getTime(),vol:+f.volume||0,dv:f.derivedVolume>0?+f.derivedVolume:null,odo:f.odometer>0?f.odometer/1000:null,cap:f.tankCapacity&&f.tankCapacity.volume>0?+f.tankCapacity.volume:null,
+        src:mn.source||'',pmin:mn.data!=null?+mn.data:null,pmax:mx.data!=null?+mx.data:null,x:f.location&&f.location.x,y:f.location&&f.location.y}})})
+    .catch(function(e){aErr('FillUp',e);YPF.fillErr[m]='No se pudieron leer los llenados de Geotab ('+((e&&(e.message||e.name))||'error')+').'})
+    .then(function(){YPF.fillLoading[m]=false;softRender()})}
+/* litros según Geotab: si se configuró la capacidad real del tanque y el llenado viene del % de nivel, se recalcula con ella */
+function ypfGeoL(f,u){var cap=u&&ypfCfg().cap[u.id];if(cap>0&&/FuelLevel/i.test(f.src)&&f.pmin!=null&&f.pmax!=null&&f.pmax>f.pmin)return (f.pmax-f.pmin)/100*cap;return f.vol}
+
+/* ---------- cruce ---------- */
+function ypfUnitMap(){var m={};S.units.forEach(function(u){var a=ypfPat(u.patente);if(a)m[a]=u;var n=ypfPat(u.nombre);if(n&&!m[n])m[n]=u;var gn=String((u.gt&&u.gt.name)||'').split(' - ');gn.forEach(function(x){x=ypfPat(x);if(x&&!m[x])m[x]=u})});return m}
+function ypfCruce(m){
+  var tks=(YPF.st&&YPF.st[m])||[],fills=YPF.fill[m]||null,cfg=ypfCfg(),um=ypfUnitMap(),byDev={},cargas=[],ad=[];
+  if(fills)fills.forEach(function(f){(byDev[f.dev]=byDev[f.dev]||[]).push(f)});
+  var g={};tks.forEach(function(t){if(ypfEsAdBlue(t.pd)){ad.push(t);return}(g[t.p]=g[t.p]||[]).push(t)});
+  Object.keys(g).forEach(function(p){var L=g[p].sort(function(a,b){return a.t-b.t}),cur=null;
+    L.forEach(function(t){if(!cur||t.t-cur.t1>YPF_GAP){cur={p:p,u:um[p]||null,tk:[],t0:t.t,t1:t.t};cargas.push(cur)}cur.tk.push(t);cur.t1=t.t})});
+  var used={};
+  cargas.sort(function(a,b){return a.t0-b.t0}).forEach(function(c){
+    c.l=c.tk.reduce(function(a,t){return a+t.l},0);c.imp=c.tk.reduce(function(a,t){return a+(t.i||0)},0);c.pvp=c.tk.reduce(function(a,t){return a+(t.v||0)},0);c.ppl=c.l?c.imp/c.l:null;
+    c.e=c.tk[0].e;c.lo=c.tk[0].lo;c.c=c.tk[0].c;c.pd=c.tk[0].pd;var od=c.tk.map(function(t){return t.o}).filter(function(o){return o>=10000});c.o=od.length?od[od.length-1]:null;
+    if(!c.u){c.est='nounit';return}if(!c.u.tel){c.est='nogo';return}if(!fills){c.est='load';return}
+    var best=null,bd=1e15;(byDev[c.u.gt.id]||[]).forEach(function(f){if(used[f.id])return;if(f.t<c.t0-YPF_WIN||f.t>c.t1+YPF_WIN)return;var d=Math.abs(f.t-c.t0);if(c.o&&f.odo&&Math.abs(f.odo-c.o)<5)d-=YPF_WIN;if(d<bd){bd=d;best=f}});
+    if(!best){c.est='sinGeo';return}used[best.id]=1;c.f=best;c.gl=ypfGeoL(best,c.u);c.dif=c.gl-c.l;c.difp=c.l?c.dif/c.l*100:null;
+    c.est=Math.abs(c.dif)<=Math.max(cfg.tolL,c.l*cfg.tol/100)?'ok':'dif'});
+  /* llenados sin ticket: solo de unidades que tienen tarjeta YPF y dentro del período de los tickets */
+  var extra=[];if(fills&&tks.length){var conYpf={};cargas.forEach(function(c){if(c.u)conYpf[c.u.gt.id]=c.u});var tmin=Math.min.apply(null,tks.map(function(t){return t.t}))-YPF_WIN,tmax=Math.max.apply(null,tks.map(function(t){return t.t}))+YPF_WIN;
+    fills.forEach(function(f){var u=conYpf[f.dev];if(!u||used[f.id]||f.t<tmin||f.t>tmax||f.vol<30)return;extra.push({f:f,u:u,t0:f.t,gl:ypfGeoL(f,u),est:'sinTk',l:0,imp:0})})}
+  return {cargas:cargas,extra:extra,ad:ad,tks:tks,fills:fills}}
+var YPF_EST={ok:['ok','Coincide'],dif:['bad','Diferencia'],sinGeo:['warn','Sin registro en Geotab'],sinTk:['info','Llenado sin ticket YPF'],nogo:['mute','Unidad sin equipo GO'],nounit:['mute','Patente no encontrada'],load:['mute','Leyendo Geotab…']};
+function ypfPill(e){var x=YPF_EST[e]||['mute',e];return '<span class="pill '+x[0]+'">'+esc(x[1])+'</span>'}
+function ypfUnitCell(c){return c.u?ent(c.u):'<div class="ent"><b><span class="plate">'+esc(c.p)+'</span></b><span class="muted small">no está en MyGeotab</span></div>'}
+function ypfSugCap(cs){var l=0,p=0,n=0;cs.forEach(function(c){var f=c.f;if(!f||!/FuelLevel/i.test(f.src)||f.pmin==null||f.pmax==null)return;var d=f.pmax-f.pmin;if(d<15)return;l+=c.l;p+=d;n++});return n>=3&&p>0?{cap:l/p*100,n:n}:null}
+
+/* ---------- vista ---------- */
+function ypfView(){
+  ypfEnsure();var cfg=ypfCfg();
+  var up='<label class="btn primary" style="cursor:pointer">Cargar Excel YPF en Ruta<input type="file" accept=".xlsx,.xls,.csv" data-act-change="ypfFile" style="display:none"></label>';
+  if(!YPF.st)return '<section class="card"><div class="note">Leyendo los tickets de YPF en Ruta guardados…</div></section>';
+  var ms=ypfMeses();
+  if(!ms.length)return '<section class="card"><header><h2>YPF en Ruta</h2>'+up+'</header>'+(YPF.err?'<div class="note warn">'+esc(YPF.err)+'</div>':'')+'<div class="empty">Todavía no se cargó ningún Excel. Subí el <b>Reporte de consumos</b> que descargás de YPF en Ruta: cada fila queda registrada como ticket y se compara contra los llenados que detecta Geotab en cada unidad con equipo GO.</div></section>';
+  var m=UI.ypfMes&&ms.indexOf(UI.ypfMes)>=0?UI.ypfMes:ms[0];UI.ypfMes=m;ypfFillEnsure(m);
+  var X=ypfCruce(m),all=X.cargas.concat(X.extra),cnt={};all.forEach(function(c){cnt[c.est]=(cnt[c.est]||0)+1});
+  var lit=X.tks.reduce(function(a,t){return a+(ypfEsAdBlue(t.pd)?0:t.l)},0),imp=X.tks.reduce(function(a,t){return a+(t.i||0)},0),pvp=X.tks.reduce(function(a,t){return a+(t.v||0)},0);
+  var cmp=X.cargas.filter(function(c){return c.f}),lY=cmp.reduce(function(a,c){return a+c.l},0),lG=cmp.reduce(function(a,c){return a+c.gl},0);
+  var f=UI.ypfF||'',q=(UI.ypfQ||'').toLowerCase(),vista=UI.ypfV||'cargas';
+  var bar='<div class="bar" style="flex-wrap:wrap;gap:8px"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Mes <select data-ui="ypfMes">'+selectOpts(ms.map(function(x){return [x,ypfMesTxt(x)+' · '+YPF.st[x].length+' tickets']}),m)+'</select></label><span class="sp"></span><button class="btn" data-act="ypfCfgOpen">Tolerancia ±'+n0(cfg.tol)+'% / '+n0(cfg.tolL)+' L</button><button class="btn" data-act="ypfChart"'+(X.fills?'':' disabled')+'>Ver gráfico Geotab vs YPF</button>'+up+'</div>';
+  var st='';if(YPF.fillLoading[m])st='<div class="note">Leyendo los llenados detectados por Geotab de '+esc(ypfMesTxt(m))+'…</div>';if(YPF.fillErr[m])st='<div class="note warn">'+esc(YPF.fillErr[m])+'</div>';if(YPF.err)st+='<div class="note warn">'+esc(YPF.err)+'</div>';
+  var k=function(e,l,s,cls){return kpi(l,cnt[e]||0,s,cls,'ypfF:'+e,f===e)};
+  var kp='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">'+kpi('Litros YPF',n0(lit)+' L',X.tks.length+' tickets')+kpi('Pagado (precio YER)',money(imp),pvp>imp?'ahorro '+money(pvp-imp)+' vs surtidor':'')+kpi('Comparadas con Geotab',lY?n0(lY)+' L':'—',lY?'Geotab: '+n0(lG)+' L ('+(lG>=lY?'+':'')+n1((lG/lY-1)*100)+'%)':'cargas con llenado detectado')+'</div><div style="height:10px"></div>'+
+    '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">'+k('ok','Coinciden','dentro de tolerancia','ok')+k('dif','Con diferencia','fuera de tolerancia','bad')+k('sinGeo','Sin registro Geotab','ticket sin llenado','warn')+k('sinTk','Llenado sin ticket','Geotab sin ticket YPF','info')+k('nogo','Sin equipo GO','no se puede comparar','')+'</div>';
+  var seg=segHtml('ypfV',[['cargas','Cargas'],['unid','Por unidad'],['tk','Tickets']],vista);
+  var srch='<input type="search" data-ui="ypfQ" placeholder="Buscar patente, unidad, conductor o estación" value="'+esc(UI.ypfQ||'')+'" style="width:min(320px,100%)">';
+  var match=function(c){var u=c.u;return !q||((c.p||'')+' '+(u?u.nombre+' '+u.patente:'')+' '+(c.c||'')+' '+(c.e||'')+' '+(c.lo||'')).toLowerCase().indexOf(q)>=0};
+  var body='';
+  if(vista==='cargas'){var L=all.filter(function(c){return (!f||c.est===f)&&match(c)}).sort(function(a,b){var o={dif:0,sinGeo:1,sinTk:2,ok:3};var d=(o[a.est]==null?9:o[a.est])-(o[b.est]==null?9:o[b.est]);return d||b.t0-a.t0});
+    body=tbl(['Fecha y hora','Unidad','Estación','Conductor','>Litros YPF','>Litros Geotab','>Diferencia','>Pagado','>$ / L','Estado',''],L.slice(0,400).map(function(c,i){var id=all.indexOf(c);
+      return '<tr><td class="num small">'+ypfFmt(c.t0)+(c.tk&&c.tk.length>1?'<div class="muted small">'+c.tk.length+' tickets</div>':'')+'</td><td>'+ypfUnitCell(c)+'</td><td class="small">'+esc(c.e?c.e.replace(/^\d+\s*-\s*/,''):(c.f?'—':''))+(c.lo?'<div class="muted small">'+esc(c.lo)+'</div>':'')+'</td><td class="small">'+esc(c.c||'—')+'</td><td class="r num">'+(c.l?n1(c.l):'—')+'</td><td class="r num">'+(c.gl!=null?n1(c.gl):'—')+'</td><td class="r num">'+(c.dif!=null?'<b style="color:var(--'+(c.est==='ok'?'ok':'bad')+')">'+(c.dif>0?'+':'')+n0(c.dif)+' L</b><div class="muted small">'+(c.difp>0?'+':'')+n1(c.difp)+'%</div>':'—')+'</td><td class="r num" style="white-space:nowrap">'+(c.imp?money(c.imp):'—')+'</td><td class="r num">'+(c.ppl?n0(c.ppl):'—')+'</td><td>'+ypfPill(c.est)+'</td><td class="r"><button class="btn sm" data-act="ypfDet" data-i="'+id+'">Ver</button></td></tr>'}),'No hay cargas con ese filtro.')+(L.length>400?'<p class="muted small">Se muestran 400 de '+L.length+'.</p>':'')}
+  else if(vista==='unid'){var gu={};all.forEach(function(c){var key=c.u?c.u.id:'p:'+c.p;var x=gu[key]=gu[key]||{u:c.u,p:c.p,cs:[],l:0,gl:0,lc:0,imp:0,ok:0,cmp:0,sinGeo:0,sinTk:0};x.cs.push(c);x.l+=c.l||0;x.imp+=c.imp||0;if(c.f&&c.l){x.cmp++;x.lc+=c.l;x.gl+=c.gl;if(c.est==='ok')x.ok++}if(c.est==='sinGeo')x.sinGeo++;if(c.est==='sinTk')x.sinTk++});
+    var U=Object.keys(gu).map(function(k2){return gu[k2]}).filter(function(x){return match({u:x.u,p:x.p})}).sort(function(a,b){return b.l-a.l});
+    body='<p class="muted small" style="margin-top:0">La <b>capacidad sugerida</b> sale de comparar los litros de YPF con lo que subió el nivel del tanque en Geotab. Si Geotab estima mal el tamaño del tanque, sus litros quedan sistemáticamente arriba o abajo: cargá la capacidad real y los litros de Geotab se recalculan.</p>'+
+    tbl(['Unidad','>Cargas','>Litros YPF','>Pagado','>Comparadas','>L YPF / L Geotab','>Diferencia','Tanque (Geotab · sugerido · real)',''],U.map(function(x){var sg=x.u?ypfSugCap(x.cs.filter(function(c){return c.f})):null,capG=null;x.cs.forEach(function(c){if(c.f&&c.f.cap)capG=c.f.cap});var cr=x.u?cfg.cap[x.u.id]:null,dp=x.lc?(x.gl/x.lc-1)*100:null;
+      return '<tr><td>'+ypfUnitCell(x)+'</td><td class="r num">'+x.cs.filter(function(c){return c.tk}).length+'</td><td class="r num">'+n0(x.l)+'</td><td class="r num">'+money(x.imp)+'</td><td class="r num">'+(x.cmp?x.ok+' de '+x.cmp+' ok':'—')+(x.sinGeo?'<div class="muted small">'+x.sinGeo+' sin Geotab</div>':'')+(x.sinTk?'<div class="muted small">'+x.sinTk+' sin ticket</div>':'')+'</td><td class="r num">'+(x.lc?n0(x.lc)+' / '+n0(x.gl):'—')+'</td><td class="r num">'+(dp!=null?'<b style="color:var(--'+(Math.abs(dp)<=cfg.tol?'ok':'bad')+')">'+(dp>0?'+':'')+n1(dp)+'%</b>':'—')+'</td><td class="small">'+(capG?n0(capG):'—')+' · '+(sg?'<b>'+n0(sg.cap)+'</b>':'—')+' · '+(cr?'<b>'+n0(cr)+' L</b>':'—')+'</td><td class="r">'+(x.u&&x.u.tel?'<button class="btn sm" data-act="ypfCap" data-u="'+x.u.id+'" data-s="'+(sg?Math.round(sg.cap):'')+'">Tanque</button>':'')+'</td></tr>'}),'Sin datos.')}
+  else{var T=X.tks.filter(function(t){return !q||(t.p+' '+t.c+' '+t.e+' '+t.lo+' '+t.r+' '+t.pd).toLowerCase().indexOf(q)>=0}).sort(function(a,b){return b.t-a.t});
+    body='<div class="bar" style="margin-bottom:8px"><span class="muted small">'+T.length+' tickets registrados de '+esc(ypfMesTxt(m))+'</span><span class="sp"></span><button class="btn sm danger" data-act="ypfDelMes">Borrar este mes</button></div>'+
+    tbl(['Fecha y hora','Patente','Producto','>Litros','>Precio YER','>Pagado','>Precio surtidor','Estación','Conductor','>Odómetro','Remito / factura','Origen'],T.slice(0,500).map(function(t){return '<tr><td class="num small">'+ypfFmt(t.t)+'</td><td><span class="plate">'+esc(t.p)+'</span></td><td class="small">'+esc(t.pd)+'</td><td class="r num">'+n1(t.l)+'</td><td class="r num">'+(t.pr?n0(t.pr):'—')+'</td><td class="r num">'+money(t.i)+'</td><td class="r num">'+money(t.v)+'</td><td class="small">'+esc(t.e.replace(/^\d+\s*-\s*/,''))+'<div class="muted small">'+esc(t.lo)+'</div></td><td class="small">'+esc(t.c)+'</td><td class="r num'+(t.o!=null&&t.o<10000?'" style="color:var(--bad)" title="Odómetro no válido cargado en el surtidor':'')+'">'+(t.o!=null?n0(t.o):'—')+'</td><td class="mono small">'+esc(t.r||'—')+(t.fa?'<div class="muted">'+esc(t.fa)+'</div>':'<div class="muted">sin factura</div>')+'</td><td class="small">'+esc(t.or||'')+'</td></tr>'}),'Sin tickets.')+(T.length>500?'<p class="muted small">Se muestran 500 de '+T.length+'.</p>':'')}
+  return '<section class="card">'+bar+st+'</section>'+kp+'<section class="card"><div class="bar" style="flex-wrap:wrap;gap:8px">'+seg+'<span class="sp"></span>'+srch+'</div><div style="height:10px"></div>'+body+(X.ad.length?'<p class="muted small">'+X.ad.length+' tickets de AdBlue (Azul 32) quedan registrados pero no se comparan con el tanque de combustible.</p>':'')+'<p class="muted small">Los litros de Geotab son una estimación a partir del sensor de nivel del tanque. La comparación agrupa los tickets de la misma patente separados por menos de 90 minutos y busca el llenado detectado dentro de ±3 horas.</p></section>'}
+
+/* ---------- detalle y gráfico ---------- */
+function ypfDetModal(i){var X=ypfCruce(UI.ypfMes),c=X.cargas.concat(X.extra)[+i];if(!c)return;var f=c.f;
+  var tks=c.tk?tbl(['Hora','Producto','>Litros','>Pagado','>$ / L','Estación','Conductor','>Odómetro','Remito','Origen'],c.tk.map(function(t){return '<tr><td class="num">'+ypfFmt(t.t)+'</td><td class="small">'+esc(t.pd)+'</td><td class="r num">'+n1(t.l)+'</td><td class="r num">'+money(t.i)+'</td><td class="r num">'+(t.pr?n0(t.pr):'—')+'</td><td class="small">'+esc(t.e)+'</td><td class="small">'+esc(t.c)+'</td><td class="r num">'+(t.o!=null?n0(t.o):'—')+'</td><td class="mono small">'+esc(t.r||'—')+'</td><td class="small">'+esc(t.or||'')+'</td></tr>'})):'<div class="note">Geotab detectó este llenado pero no hay ningún ticket de YPF en Ruta de esa patente dentro de ±3 horas. Puede ser una carga con otra tarjeta, en efectivo, desde un tanque propio, o un falso positivo del sensor.</div>';
+  var geo=f?'<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">'+kpi('Litros Geotab',n1(c.gl)+' L',c.gl!==f.vol?'Geotab informó '+n1(f.vol)+' L; recalculado con tanque real':'llenado detectado')+kpi('Hora del llenado',ypfFmt(f.t),'')+kpi('Nivel del tanque',f.pmin!=null&&f.pmax!=null&&/FuelLevel/i.test(f.src)?n0(f.pmin)+'% → '+n0(f.pmax)+'%':'—',f.cap?'tanque estimado '+n0(f.cap)+' L':'')+kpi('Odómetro Geotab',f.odo?n0(f.odo)+' km':'—',c.o?'YPF: '+n0(c.o)+' km':'')+'</div>'+(f.x&&f.y?'<p class="small"><a href="https://www.google.com/maps?q='+f.y+','+f.x+'" target="_blank" rel="noopener">Ver ubicación del llenado en el mapa</a></p>':''):(c.est==='sinGeo'?'<div class="note warn">Geotab no detectó un llenado de esta unidad dentro de ±3 horas. Puede pasar si el equipo no lee el nivel del tanque, si la carga fue chica, o si el combustible no fue a esta unidad.</div>':'');
+  var res=c.dif!=null?'<div class="note '+(c.est==='ok'?'':'warn')+'"><b>'+(c.dif>0?'Geotab registró '+n1(c.dif)+' L más':'Geotab registró '+n1(-c.dif)+' L menos')+'</b> que lo facturado por YPF ('+(c.difp>0?'+':'')+n1(c.difp)+'%). '+(c.ppl?'Al precio pagado, la diferencia equivale a <b>'+money(Math.abs(c.dif)*c.ppl)+'</b>.':'')+'</div>':'';
+  modal(mhead((c.u?esc(c.u.nombre)+' · ':'')+esc(c.u?c.u.patente:c.p)+' · '+ypfFmt(c.t0),ypfPill(c.est))+res+geo+'<h3 style="margin:10px 0 6px">Tickets YPF en Ruta</h3>'+tks+'<div class="mf"><button class="btn" data-act="close">Cerrar</button></div>',true)}
+function ypfHBars(rows){/* barras horizontales pareadas YPF vs Geotab */
+  var max=1;rows.forEach(function(r){max=Math.max(max,r.a,r.b)});max=nice(max);var W=640,rh=30,L=150,R=70,H=rows.length*rh+28,pw=W-L-R,g='';
+  for(var i=0;i<=4;i++){var x=L+pw*i/4;g+='<line class="g" x1="'+x+'" x2="'+x+'" y1="4" y2="'+(H-22)+'"/><text x="'+x+'" y="'+(H-8)+'" text-anchor="middle">'+n0(max*i/4)+'</text>'}
+  rows.forEach(function(r,k){var y=6+k*rh,d=r.a?(r.b/r.a-1)*100:null;
+    g+='<text x="'+(L-8)+'" y="'+(y+15)+'" text-anchor="end">'+esc(r.lb)+'</text><rect x="'+L+'" y="'+y+'" width="'+(pw*r.a/max).toFixed(1)+'" height="11" rx="2" style="fill:'+C.acc+'"/><rect x="'+L+'" y="'+(y+13)+'" width="'+(pw*r.b/max).toFixed(1)+'" height="11" rx="2" style="fill:'+C.warn+'"/>'+
+      (d!=null?'<text x="'+(W-R+6)+'" y="'+(y+15)+'" style="fill:'+(Math.abs(d)<=ypfCfg().tol?'var(--ok)':'var(--bad)')+';font-weight:700">'+(d>0?'+':'')+d.toFixed(0)+'%</text>':'')});
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Litros YPF contra litros Geotab por unidad">'+g+'</svg><div class="chips"><span class="chip"><i style="display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;background:'+C.acc+'"></i>YPF en Ruta (facturado)</span><span class="chip"><i style="display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;background:'+C.warn+'"></i>Geotab (llenado detectado)</span></div>'}
+function ypfChartModal(){var m=UI.ypfMes,X=ypfCruce(m),cmp=X.cargas.filter(function(c){return c.f}),uid=UI.ypfChU||'';
+  var us={};cmp.forEach(function(c){us[c.u.id]=c.u});var opts=[['','Toda la flota (por unidad)']].concat(Object.keys(us).map(function(k){return [k,us[k].nombre+' · '+us[k].patente]}).sort(function(a,b){return a[1]<b[1]?-1:1}));
+  var body;
+  if(uid){var cs=cmp.filter(function(c){return c.u.id===uid}).sort(function(a,b){return a.t0-b.t0}),l=cs.reduce(function(a,c){return a+c.l},0),gl=cs.reduce(function(a,c){return a+c.gl},0),imp=cs.reduce(function(a,c){return a+c.imp},0);
+    body='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">'+kpi('Litros YPF',n0(l)+' L',cs.length+' cargas')+kpi('Litros Geotab',n0(gl)+' L',(l?((gl>=l?'+':'')+n1((gl/l-1)*100)+'%'):''))+kpi('Pagado',money(imp),l?'$ '+n0(imp/l)+' por litro':'')+'</div>'+
+      barChart(cs.map(function(c){return ypfFmt(c.t0).slice(0,5)}),[{name:'YPF en Ruta',vals:cs.map(function(c){return c.l}),color:C.acc},{name:'Geotab',vals:cs.map(function(c){return c.gl}),color:C.warn}],{fmt:function(v){return n0(v)},label:'Litros por carga, YPF contra Geotab'})}
+  else{var gu={};cmp.forEach(function(c){var x=gu[c.u.id]=gu[c.u.id]||{lb:c.u.nombre+' '+c.u.patente,a:0,b:0};x.a+=c.l;x.b+=c.gl});
+    var rows=Object.keys(gu).map(function(k){return gu[k]}).sort(function(a,b){return Math.abs(b.b-b.a)-Math.abs(a.b-a.a)}).slice(0,25);
+    var days={},p=m.split('-'),nd=new Date(+p[0],+p[1],0).getDate();for(var d=1;d<=nd;d++)days[d]={a:0,b:0};cmp.forEach(function(c){var dd=+ypfLocal(c.t0).slice(8,10);if(days[dd]){days[dd].a+=c.l;days[dd].b+=c.gl}});
+    var lab=Object.keys(days).map(function(d){return (+d===1||+d%5===0)?d:''});
+    body='<h3 style="margin:4px 0 6px">Litros por día (solo cargas comparadas)</h3>'+barChart(lab,[{name:'YPF en Ruta',vals:Object.keys(days).map(function(d){return days[d].a}),color:C.acc},{name:'Geotab',vals:Object.keys(days).map(function(d){return days[d].b}),color:C.warn}],{label:'Litros por día'})+
+      '<h3 style="margin:14px 0 6px">Unidades con mayor diferencia (hasta 25)</h3>'+(rows.length?ypfHBars(rows):'<div class="empty">No hay cargas comparadas.</div>')}
+  modal(mhead('Geotab vs YPF en Ruta · '+esc(ypfMesTxt(m)))+'<div class="form" style="margin-bottom:10px">'+sel('ypf-chu','Ver',opts,uid,'data-mchg="ypfChU"')+'</div>'+body+'<div class="mf"><button class="btn" data-act="close">Cerrar</button></div>',true)}
+
+/* ---------- acciones ---------- */
+CHG.ypfFile=function(el){var file=el.files&&el.files[0];el.value='';if(!file)return;
+  if(!YPF.st){toast('Esperá a que terminen de leerse los tickets guardados y volvé a intentar.');return}
+  toast('Leyendo '+file.name+'…');
+  file.arrayBuffer().then(function(buf){return ypfLoadXLSX().then(function(X){var wb=X.read(buf,{type:'array',cellDates:true});var ws=wb.Sheets[wb.SheetNames[0]];return ypfParse(X.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}))})})
+  .then(function(r){var by={},nuevos=0,dup=0;r.rows.forEach(function(t){var m=ypfMesOf(t.t);(by[m]=by[m]||[]).push(t)});
+    var ms=Object.keys(by);ms.forEach(function(m){var cur=YPF.st[m]||[],ks={};cur.forEach(function(t){ks[t.k]=1});by[m].forEach(function(t){if(ks[t.k]){dup++;return}ks[t.k]=1;cur.push(t);nuevos++});YPF.st[m]=cur});
+    if(!nuevos){toast('No hay tickets nuevos: los '+dup+' del archivo ya estaban cargados.');return}
+    UI.ypfMes=ms.sort().reverse()[0];render();
+    return Promise.all(ms.map(ypfSaveMes)).then(function(){logYpf(file.name,nuevos);toast(nuevos+' tickets registrados'+(dup?' ('+dup+' ya estaban)':'')+(r.bad?' · '+r.bad+' filas sin fecha, patente o litros':'')+'.')})
+      .catch(function(e){aErr('YPF guardar',e);YPF.err='Los tickets se leyeron pero no se pudieron guardar en la base ('+((e&&e.code)||'error')+'). Revisá que las reglas de Firestore permitan escribir en gm_data.';render()})})
+  .catch(function(e){toast((e&&e.message)||'No se pudo leer el archivo.')})};
+function logYpf(n,k){try{if(!S.audit)S.audit=[];S.audit.push({f:nowStamp(),t:'YPF en Ruta',d:'Importado '+n+': '+k+' tickets'});save()}catch(e){}}
+MCHG.ypfChU=function(){UI.ypfChU=val('ypf-chu');ypfChartModal()};
+var YPFACT={
+ ypfF:function(d,el,arg){UI.ypfF=UI.ypfF===arg?'':arg;if(UI.ypfF)UI.ypfV='cargas';render()},
+ ypfDet:function(d){ypfDetModal(d.i)},
+ ypfChart:function(){ypfChartModal()},
+ ypfCfgOpen:function(){var c=ypfCfg();modal(mhead('Tolerancia de la comparación')+'<p class="muted small" style="margin-top:0">Una carga <b>coincide</b> cuando la diferencia entre los litros de Geotab y los de YPF es menor al porcentaje o a los litros fijos (se toma el mayor). Los sensores de nivel suelen tener un error de ±10 a 15%.</p><div class="form">'+fld('yc-t','Tolerancia (%)',c.tol,'number','min="0" step="1"')+fld('yc-l','Tolerancia mínima (litros)',c.tolL,'number','min="0" step="1"')+'</div><div class="mf"><button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="ypfCfgSave">Guardar</button></div>')},
+ ypfCfgSave:function(){var c=ypfCfg(),t=numv('yc-t'),l=numv('yc-l');if(t==null||t<0||l==null||l<0){toast('Completá valores mayores o iguales a cero.');return}c.tol=t;c.tolL=l;save();closeModal();render();toast('Tolerancia guardada.')},
+ ypfCap:function(d){var u=unitById(d.u);if(!u)return;var c=ypfCfg().cap[u.id];modal(mhead('Capacidad real del tanque · '+esc(u.nombre),'<span class="chip">'+esc(u.patente)+'</span>')+'<p class="muted small" style="margin-top:0">Geotab calcula los litros con el % que subió el nivel por la capacidad que <b>estima</b> del tanque. Si cargás la capacidad real, los litros de Geotab de esta unidad se recalculan con ella. Dejalo vacío para usar la estimación de Geotab.</p>'+(d.s?'<div class="note">Según las cargas de YPF de este mes, la capacidad que mejor ajusta es <b>'+n0(+d.s)+' L</b>.</div>':'')+'<div class="form">'+fld('yc-cap','Capacidad total del tanque (L)',c||'','number','min="0" step="1"')+'</div><div class="mf"><button class="btn" data-act="close">Cancelar</button>'+(d.s?'<button class="btn" data-act="ypfCapSug" data-v="'+d.s+'">Usar '+n0(+d.s)+' L</button>':'')+'<button class="btn primary" data-act="ypfCapSave" data-u="'+u.id+'">Guardar</button></div>')},
+ ypfCapSug:function(d){var e=$('#yc-cap');if(e)e.value=d.v},
+ ypfCapSave:function(d){var v=numv('yc-cap'),cap=ypfCfg().cap;if(v!=null&&(isNaN(v)||v<20||v>3000)){toast('La capacidad tiene que estar entre 20 y 3.000 litros.');return}if(v==null)delete cap[d.u];else cap[d.u]=v;save();closeModal();render();toast('Capacidad del tanque guardada.')},
+ ypfDelMes:function(){var m=UI.ypfMes;if(!m||!confirm('¿Borrar los '+(YPF.st[m]||[]).length+' tickets de '+ypfMesTxt(m)+'? Después podés volver a cargar el Excel.'))return;YPF.st[m]=[];
+   ypfSaveMes(m).then(function(){var col=ypfCol();if(col)return col.where('_reg','==','ypf').where('mes','==',m).get().then(function(sn){return Promise.all(sn.docs.map(function(x){return x.ref.delete()}))})}).then(function(){delete YPF.st[m];UI.ypfMes='';render();toast('Mes borrado.')}).catch(function(e){aErr('YPF borrar',e);toast('No se pudo borrar ('+((e&&e.code)||'error')+').')})}
+};
+for(var k5_ in YPFACT)ACT[k5_]=YPFACT[k5_];
+
+/* ================= Gráfica de llenados detectados (como la de MyGeotab) + serie YPF en Ruta =================
+   Por unidad y rango de fechas: nivel de combustible (%) de DiagnosticFuelLevelId, litros en el tanque
+   ("combustible añadido/utilizado": se parte del nivel al final de cada llenado y se descuenta el consumo
+   acumulado DiagnosticTotalFuelUsedId), los llenados que detecta Geotab (FillUp) y las cargas facturadas
+   por YPF en Ruta tomadas de los Excel subidos. */
+var LL={cache:{},loading:{},err:{},cur:null};
+function llDefRange(){var ms=ypfMeses();if(ms.length){var p=ms[0].split('-'),last=new Date(+p[0],+p[1],0).getDate();return [ms[0]+'-01',ms[0]+'-'+('0'+last).slice(-2)]}return [addDays(iso(TD),-30),iso(TD)]}
+function llT(dateStr,end){var p=dateStr.split('-');return Date.UTC(+p[0],+p[1]-1,+p[2],end?26:3,end?59:0,end?59:0)}/* día local AR -> UTC */
+function llGetAll(type,search){var out=[];var go=function(f,t){var s=Object.assign({},search,{fromDate:new Date(f).toISOString(),toDate:new Date(t).toISOString()});
+    return aCall('Get',{typeName:type,search:s,resultsLimit:50000}).then(function(r){r=r||[];if(r.length>=50000&&t-f>3600000){var m=Math.floor((f+t)/2);return go(f,m).then(function(){return go(m,t)})}out=out.concat(r)})};
+  return function(f,t){return go(f,t).then(function(){return out})}}
+function llLoad(u,d1,d2){var key=u.gt.id+'|'+d1+'|'+d2;if(LL.cache[key]||LL.loading[key])return;LL.loading[key]=true;delete LL.err[key];
+  var f=llT(d1),t=llT(d2,true),dev={id:u.gt.id};
+  var lvl=llGetAll('StatusData',{deviceSearch:dev,diagnosticSearch:{id:'DiagnosticFuelLevelId'}})(f,t);
+  var used=llGetAll('StatusData',{deviceSearch:dev,diagnosticSearch:{id:'DiagnosticTotalFuelUsedId'}})(f,t).then(function(r){return r.length?r:llGetAll('StatusData',{deviceSearch:dev,diagnosticSearch:{id:'DiagnosticDeviceTotalFuelId'}})(f,t)});
+  var fu=aCall('Get',{typeName:'FillUp',search:{deviceSearch:dev,fromDate:new Date(f).toISOString(),toDate:new Date(t).toISOString()},resultsLimit:5000});
+  Promise.all([lvl,used,fu]).then(function(r){
+    var pt=function(a){return a.map(function(x){return {t:new Date(x.dateTime).getTime(),v:+x.data}}).filter(function(x){return !isNaN(x.v)}).sort(function(a,b){return a.t-b.t})};
+    LL.cache[key]={lvl:pt(r[0]),used:pt(r[1]),fills:(r[2]||[]).map(function(x){var ex=x.tankLevelExtrema||{},mn=ex.minimaPoint||{},mx=ex.maximaPoint||{};return {id:x.id,t:new Date(x.dateTime).getTime(),tmx:mx.dateTime?new Date(mx.dateTime).getTime():new Date(x.dateTime).getTime(),vol:+x.volume||0,cap:x.tankCapacity&&x.tankCapacity.volume>0?+x.tankCapacity.volume:null,src:mn.source||'',pmin:mn.data!=null?+mn.data:null,pmax:mx.data!=null?+mx.data:null,odo:x.odometer>0?x.odometer/1000:null}}).sort(function(a,b){return a.t-b.t})}})
+  .catch(function(e){aErr('Gráfica de llenados',e);LL.err[key]='No se pudieron leer los datos de Geotab ('+((e&&(e.message||e.name))||'error')+').'})
+  .then(function(){LL.loading[key]=false;softRender()})}
+/* litros en el tanque: ancla en el nivel tras cada llenado y descuenta el consumo acumulado */
+function llLitros(D,cap){var lv=D.lvl,us=D.used,fl=D.fills,out=[];if(!cap||!lv.length)return out;
+  var lvAt=function(t){var b=null;for(var i=0;i<lv.length&&lv[i].t<=t;i++)b=lv[i];return b?b.v:lv[0].v};
+  if(!us.length){return lv.map(function(x){return {t:x.t,v:x.v/100*cap}})}
+  var anchorL=lvAt(us[0].t)/100*cap,anchorU=us[0].v,fi=0,prevU=us[0].v;
+  while(fi<fl.length&&fl[fi].tmx<=us[0].t)fi++;
+  us.forEach(function(p){
+    while(fi<fl.length&&fl[fi].tmx<=p.t){var F=fl[fi],before=Math.max(0,anchorL-(prevU-anchorU));out.push({t:F.t,v:before});
+      anchorL=(F.pmax!=null&&/FuelLevel/i.test(F.src))?F.pmax/100*cap:before+F.vol;anchorU=prevU;out.push({t:F.tmx,v:anchorL});fi++}
+    var L=anchorL-(p.v-anchorU);out.push({t:p.t,v:Math.max(0,Math.min(cap*1.05,L))});prevU=p.v});
+  return out}
+function llCap(u,D){var c=ypfCfg().cap[u.id];if(c>0)return c;for(var i=D.fills.length-1;i>=0;i--)if(D.fills[i].cap)return D.fills[i].cap;return null}
+function llYpf(u,f,t){var tk=[];Object.keys(YPF.st||{}).forEach(function(m){(YPF.st[m]||[]).forEach(function(x){if(x.t>=f&&x.t<=t&&!ypfEsAdBlue(x.pd)&&(ypfUnitMap()[x.p]===u))tk.push(x)})});
+  tk.sort(function(a,b){return a.t-b.t});var cs=[],cur=null;tk.forEach(function(x){if(!cur||x.t-cur.t1>YPF_GAP){cur={t0:x.t,t1:x.t,l:0,imp:0,tk:[]};cs.push(cur)}cur.tk.push(x);cur.t1=x.t;cur.l+=x.l;cur.imp+=(x.i||0)});return cs}
+function llOn(k){var s=UI.llS==null?'pct,lit,ypf,fu':UI.llS;return (','+s+',').indexOf(','+k+',')>=0}
+function llView(){
+  ypfEnsure();var us=S.units.filter(function(u){return u.tel&&u.motor}).sort(function(a,b){return a.nombre<b.nombre?-1:1});
+  if(!us.length)return '<section class="card"><div class="empty">No hay unidades con equipo GO.</div></section>';
+  var u=unitById(UI.llU);if(!u||!u.tel){u=us[0];UI.llU=u.id}
+  if(!UI.llD1||!UI.llD2){var r=llDefRange();UI.llD1=r[0];UI.llD2=r[1]}
+  if(UI.llD2<UI.llD1){var tmp=UI.llD1;UI.llD1=UI.llD2;UI.llD2=tmp}
+  if(diffDays(UI.llD2,UI.llD1)>62)UI.llD1=addDays(UI.llD2,-62);
+  var key=u.gt.id+'|'+UI.llD1+'|'+UI.llD2;llLoad(u,UI.llD1,UI.llD2);var D=LL.cache[key];
+  var chk=function(k,l,col){return '<label style="display:flex;align-items:center;gap:6px;font-size:.86rem;cursor:pointer"><input type="checkbox" data-act-change="llTog" data-k="'+k+'"'+(llOn(k)?' checked':'')+'><i style="display:inline-block;width:11px;height:11px;border-radius:50%;background:'+col+'"></i>'+esc(l)+'</label>'};
+  var filt='<div class="bar" style="flex-wrap:wrap;gap:10px"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Unidad <select data-ui="llU" style="min-width:min(280px,100%);margin-right:8px">'+selectOpts(us.map(function(x){return [x.id,x.nombre+' · '+x.patente]}),u.id)+'</select></label><label class="f" style="flex-direction:row;align-items:center;gap:6px">Desde <input type="date" data-ui="llD1" value="'+esc(UI.llD1)+'"></label><label class="f" style="flex-direction:row;align-items:center;gap:6px">Hasta <input type="date" data-ui="llD2" value="'+esc(UI.llD2)+'" max="'+iso(TD)+'"></label><span class="sp"></span><label class="btn" style="cursor:pointer">Cargar Excel YPF en Ruta<input type="file" accept=".xlsx,.xls,.csv" data-act-change="ypfFile" style="display:none"></label></div>'+
+    '<div class="bar" style="flex-wrap:wrap;gap:16px;margin-top:10px">'+chk('pct','Diagnóstico de nivel de combustible (%)','#ef6b6b')+chk('lit','Combustible añadido/utilizado (L)','#2b6a99')+chk('fu','Llenados detectados por Geotab','#d97706')+chk('ypf','YPF en Ruta (cargas facturadas)','#059669')+'</div>';
+  var head='<section class="card"><header><h2>Gráfica de llenados detectados</h2><span class="muted small">'+esc(u.nombre)+' · '+esc(u.patente)+'</span></header>'+filt;
+  if(LL.err[key])return head+'<div class="note warn" style="margin-top:12px">'+esc(LL.err[key])+'</div></section>';
+  if(!D)return head+'<div class="note" style="margin-top:12px">Leyendo nivel de combustible, consumo y llenados de Geotab…</div></section>';
+  var f=llT(UI.llD1),t=llT(UI.llD2,true),cap=llCap(u,D),lit=llLitros(D,cap),ypf=llYpf(u,f,t);
+  /* cruce de cada carga YPF con el llenado más cercano (±3 h) */
+  var usedF={};ypf.forEach(function(c){var b=null,bd=1e15;D.fills.forEach(function(F){if(usedF[F.id])return;if(F.t<c.t0-YPF_WIN||F.t>c.t1+YPF_WIN)return;var d=Math.abs(F.t-c.t0);if(d<bd){bd=d;b=F}});if(b){usedF[b.id]=1;c.f=b;c.gl=ypfGeoL(b,u)}});
+  LL.cur={u:u,f:f,t:t,D:D,lit:lit,ypf:ypf,cap:cap};
+  var chart=(D.lvl.length||ypf.length)?llChart():'<div class="empty">Esta unidad no informó nivel de combustible en el período.</div>';
+  var sumY=ypf.reduce(function(a,c){return a+c.l},0),sumI=ypf.reduce(function(a,c){return a+c.imp},0),cm=ypf.filter(function(c){return c.f}),sY=cm.reduce(function(a,c){return a+c.l},0),sG=cm.reduce(function(a,c){return a+c.gl},0);
+  var kp='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-top:12px">'+kpi('Llenados detectados',D.fills.length,n0(D.fills.reduce(function(a,F){return a+ypfGeoL(F,u)},0))+' L según Geotab')+kpi('Cargas YPF en Ruta',ypf.length,ypf.length?n0(sumY)+' L · '+money(sumI):'sin tickets en el período')+kpi('Comparadas',cm.length?n0(sY)+' / '+n0(sG)+' L':'—',cm.length?'YPF / Geotab ('+(sG>=sY?'+':'')+n1((sG/sY-1)*100)+'%)':'')+kpi('Tanque',cap?n0(cap)+' L':'—',ypfCfg().cap[u.id]?'capacidad real cargada':'estimada por Geotab')+'</div>';
+  /* tabla de llenados (como el botón "Llenados detectados" de MyGeotab) con la carga YPF asociada */
+  var rows=[];D.fills.forEach(function(F){var c=ypf.filter(function(x){return x.f===F})[0];rows.push({t:F.t,F:F,c:c})});ypf.forEach(function(c){if(!c.f)rows.push({t:c.t0,F:null,c:c})});rows.sort(function(a,b){return b.t-a.t});
+  var cfg=ypfCfg(),tb=tbl(['Fecha y hora','>Litros Geotab','Nivel','>Odómetro','>Litros YPF','>Pagado','>$ / L','>Diferencia','Estado'],rows.map(function(r){var F=r.F,c=r.c,gl=F?ypfGeoL(F,u):null,dif=F&&c?gl-c.l:null,ok=dif!=null&&Math.abs(dif)<=Math.max(cfg.tolL,c.l*cfg.tol/100),e=F&&c?(ok?'ok':'dif'):F?'sinTk':'sinGeo';
+    return '<tr><td class="num small">'+ypfFmt(r.t)+'</td><td class="r num">'+(F?n1(gl):'—')+'</td><td class="small">'+(F&&F.pmin!=null&&/FuelLevel/i.test(F.src)?n0(F.pmin)+'% → '+n0(F.pmax)+'%':'—')+'</td><td class="r num">'+(F&&F.odo?n0(F.odo):'—')+'</td><td class="r num">'+(c?n1(c.l)+(c.tk.length>1?'<div class="muted small">'+c.tk.length+' tickets</div>':''):'—')+'</td><td class="r num" style="white-space:nowrap">'+(c?money(c.imp):'—')+'</td><td class="r num">'+(c&&c.l?n0(c.imp/c.l):'—')+'</td><td class="r num">'+(dif!=null?'<b style="color:var(--'+(ok?'ok':'bad')+')">'+(dif>0?'+':'')+n0(dif)+' L</b>':'—')+'</td><td>'+ypfPill(e)+'</td></tr>'}),'No hay llenados ni cargas en el período.');
+  return head+'<div class="llwrap" style="position:relative;margin-top:14px">'+chart+'<div class="lltip" style="display:none;position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line2);border-radius:10px;box-shadow:var(--shadow);padding:8px 10px;font-size:12px;min-width:170px;z-index:5"></div></div>'+
+    (cap?'':'<div class="note warn" style="margin-top:8px">No se conoce la capacidad del tanque: la línea de litros no se puede calcular. Cargala desde Combustible → YPF en Ruta → Por unidad → Tanque.</div>')+'</section>'+kp+'<section class="card"><header><h2>Llenados detectados y cargas YPF en Ruta</h2></header>'+tb+'</section>'}
+var LLW=1000,LLH=380,LLL=70,LLR=48,LLT=18,LLB=34;
+function llX(t){var c=LL.cur;return LLL+(t-c.f)/(c.t-c.f)*(LLW-LLL-LLR)}
+function llChart(){var c=LL.cur,ph=LLH-LLT-LLB,pw=LLW-LLL-LLR,g='',i;
+  var maxL=Math.max(c.cap||0,1);c.lit.forEach(function(p){if(p.v>maxL)maxL=p.v});c.ypf.forEach(function(y){if(y.l>maxL)maxL=y.l});maxL=nice(maxL*1.02);c.maxL=maxL;
+  var yL=function(v){return LLT+ph-ph*v/maxL},yP=function(v){return LLT+ph-ph*v/100};
+  for(i=0;i<=5;i++){var y=LLT+ph-ph*i/5;g+='<line class="g" x1="'+LLL+'" x2="'+(LLW-LLR)+'" y1="'+y+'" y2="'+y+'"/>';if(llOn('lit')||llOn('ypf')||llOn('fu'))g+='<text x="'+(LLL-6)+'" y="'+(y+4)+'" text-anchor="end">'+n0(maxL*i/5)+' L</text>';if(llOn('pct'))g+='<text x="'+(LLW-LLR+6)+'" y="'+(y+4)+'" style="fill:#ef6b6b">'+(20*i)+'%</text>'}
+  var days=Math.max(1,Math.round((c.t-c.f)/864e5)),stepD=days<=10?1:days<=20?2:days<=40?5:7;
+  for(var t=c.f;t<=c.t;t+=stepD*864e5){var x=llX(t);g+='<line class="g" x1="'+x+'" x2="'+x+'" y1="'+LLT+'" y2="'+(LLT+ph)+'" style="stroke-dasharray:2 4"/><text x="'+x+'" y="'+(LLH-12)+'" text-anchor="middle">'+ypfFmt(t).slice(0,5)+'</text>'}
+  var poly=function(pts,yf,col,w){if(!pts.length)return '';var s='',lastX=-9;pts.forEach(function(p){var x=llX(p.t);if(x<LLL-1||x>LLW-LLR+1)return;s+=x.toFixed(1)+','+yf(p.v).toFixed(1)+' '});return '<polyline fill="none" stroke-linejoin="round" stroke-width="'+(w||1.8)+'" style="stroke:'+col+'" points="'+s+'"/>'};
+  if(llOn('ypf'))c.ypf.forEach(function(y){var x=llX(y.t0),y1=yL(y.l);g+='<rect x="'+(x-5).toFixed(1)+'" y="'+y1.toFixed(1)+'" width="10" height="'+(LLT+ph-y1).toFixed(1)+'" rx="2" style="fill:#059669;opacity:.28"/><line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+y1.toFixed(1)+'" y2="'+(LLT+ph)+'" style="stroke:#059669;stroke-width:2"/><circle cx="'+x.toFixed(1)+'" cy="'+y1.toFixed(1)+'" r="5" style="fill:#059669"/><text x="'+x.toFixed(1)+'" y="'+(y1-8).toFixed(1)+'" text-anchor="middle" style="fill:#059669;font-weight:700">'+n0(y.l)+' L</text>'});
+  if(llOn('pct'))g+=poly(c.D.lvl,yP,'#ef6b6b');
+  if(llOn('lit'))g+=poly(c.lit,yL,'#2b6a99');
+  if(llOn('fu'))c.D.fills.forEach(function(F){var x=llX(F.t),gl=ypfGeoL(F,c.u);g+='<path d="M'+(x-6).toFixed(1)+','+(LLT+4)+' L'+(x+6).toFixed(1)+','+(LLT+4)+' L'+x.toFixed(1)+','+(LLT+14)+' Z" style="fill:#d97706"/><text x="'+(x+8).toFixed(1)+'" y="'+(LLT+13)+'" style="fill:#d97706;font-weight:700">'+n0(gl)+' L</text>'});
+  g+='<line class="llcur" x1="0" x2="0" y1="'+LLT+'" y2="'+(LLT+ph)+'" style="stroke:var(--ink2);stroke-width:1;display:none"/>';
+  return '<svg class="chart llchart" viewBox="0 0 '+LLW+' '+LLH+'" width="100%" role="img" aria-label="Nivel de combustible, litros, llenados y cargas YPF">'+g+'<rect x="'+LLL+'" y="'+LLT+'" width="'+pw+'" height="'+ph+'" style="fill:transparent"/></svg>'}
+function llNear(a,t){if(!a.length)return null;var lo=0,hi=a.length-1;while(hi-lo>1){var m=(lo+hi)>>1;if(a[m].t<t)lo=m;else hi=m}return Math.abs(a[lo].t-t)<Math.abs(a[hi].t-t)?a[lo]:a[hi]}
+function llHover(e){var svg=e.target.closest&&e.target.closest('.llchart');var wrap=svg&&svg.parentNode,tip=wrap&&wrap.querySelector('.lltip'),cur=svg&&svg.querySelector('.llcur');if(!svg||!LL.cur||!tip)return;
+  var r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)/r.width*LLW;if(sx<LLL||sx>LLW-LLR){tip.style.display='none';cur.style.display='none';return}
+  var c=LL.cur,t=c.f+(sx-LLL)/(LLW-LLL-LLR)*(c.t-c.f),h='<b>'+ypfFmt(t)+'</b>',win=(c.t-c.f)/120;
+  if(llOn('pct')){var p=llNear(c.D.lvl,t);if(p)h+='<div style="color:#ef6b6b">Nivel: '+n1(p.v)+'%</div>'}
+  if(llOn('lit')){var l=llNear(c.lit,t);if(l)h+='<div style="color:#2b6a99">Tanque: '+n0(l.v)+' L</div>'}
+  if(llOn('fu'))c.D.fills.forEach(function(F){if(Math.abs(F.t-t)<win)h+='<div style="color:#d97706"><b>Llenado Geotab: '+n1(ypfGeoL(F,c.u))+' L</b></div>'});
+  if(llOn('ypf'))c.ypf.forEach(function(y){if(Math.abs(y.t0-t)<win)h+='<div style="color:#059669"><b>YPF en Ruta: '+n1(y.l)+' L · '+money(y.imp)+'</b><div class="muted">'+esc(y.tk[0].e.replace(/^\d+\s*-\s*/,''))+' · '+esc(y.tk[0].c)+'</div>'+(y.gl!=null?'<div>Geotab: '+n1(y.gl)+' L ('+(y.gl>=y.l?'+':'')+n0(y.gl-y.l)+' L)</div>':'<div>Sin llenado en Geotab</div>')+'</div>'});
+  tip.innerHTML=h;tip.style.display='block';var px=(e.clientX-r.left);tip.style.left=Math.min(px+14,r.width-200)+'px';tip.style.top='10px';cur.setAttribute('x1',sx);cur.setAttribute('x2',sx);cur.style.display=''}
+document.addEventListener('mousemove',function(e){if(e.target&&e.target.closest&&e.target.closest('.llchart'))llHover(e)});
+document.addEventListener('mouseout',function(e){var s=e.target&&e.target.closest&&e.target.closest('.llchart');if(s&&!(e.relatedTarget&&s.contains(e.relatedTarget))){var w=s.parentNode,tp=w.querySelector('.lltip'),cu=s.querySelector('.llcur');if(tp)tp.style.display='none';if(cu)cu.style.display='none'}});
+CHG.llTog=function(el){var ks=['pct','lit','fu','ypf'].filter(function(k){return k===el.dataset.k?el.checked:llOn(k)});UI.llS=ks.join(',');render()};
+
 
 /* ================= órdenes: pausar, reprogramar e imprimir ================= */
 var OTACT={
