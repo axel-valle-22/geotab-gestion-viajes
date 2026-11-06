@@ -2127,25 +2127,21 @@ function llGetAll(type,search){var out=[];var go=function(f,t){var s=Object.assi
 function llLoad(u,d1,d2){var key=u.gt.id+'|'+d1+'|'+d2;if(LL.cache[key]||LL.loading[key])return;LL.loading[key]=true;delete LL.err[key];
   var f=llT(d1),t=llT(d2,true),dev={id:u.gt.id};
   var lvl=llGetAll('StatusData',{deviceSearch:dev,diagnosticSearch:{id:'DiagnosticFuelLevelId'}})(f,t);
-  var used=llGetAll('StatusData',{deviceSearch:dev,diagnosticSearch:{id:'DiagnosticTotalFuelUsedId'}})(f,t).then(function(r){return r.length?r:llGetAll('StatusData',{deviceSearch:dev,diagnosticSearch:{id:'DiagnosticDeviceTotalFuelId'}})(f,t)});
+  var used=llGetAll('FuelUsed',{deviceSearch:dev})(f,t);
   var fu=aCall('Get',{typeName:'FillUp',search:{deviceSearch:dev,fromDate:new Date(f).toISOString(),toDate:new Date(t).toISOString()},resultsLimit:5000});
   Promise.all([lvl,used,fu]).then(function(r){
     var pt=function(a){return a.map(function(x){return {t:new Date(x.dateTime).getTime(),v:+x.data}}).filter(function(x){return !isNaN(x.v)}).sort(function(a,b){return a.t-b.t})};
-    LL.cache[key]={lvl:pt(r[0]),used:pt(r[1]),fills:(r[2]||[]).map(function(x){var ex=x.tankLevelExtrema||{},mn=ex.minimaPoint||{},mx=ex.maximaPoint||{};return {id:x.id,t:new Date(x.dateTime).getTime(),tmx:mx.dateTime?new Date(mx.dateTime).getTime():new Date(x.dateTime).getTime(),vol:+x.volume||0,cap:x.tankCapacity&&x.tankCapacity.volume>0?+x.tankCapacity.volume:null,src:mn.source||'',pmin:mn.data!=null?+mn.data:null,pmax:mx.data!=null?+mx.data:null,odo:x.odometer>0?x.odometer/1000:null}}).sort(function(a,b){return a.t-b.t})}})
+    LL.cache[key]={lvl:pt(r[0]),used:(r[1]||[]).map(function(x){return {t:new Date(x.dateTime).getTime(),v:+x.totalFuelUsed||0}}).sort(function(a,b){return a.t-b.t}),fills:(r[2]||[]).map(function(x){var ex=x.tankLevelExtrema||{},mn=ex.minimaPoint||{},mx=ex.maximaPoint||{};return {id:x.id,t:new Date(x.dateTime).getTime(),tmx:mx.dateTime?new Date(mx.dateTime).getTime():new Date(x.dateTime).getTime(),vol:+x.volume||0,dv:x.derivedVolume>0?+x.derivedVolume:(+x.volume||0),cap:x.tankCapacity&&x.tankCapacity.volume>0?+x.tankCapacity.volume:null,src:mn.source||'',pmin:mn.data!=null?+mn.data:null,pmax:mx.data!=null?+mx.data:null,odo:x.odometer>0?x.odometer/1000:null}}).sort(function(a,b){return a.t-b.t})}})
   .catch(function(e){aErr('Gráfica de llenados',e);LL.err[key]='No se pudieron leer los datos de Geotab ('+((e&&(e.message||e.name))||'error')+').'})
   .then(function(){LL.loading[key]=false;softRender()})}
-/* litros en el tanque: ancla en el nivel tras cada llenado y descuenta el consumo acumulado */
-function llLitros(D,cap){var lv=D.lvl,us=D.used,fl=D.fills,out=[];if(!cap||!lv.length)return out;
-  var lvAt=function(t){var b=null;for(var i=0;i<lv.length&&lv[i].t<=t;i++)b=lv[i];return b?b.v:lv[0].v};
-  if(!us.length){return lv.map(function(x){return {t:x.t,v:x.v/100*cap}})}
-  var anchorL=lvAt(us[0].t)/100*cap,anchorU=us[0].v,fi=0,prevU=us[0].v;
-  while(fi<fl.length&&fl[fi].tmx<=us[0].t)fi++;
-  us.forEach(function(p){
-    while(fi<fl.length&&fl[fi].tmx<=p.t){var F=fl[fi],before=Math.max(0,anchorL-(prevU-anchorU));out.push({t:F.t,v:before});
-      anchorL=(F.pmax!=null&&/FuelLevel/i.test(F.src))?F.pmax/100*cap:before+F.vol;anchorU=prevU;out.push({t:F.tmx,v:anchorL});fi++}
-    var L=anchorL-(p.v-anchorU);out.push({t:p.t,v:Math.max(0,Math.min(cap*1.05,L))});prevU=p.v});
-  return out}
-function llCap(u,D){var c=ypfCfg().cap[u.id];if(c>0)return c;for(var i=D.fills.length-1;i>=0;i--)if(D.fills[i].cap)return D.fills[i].cap;return null}
+/* "Combustible añadido/utilizado" igual que MyGeotab: cada viaje (FuelUsed) descuenta lo consumido y cada llenado
+   (FillUp) suma su volumen derivado; la serie se desplaza para que su máximo sea la capacidad del tanque que estima
+   Geotab en el último llenado. Verificado contra la gráfica de MyGeotab (T335, oct/2026: 268,18 a 759,64 L). */
+function llLitros(D,cap){var ev=[];D.used.forEach(function(p){ev.push({t:p.t,d:-p.v,k:'u'})});D.fills.forEach(function(F){ev.push({t:F.t,d:F.dv,k:'f',F:F})});
+  if(!ev.length)return [];ev.sort(function(a,b){return a.t-b.t||(a.k==='f'?1:-1)});
+  var v=0,out=[{t:ev[0].t,v:0}];ev.forEach(function(e){if(e.k==='f'){out.push({t:e.t,v:v});v+=e.d;out.push({t:e.t+1,v:v,F:e.F})}else{v+=e.d;out.push({t:e.t,v:v})}});
+  var mx=-1e15,mn=1e15;out.forEach(function(p){if(p.v>mx)mx=p.v;if(p.v<mn)mn=p.v});var sh=cap?cap-mx:-mn;out.forEach(function(p){p.v+=sh});return out}
+function llCap(u,D){for(var i=D.fills.length-1;i>=0;i--)if(D.fills[i].cap)return D.fills[i].cap;var c=ypfCfg().cap[u.id];return c>0?c:null}
 function llYpf(u,f,t){var tk=[];Object.keys(YPF.st||{}).forEach(function(m){(YPF.st[m]||[]).forEach(function(x){if(x.t>=f&&x.t<=t&&!ypfEsAdBlue(x.pd)&&(ypfUnitMap()[x.p]===u))tk.push(x)})});
   tk.sort(function(a,b){return a.t-b.t});var cs=[],cur=null;tk.forEach(function(x){if(!cur||x.t-cur.t1>YPF_GAP){cur={t0:x.t,t1:x.t,l:0,imp:0,tk:[]};cs.push(cur)}cur.tk.push(x);cur.t1=x.t;cur.l+=x.l;cur.imp+=(x.i||0)});return cs}
 function llOn(k){var s=UI.llS==null?'pct,lit,ypf,fu':UI.llS;return (','+s+',').indexOf(','+k+',')>=0}
@@ -2175,28 +2171,43 @@ function llView(){
   var cfg=ypfCfg(),tb=tbl(['Fecha y hora','>Litros Geotab','Nivel','>Odómetro','>Litros YPF','>Pagado','>$ / L','>Diferencia','Estado'],rows.map(function(r){var F=r.F,c=r.c,gl=F?ypfGeoL(F,u):null,dif=F&&c?gl-c.l:null,ok=dif!=null&&Math.abs(dif)<=Math.max(cfg.tolL,c.l*cfg.tol/100),e=F&&c?(ok?'ok':'dif'):F?'sinTk':'sinGeo';
     return '<tr><td class="num small">'+ypfFmt(r.t)+'</td><td class="r num">'+(F?n1(gl):'—')+'</td><td class="small">'+(F&&F.pmin!=null&&/FuelLevel/i.test(F.src)?n0(F.pmin)+'% → '+n0(F.pmax)+'%':'—')+'</td><td class="r num">'+(F&&F.odo?n0(F.odo):'—')+'</td><td class="r num">'+(c?n1(c.l)+(c.tk.length>1?'<div class="muted small">'+c.tk.length+' tickets</div>':''):'—')+'</td><td class="r num" style="white-space:nowrap">'+(c?money(c.imp):'—')+'</td><td class="r num">'+(c&&c.l?n0(c.imp/c.l):'—')+'</td><td class="r num">'+(dif!=null?'<b style="color:var(--'+(ok?'ok':'bad')+')">'+(dif>0?'+':'')+n0(dif)+' L</b>':'—')+'</td><td>'+ypfPill(e)+'</td></tr>'}),'No hay llenados ni cargas en el período.');
   return head+'<div class="llwrap" style="position:relative;margin-top:14px">'+chart+'<div class="lltip" style="display:none;position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line2);border-radius:10px;box-shadow:var(--shadow);padding:8px 10px;font-size:12px;min-width:170px;z-index:5"></div></div>'+
-    (cap?'':'<div class="note warn" style="margin-top:8px">No se conoce la capacidad del tanque: la línea de litros no se puede calcular. Cargala desde Combustible → YPF en Ruta → Por unidad → Tanque.</div>')+'</section>'+kp+'<section class="card"><header><h2>Llenados detectados y cargas YPF en Ruta</h2></header>'+tb+'</section>'}
-var LLW=1000,LLH=380,LLL=70,LLR=48,LLT=18,LLB=34;
-function llX(t){var c=LL.cur;return LLL+(t-c.f)/(c.t-c.f)*(LLW-LLL-LLR)}
+    (cap||!D.fills.length&&!D.used.length?'':'<div class="note warn" style="margin-top:8px">Geotab no informó la capacidad del tanque en el período: la línea de litros muestra el consumo y los llenados, pero no el nivel absoluto.</div>')+'</section>'+kp+'<section class="card"><header><h2>Llenados detectados y cargas YPF en Ruta</h2></header>'+tb+'</section>'}
+var LLW=1000,LLH=400,LLL=96,LLR=44,LLT=40,LLB=34;
+function llX(t){var c=LL.cur;return LLL+(t-c.x0)/(c.x1-c.x0)*(LLW-LLL-LLR)}
+function llDT(t){var x=new Date(t-3*3600000),z=function(n){return ('0'+n).slice(-2)};return z(x.getUTCDate())+'/'+z(x.getUTCMonth()+1)+'/'+String(x.getUTCFullYear()).slice(2)+' '+z(x.getUTCHours())+':'+z(x.getUTCMinutes())+':'+z(x.getUTCSeconds())}
+function llFmtL(v){return (Math.round(v*1000)/1000).toLocaleString('es-AR',{maximumFractionDigits:3})+' L'}
 function llChart(){var c=LL.cur,ph=LLH-LLT-LLB,pw=LLW-LLL-LLR,g='',i;
-  var maxL=Math.max(c.cap||0,1);c.lit.forEach(function(p){if(p.v>maxL)maxL=p.v});c.ypf.forEach(function(y){if(y.l>maxL)maxL=y.l});maxL=nice(maxL*1.02);c.maxL=maxL;
-  var yL=function(v){return LLT+ph-ph*v/maxL},yP=function(v){return LLT+ph-ph*v/100};
-  for(i=0;i<=5;i++){var y=LLT+ph-ph*i/5;g+='<line class="g" x1="'+LLL+'" x2="'+(LLW-LLR)+'" y1="'+y+'" y2="'+y+'"/>';if(llOn('lit')||llOn('ypf')||llOn('fu'))g+='<text x="'+(LLL-6)+'" y="'+(y+4)+'" text-anchor="end">'+n0(maxL*i/5)+' L</text>';if(llOn('pct'))g+='<text x="'+(LLW-LLR+6)+'" y="'+(y+4)+'" style="fill:#ef6b6b">'+(20*i)+'%</text>'}
-  var days=Math.max(1,Math.round((c.t-c.f)/864e5)),stepD=days<=10?1:days<=20?2:days<=40?5:7;
-  for(var t=c.f;t<=c.t;t+=stepD*864e5){var x=llX(t);g+='<line class="g" x1="'+x+'" x2="'+x+'" y1="'+LLT+'" y2="'+(LLT+ph)+'" style="stroke-dasharray:2 4"/><text x="'+x+'" y="'+(LLH-12)+'" text-anchor="middle">'+ypfFmt(t).slice(0,5)+'</text>'}
-  var poly=function(pts,yf,col,w){if(!pts.length)return '';var s='',lastX=-9;pts.forEach(function(p){var x=llX(p.t);if(x<LLL-1||x>LLW-LLR+1)return;s+=x.toFixed(1)+','+yf(p.v).toFixed(1)+' '});return '<polyline fill="none" stroke-linejoin="round" stroke-width="'+(w||1.8)+'" style="stroke:'+col+'" points="'+s+'"/>'};
-  if(llOn('ypf'))c.ypf.forEach(function(y){var x=llX(y.t0),y1=yL(y.l);g+='<rect x="'+(x-5).toFixed(1)+'" y="'+y1.toFixed(1)+'" width="10" height="'+(LLT+ph-y1).toFixed(1)+'" rx="2" style="fill:#059669;opacity:.28"/><line x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" y1="'+y1.toFixed(1)+'" y2="'+(LLT+ph)+'" style="stroke:#059669;stroke-width:2"/><circle cx="'+x.toFixed(1)+'" cy="'+y1.toFixed(1)+'" r="5" style="fill:#059669"/><text x="'+x.toFixed(1)+'" y="'+(y1-8).toFixed(1)+'" text-anchor="middle" style="fill:#059669;font-weight:700">'+n0(y.l)+' L</text>'});
-  if(llOn('pct'))g+=poly(c.D.lvl,yP,'#ef6b6b');
-  if(llOn('lit'))g+=poly(c.lit,yL,'#2b6a99');
-  if(llOn('fu'))c.D.fills.forEach(function(F){var x=llX(F.t),gl=ypfGeoL(F,c.u);g+='<path d="M'+(x-6).toFixed(1)+','+(LLT+4)+' L'+(x+6).toFixed(1)+','+(LLT+4)+' L'+x.toFixed(1)+','+(LLT+14)+' Z" style="fill:#d97706"/><text x="'+(x+8).toFixed(1)+'" y="'+(LLT+13)+'" style="fill:#d97706;font-weight:700">'+n0(gl)+' L</text>'});
+  /* eje X: del primer al último dato, como MyGeotab */
+  var ts=[];c.D.lvl.forEach(function(p){ts.push(p.t)});c.lit.forEach(function(p){ts.push(p.t)});c.ypf.forEach(function(y){ts.push(y.t0)});
+  c.x0=ts.length?Math.min.apply(null,ts):c.f;c.x1=ts.length?Math.max.apply(null,ts):c.t;if(c.x1-c.x0<3600000){c.x0-=1800000;c.x1+=1800000}
+  /* eje izquierdo: mínimo y máximo de los litros (5 marcas); eje derecho: % */
+  var lo=1e15,hi=-1e15;c.lit.forEach(function(p){if(p.v<lo)lo=p.v;if(p.v>hi)hi=p.v});
+  c.ypf.forEach(function(y){var b=llNear(c.lit,y.t0);if(b){var top=llBefore(c.lit,y.t0)+y.l;if(top>hi)hi=top}});
+  if(lo>hi){lo=0;hi=c.cap||100}if(hi-lo<1)hi=lo+1;c.lo=lo;c.hi=hi;
+  var plo=100,phi=0;c.D.lvl.forEach(function(p){if(p.v<plo)plo=p.v;if(p.v>phi)phi=p.v});if(plo>phi){plo=0;phi=100}plo=Math.max(0,Math.floor(plo/15)*15);phi=Math.min(100,Math.max(plo+15,Math.ceil(phi/15)*15));if(phi>=95)phi=100;
+  var yL=function(v){return LLT+ph-ph*(v-lo)/(hi-lo)},yP=function(v){return LLT+ph-ph*(v-plo)/(phi-plo)};
+  for(i=0;i<=4;i++){var y=LLT+ph-ph*i/4;g+='<line class="g" x1="'+LLL+'" x2="'+(LLW-LLR)+'" y1="'+y+'" y2="'+y+'"/>';if(llOn('lit')||llOn('ypf'))g+='<text x="'+(LLL-6)+'" y="'+(y+4)+'" text-anchor="end" style="fill:var(--ink2)">'+llFmtL(lo+(hi-lo)*i/4)+'</text>'}
+  if(llOn('pct')){for(var pv=plo;pv<=phi+0.01;pv+=15){var yy=yP(Math.min(pv,100));g+='<text x="'+(LLW-LLR+8)+'" y="'+(yy+4)+'" style="fill:#ef6b6b">'+Math.min(pv,100)+'</text>'}if((phi-plo)%15)g+='<text x="'+(LLW-LLR+8)+'" y="'+(yP(phi)+4)+'" style="fill:#ef6b6b">'+phi+'</text>';g+='<text x="'+(LLW-LLR+8)+'" y="'+(LLT-8)+'" style="fill:#ef6b6b">%</text><line x1="'+(LLW-LLR+2)+'" x2="'+(LLW-LLR+2)+'" y1="'+LLT+'" y2="'+(LLT+ph)+'" style="stroke:#ef6b6b"/>'}
+  var days=Math.max(1,(c.x1-c.x0)/864e5),stepD=days<=10?1:days<=20?2:days<=40?5:7,d0=llT(ypfLocal(c.x0).slice(0,10));
+  for(var t=d0+864e5;t<=c.x1;t+=stepD*864e5){if(t<c.x0)continue;var x=llX(t);g+='<line x1="'+x+'" x2="'+x+'" y1="'+(LLT+ph)+'" y2="'+(LLT+ph+6)+'" style="stroke:var(--ink2)"/><text x="'+(x+3)+'" y="'+(LLH-14)+'" style="fill:var(--ink2)">'+ypfFmt(t).slice(0,5)+'/'+ypfLocal(t).slice(2,4)+'</text>'}
+  var poly=function(pts,yf,col,w,op){if(!pts.length)return '';var s2='';pts.forEach(function(p){s2+=llX(p.t).toFixed(1)+','+yf(p.v).toFixed(1)+' '});return '<polyline fill="none" stroke-linejoin="round" stroke-width="'+(w||1.6)+'" style="stroke:'+col+(op?';opacity:'+op:'')+'" points="'+s2+'"/>'};
+  if(llOn('pct'))g+=poly(c.D.lvl,yP,'#ef6b6b',1.4,llOn('lit')?.45:1);
+  if(llOn('lit'))g+=poly(c.lit,yL,'#2b6a99',2);
+  /* YPF en Ruta: desde el nivel antes de cargar, una barra verde de la altura de los litros facturados (se compara con el salto azul de Geotab) */
+  if(llOn('ypf'))c.ypf.forEach(function(y){var x=llX(y.t0)+5,b=c.lit.length?llBefore(c.lit,y.t0):lo,y0=yL(b),y1=yL(b+y.l);
+    var rt=x>LLW-LLR-90;g+='<rect x="'+(x-4).toFixed(1)+'" y="'+y1.toFixed(1)+'" width="8" height="'+Math.max(1,y0-y1).toFixed(1)+'" rx="2" style="fill:#059669;opacity:.85"/><text x="'+(rt?x-7:x+7).toFixed(1)+'" y="'+(y1+12).toFixed(1)+'" text-anchor="'+(rt?'end':'start')+'" style="fill:#059669;font-weight:700">YPF '+n0(y.l)+' L</text>'});
+  if(llOn('fu'))c.D.fills.forEach(function(F){var x=llX(F.t);g+='<path d="M'+(x-6).toFixed(1)+','+(LLT-14)+' L'+(x+6).toFixed(1)+','+(LLT-14)+' L'+x.toFixed(1)+','+(LLT-4)+' Z" style="fill:#d97706"/><text x="'+(x>LLW-LLR-60?x-8:x+8).toFixed(1)+'" y="'+(LLT-5)+'" text-anchor="'+(x>LLW-LLR-60?'end':'start')+'" style="fill:#d97706;font-weight:700">'+n0(F.dv)+' L</text>'});
   g+='<line class="llcur" x1="0" x2="0" y1="'+LLT+'" y2="'+(LLT+ph)+'" style="stroke:var(--ink2);stroke-width:1;display:none"/>';
-  return '<svg class="chart llchart" viewBox="0 0 '+LLW+' '+LLH+'" width="100%" role="img" aria-label="Nivel de combustible, litros, llenados y cargas YPF">'+g+'<rect x="'+LLL+'" y="'+LLT+'" width="'+pw+'" height="'+ph+'" style="fill:transparent"/></svg>'}
+  return '<div class="muted small" style="margin-bottom:4px">'+llDT(c.x0)+' - '+llDT(c.x1)+'</div><svg class="chart llchart" viewBox="0 0 '+LLW+' '+LLH+'" width="100%" role="img" aria-label="Nivel de combustible, litros, llenados y cargas YPF">'+g+'<rect x="'+LLL+'" y="'+LLT+'" width="'+pw+'" height="'+ph+'" style="fill:transparent"/></svg>'}
+/* litros justo antes de un momento (antes del salto del llenado) */
+function llBefore(a,t){var bi=-1,bd=YPF_WIN;for(var i=1;i<a.length;i++)if(a[i].F&&Math.abs(a[i].t-t)<=bd){bd=Math.abs(a[i].t-t);bi=i}if(bi>0)return a[bi-1].v;return llAt(a,t)}
+function llAt(a,t){var v=a.length?a[0].v:0;for(var i=0;i<a.length&&a[i].t<=t;i++)v=a[i].v;return v}
 function llNear(a,t){if(!a.length)return null;var lo=0,hi=a.length-1;while(hi-lo>1){var m=(lo+hi)>>1;if(a[m].t<t)lo=m;else hi=m}return Math.abs(a[lo].t-t)<Math.abs(a[hi].t-t)?a[lo]:a[hi]}
 function llHover(e){var svg=e.target.closest&&e.target.closest('.llchart');var wrap=svg&&svg.parentNode,tip=wrap&&wrap.querySelector('.lltip'),cur=svg&&svg.querySelector('.llcur');if(!svg||!LL.cur||!tip)return;
   var r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)/r.width*LLW;if(sx<LLL||sx>LLW-LLR){tip.style.display='none';cur.style.display='none';return}
-  var c=LL.cur,t=c.f+(sx-LLL)/(LLW-LLL-LLR)*(c.t-c.f),h='<b>'+ypfFmt(t)+'</b>',win=(c.t-c.f)/120;
+  var c=LL.cur,t=c.x0+(sx-LLL)/(LLW-LLL-LLR)*(c.x1-c.x0),h='<b>'+ypfFmt(t)+'</b>',win=(c.x1-c.x0)/120;
   if(llOn('pct')){var p=llNear(c.D.lvl,t);if(p)h+='<div style="color:#ef6b6b">Nivel: '+n1(p.v)+'%</div>'}
-  if(llOn('lit')){var l=llNear(c.lit,t);if(l)h+='<div style="color:#2b6a99">Tanque: '+n0(l.v)+' L</div>'}
+  if(llOn('lit')){var l=llNear(c.lit,t);if(l)h+='<div style="color:#2b6a99">'+llFmtL(l.v)+'</div>'}
   if(llOn('fu'))c.D.fills.forEach(function(F){if(Math.abs(F.t-t)<win)h+='<div style="color:#d97706"><b>Llenado Geotab: '+n1(ypfGeoL(F,c.u))+' L</b></div>'});
   if(llOn('ypf'))c.ypf.forEach(function(y){if(Math.abs(y.t0-t)<win)h+='<div style="color:#059669"><b>YPF en Ruta: '+n1(y.l)+' L · '+money(y.imp)+'</b><div class="muted">'+esc(y.tk[0].e.replace(/^\d+\s*-\s*/,''))+' · '+esc(y.tk[0].c)+'</div>'+(y.gl!=null?'<div>Geotab: '+n1(y.gl)+' L ('+(y.gl>=y.l?'+':'')+n0(y.gl-y.l)+' L)</div>':'<div>Sin llenado en Geotab</div>')+'</div>'});
   tip.innerHTML=h;tip.style.display='block';var px=(e.clientX-r.left);tip.style.left=Math.min(px+14,r.width-200)+'px';tip.style.top='10px';cur.setAttribute('x1',sx);cur.setAttribute('x2',sx);cur.style.display=''}
