@@ -5405,7 +5405,7 @@ function gvAbrirExtensionesSLB(){
    una unidad PROPIA, de hoy o de los 2 dias anteriores, no esta en ningun viaje (ni activo ni en el historico) y ningun mail
    lo cancelo, el mail se vuelve a abrir ("pendiente") y el viaje se crea solo. Cada mail se reabre UNA sola vez (asi un
    servicio que se cubrio a mano de otra forma no queda dando vueltas). Queda una alerta con lo que se recupero. */
-var __gvSlbCurando = false;
+var __gvSlbCurando = false; window.__gvSlbCuraLog = window.__gvSlbCuraLog || [];
 function gvSlbReabrirPerdidos(){
   if(__gvSlbCurando || !gvSlbAutoListo()) return;
   __gvSlbCurando = true;
@@ -5420,21 +5420,33 @@ function gvSlbReabrirPerdidos(){
       docs.concat(gPedidosSLB || []).forEach(function(p){ (p.cancelados || []).forEach(function(c){ cancel[c] = 1; }); });
       var txt = JSON.stringify((GV.Storage.getViajes() || []).map(function(v){ return [v.observaciones || '', (v.slbFilas || []).map(function(f){ return f.cvu; })]; }));
       var ps = [];
+      window.__gvSlbCuraLog.push(new Date().toLocaleTimeString() + ' revisados ' + docs.length + ' mails cerrados');
       docs.forEach(function(p){
         if(p.estado !== 'procesado' || p.tipo === 'extension' || p.slbReabiertoEn) return;
+        if((GV.Storage.getAlertas() || []).some(function(a){ return a && a.id === 'al_slbreab_' + p._id; })) return; /* ya se reabrio una vez */
         var faltan = (p.filas || []).filter(function(f){
           return f.cvu && !cancel[f.cvu] && (f.fecha || '') >= fMin && gvSlbVehiculo(f.patente) && txt.indexOf(f.cvu) < 0;
         });
         if(!faltan.length) return;
         var cvus = faltan.map(function(f){ return f.cvu; });
-        ps.push(col.doc(p._id).set({ estado: 'pendiente', slbReabiertoEn: new Date().toISOString(), slbReabiertoCvus: cvus }, { merge: true }).then(function(){
+        var ahora = new Date().toISOString();
+        window.__gvSlbCuraLog.push(p._id + ': ' + cvus.join(','));
+        /* 10/11 (b): si las reglas de Firestore no dejan guardar campos nuevos en el pedido, se reabre solo con estado */
+        ps.push(col.doc(p._id).set({ estado: 'pendiente', slbReabiertoEn: ahora, slbReabiertoCvus: cvus }, { merge: true })['catch'](function(e1){
+          window.__gvSlbCuraLog.push(p._id + ' sin campos nuevos: ' + (e1 && e1.message));
+          return col.doc(p._id).set({ estado: 'pendiente', procesadoEn: ahora }, { merge: true });
+        }).then(function(){
           try{ GV.Storage.addAlerta({ id: 'al_slbreab_' + p._id, tipo: 'info', fecha: new Date().toISOString(),
             mensaje: 'SLB: el mail "' + (p.asunto || '') + '" estaba cerrado pero sus servicios ' + faltan.map(function(f){ return f.cvu + ' (' + f.patente + ' ' + String(f.fecha || '').slice(8, 10) + '/' + String(f.fecha || '').slice(5, 7) + ')'; }).join(', ') + ' no tenian viaje. Se volvio a abrir para crearlo solo.' }); }catch(e){}
+        })['catch'](function(e2){
+          window.__gvSlbCuraLog.push(p._id + ' ERROR: ' + (e2 && e2.message));
+          try{ GV.Storage.addAlerta({ id: 'al_slbreaberr_' + p._id, tipo: 'info', fecha: new Date().toISOString(),
+            mensaje: 'SLB: los servicios ' + cvus.join(', ') + ' del mail "' + (p.asunto || '') + '" no tienen viaje y no se pudo reabrir el mail (' + ((e2 && (e2.code || e2.message)) || 'error') + '). Avisar a sistemas.' }); }catch(e){}
         }));
       });
       return Promise.all(ps);
     });
-  })['catch'](function(e){ try{ console.warn('[GV] SLB autocuracion', e && e.message); }catch(x){} }).then(function(){ __gvSlbCurando = false; });
+  })['catch'](function(e){ window.__gvSlbCuraLog.push('ERROR consulta: ' + (e && e.message)); try{ console.warn('[GV] SLB autocuracion', e && e.message); }catch(x){} }).then(function(){ __gvSlbCurando = false; });
 }
 function gvEscucharPedidosSLB(){
   if(!window.__gvSlbCuraIntervalo){
@@ -8948,7 +8960,7 @@ window.initialize = function(api, state, callback){
    arreglo, una pantalla vieja podia seguir haciendo lo que el arreglo corregia (caso H337 Sañudo: se volvia a cerrar
    mal). Cada 5 minutos se compara la version publicada con la cargada; si cambio, se refresca la cache y la pantalla
    se recarga sola apenas no haya ninguna ventana/edicion abierta (avisa con un cartel 30 s antes). */
-var GV_BUILD = '2026-11-10a';
+var GV_BUILD = '2026-11-10b';
 /* 02/11: si los cambios no se pueden guardar (base llena, sin conexion) se avisa con un cartel rojo. Antes los cambios se
    veian en pantalla y a los minutos volvian atras sin ningun aviso. */
 (function(){
