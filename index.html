@@ -2355,6 +2355,11 @@ function gvRefinarSalidaOrigenGps(v){
       if(ultimoAdentro < 0 || ultimoAdentro >= hist.length - 1){ GV.Storage.updateViaje(v.id, { salidaOrigenRefinada: true }); return; }
       var salida = new Date(hist[ultimoAdentro + 1].dateTime);
       if(isNaN(salida.getTime())) return;
+      /* 10/11 (caso T329 Jimenez): la ventana mira 12 h para atras y encontraba la salida de la manana, que era la vuelta
+         del viaje nocturno ANTERIOR (08:24 para un viaje de las 20:00 -> "a horario"). Una salida mas temprana que el margen
+         de auto-inicio (30 min; 4 h en viajes armados desde mails de SLB que no son nocturnos) no es la salida de este viaje. */
+      var __margenRef = ((act.origenPedidoSLB && !act.nocturno) ? 240 : 30) * 60000;
+      if(salida.getTime() < new Date(act.fechaSalida).getTime() - __margenRef){ GV.Storage.updateViaje(v.id, { salidaOrigenRefinada: true }); return; }
       var srN = Object.assign({}, act.sitiosReal || {});
       srN.origen = Object.assign({}, srN.origen || {}, { egreso: salida.toISOString(), egresoGps: true });
       var demoraMin = Math.max(0, Math.round((salida.getTime() - new Date(act.fechaSalida).getTime()) / 60000));
@@ -2456,6 +2461,13 @@ try{
           var __otroActivo = GV.Storage.getViajes().some(function(o){ return o.id !== v.id && o.vehiculoId === v.vehiculoId && (o.estado === 'en_curso' || o.estado === 'demorado'); });
           if(!__otroActivo) __margenInicioMs = 4*3600*1000;
         }
+        /* 10/11 (caso T329 Jimenez, viaje nocturno de las 20:00 cargado a las 18:26): los camiones nocturnos a la manana
+           vuelven del recorrido de la noche anterior, asi que estar lejos del origen horas antes NO es haber salido a este
+           viaje. Viaje nocturno: solo se admite el auto-inicio 30 min antes de lo programado. Lo mismo si el viaje se cargo
+           con la unidad ya fuera del origen y todavia falta mas de media hora: la unidad tiene que ir al origen primero. */
+        if(v.nocturno) __margenInicioMs = 30*60*1000;
+        if(v.creadoEn && v.salidaOrigenTentativaDesde && (new Date(v.salidaOrigenTentativaDesde).getTime() - new Date(v.creadoEn).getTime()) < 10*60000
+           && (new Date(v.fechaSalida).getTime() - Date.now()) > 30*60000) __margenInicioMs = 30*60*1000;
         if(__awayFromOrigin && (Date.now() - new Date(v.fechaSalida).getTime()) > -__margenInicioMs){
           /* Si el viaje arranca por estar en sitio (origen = primera carga), la referencia no es "ahora" sino
              la hora de ingreso a ese sitio. */
@@ -2472,7 +2484,8 @@ try{
              sella aca con el mismo horario ya usado para confirmar la salida (salidaOrigenTentativaDesde). */
           if(!__iniciaEnSitio && !(v.sitiosReal && v.sitiosReal.origen && v.sitiosReal.origen.egreso)){
             var __srAuto = Object.assign({}, v.sitiosReal || {});
-            __srAuto.origen = Object.assign({}, __srAuto.origen || {}, { egreso: v.salidaOrigenTentativaDesde || new Date().toISOString() });
+            var __tentOk = v.salidaOrigenTentativaDesde && new Date(v.salidaOrigenTentativaDesde).getTime() >= new Date(v.fechaSalida).getTime() - __margenInicioMs;
+            __srAuto.origen = Object.assign({}, __srAuto.origen || {}, { egreso: __tentOk ? v.salidaOrigenTentativaDesde : new Date().toISOString() });
             __updatesAuto.sitiosReal = __srAuto;
           }
           GV.Storage.updateViaje(v.id, __updatesAuto);
