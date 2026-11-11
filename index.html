@@ -3979,8 +3979,9 @@ var waitEl = document.getElementById('gv-track-wait-' + v.id);
 
 var gTrackCliente = null;
 try{ gTrackCliente = localStorage.getItem('gv_trk_cliente') || null; }catch(__eLS0){}
-var gTrackSegmento = null;
-try{ gTrackSegmento = localStorage.getItem('gv_trk_segmento') || null; }catch(__eLS0s){}
+/* 11/11: filtro de Segmento con varias opciones tildadas a la vez (lista vacia = todos). */
+var gTrackSegmentos = [], gTrackSegMenuAbierto = false;
+try{ var __sgLS = JSON.parse(localStorage.getItem('gv_trk_segmentos') || '[]'); if(Array.isArray(__sgLS)) gTrackSegmentos = __sgLS.map(String); }catch(__eLS0s){}
 /* Clientes (grupos hijos de "Clientes" en MyGeotab) de la unidad del viaje. */
 /* 03/11: camiones "ON CALL": se elige el cliente real del viaje (lista de los grupos A y B de Coordinacion) y se
    muestra "ON CALL - <cliente>". Se guarda en el viaje (onCallCliente). */
@@ -4397,9 +4398,9 @@ function renderTracking(){
     var __segmentosHoy = [];
     todos.forEach(function(v){ var ss = gvSegmentosDeViaje(v); if(!ss.length) ss = ['Sin segmento']; ss.forEach(function(sg){ if(__segmentosHoy.indexOf(sg) < 0) __segmentosHoy.push(sg); }); });
     __segmentosHoy.sort(function(a, b){ if(a === 'Sin segmento') return 1; if(b === 'Sin segmento') return -1; return a.localeCompare(b); });
-    if(gTrackSegmento && __segmentosHoy.indexOf(gTrackSegmento) < 0) gTrackSegmento = null;
-    if(gTrackSegmento){
-      todos = todos.filter(function(v){ var ss = gvSegmentosDeViaje(v); return gTrackSegmento === 'Sin segmento' ? !ss.length : ss.indexOf(gTrackSegmento) >= 0; });
+    gTrackSegmentos = gTrackSegmentos.filter(function(sg){ return __segmentosHoy.indexOf(sg) >= 0; });
+    if(gTrackSegmentos.length){
+      todos = todos.filter(function(v){ var ss = gvSegmentosDeViaje(v); if(!ss.length) ss = ['Sin segmento']; return ss.some(function(sg){ return gTrackSegmentos.indexOf(sg) >= 0; }); });
     }
     /* 21/10: buscador de Seguimiento (unidad, chofer, patente, solicitud, cliente, sitio): filtra al instante. */
     var __qTrack = ((document.getElementById('gv-track-buscar') || {}).value || '').trim();
@@ -4481,9 +4482,9 @@ function renderTracking(){
 '<div id="gv-trk-cli-menu" style="display:none;position:fixed;z-index:100050;background:#fff;border:1px solid var(--gv-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:170px;padding:4px;text-transform:none;font-weight:500;letter-spacing:0">' +
 ['__todos'].concat(__clientesHoy).map(function(c){ var act = (c === '__todos') ? !gTrackCliente : (gTrackCliente === c); var n = (c === '__todos') ? __todosSinFiltro.length : __todosSinFiltro.filter(function(v){ var cs = gvClientesFiltro(v); return c === 'Sin cliente' ? !cs.length : cs.indexOf(c) >= 0; }).length; return '<div class="gv-trk-cli-opt" data-cli="' + GV.escapeHtml(c) + '" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '">' + (c === '__todos' ? 'Todos los clientes' : GV.escapeHtml(c)) + ' <span style="color:#9ca3af">(' + n + ')</span></div>'; }).join('') +
 '</div></div>' +
-'<div class="gv-trk-cell gv-trk-cli-head" id="gv-trk-seg-head" title="Filtrar por segmento" style="cursor:pointer;position:relative;user-select:none">Segmento ' + (gTrackSegmento ? ('<span style="background:var(--gv-accent);color:#fff;border-radius:6px;padding:0 5px;font-size:.62rem">' + GV.escapeHtml(gTrackSegmento) + '</span>') : '') + ' &#9662;' +
+'<div class="gv-trk-cell gv-trk-cli-head" id="gv-trk-seg-head" title="Filtrar por segmento" style="cursor:pointer;position:relative;user-select:none">Segmento ' + (gTrackSegmentos.length ? ('<span style="background:var(--gv-accent);color:#fff;border-radius:6px;padding:0 5px;font-size:.62rem" title="' + GV.escapeHtml(gTrackSegmentos.join(', ')) + '">' + GV.escapeHtml(gTrackSegmentos.length === 1 ? gTrackSegmentos[0] : (gTrackSegmentos.length + ' seg.')) + '</span>') : '') + ' &#9662;' +
 '<div id="gv-trk-seg-menu" style="display:none;position:fixed;z-index:100050;background:#fff;border:1px solid var(--gv-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:170px;padding:4px;text-transform:none;font-weight:500;letter-spacing:0">' +
-['__todos'].concat(__segmentosHoy).map(function(sg){ var act = (sg === '__todos') ? !gTrackSegmento : (gTrackSegmento === sg); var n = (sg === '__todos') ? __todosSinFiltroSeg.length : __todosSinFiltroSeg.filter(function(v){ var ss = gvSegmentosDeViaje(v); return sg === 'Sin segmento' ? !ss.length : ss.indexOf(sg) >= 0; }).length; return '<div class="gv-trk-seg-opt" data-seg="' + GV.escapeHtml(sg) + '" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '">' + (sg === '__todos' ? 'Todos los segmentos' : GV.escapeHtml(sg)) + ' <span style="color:#9ca3af">(' + n + ')</span></div>'; }).join('') +
+['__todos'].concat(__segmentosHoy).map(function(sg){ var act = (sg === '__todos') ? !gTrackSegmentos.length : (gTrackSegmentos.indexOf(sg) >= 0); var n = (sg === '__todos') ? __todosSinFiltroSeg.length : __todosSinFiltroSeg.filter(function(v){ var ss = gvSegmentosDeViaje(v); return sg === 'Sin segmento' ? !ss.length : ss.indexOf(sg) >= 0; }).length; return '<label class="gv-trk-seg-opt" data-seg="' + GV.escapeHtml(sg) + '" style="display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (sg === '__todos' ? 'border-bottom:1px solid #f1f5f9;margin-bottom:2px;' : '') + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '"><input type="checkbox" style="margin:0;cursor:pointer;accent-color:var(--gv-accent)"' + (act ? ' checked' : '') + '>' + (sg === '__todos' ? 'Todos los segmentos' : GV.escapeHtml(sg)) + ' <span style="color:#9ca3af;margin-left:auto">(' + n + ')</span></label>'; }).join('') +
 '</div></div>' +
 '<div class="gv-trk-cell">Unidad</div>' +
 '<div class="gv-trk-cell">Conductor</div>' +
@@ -4559,18 +4560,23 @@ todos.forEach(function(v){ updateTrackBadges(v); });
       }
       var __segHead = document.getElementById('gv-trk-seg-head'), __segMenu = document.getElementById('gv-trk-seg-menu');
       if(__segHead && __segMenu){
-        __segHead.addEventListener('click', function(e){ e.stopPropagation(); if(__segMenu.style.display === 'none'){ var __rs = __segHead.getBoundingClientRect(); __segMenu.style.top = (__rs.bottom + 2) + 'px'; __segMenu.style.left = __rs.left + 'px'; __segMenu.style.display = 'block'; } else { __segMenu.style.display = 'none'; } });
+        __segHead.addEventListener('click', function(e){ e.stopPropagation(); if(__segMenu.style.display === 'none'){ var __rs = __segHead.getBoundingClientRect(); __segMenu.style.top = (__rs.bottom + 2) + 'px'; __segMenu.style.left = __rs.left + 'px'; __segMenu.style.display = 'block'; gTrackSegMenuAbierto = true; } else { __segMenu.style.display = 'none'; gTrackSegMenuAbierto = false; } });
+        __segMenu.addEventListener('click', function(e){ e.stopPropagation(); });
         __segMenu.querySelectorAll('.gv-trk-seg-opt').forEach(function(op){
           op.addEventListener('click', function(e){
-            e.stopPropagation();
+            e.preventDefault(); e.stopPropagation();
             var sg = op.getAttribute('data-seg');
-            gTrackSegmento = (sg === '__todos') ? null : sg;
-            try{ if(gTrackSegmento) localStorage.setItem('gv_trk_segmento', gTrackSegmento); else localStorage.removeItem('gv_trk_segmento'); }catch(__eLSs){}
+            if(sg === '__todos'){ gTrackSegmentos = []; }
+            else { var k = gTrackSegmentos.indexOf(sg); if(k >= 0) gTrackSegmentos.splice(k, 1); else gTrackSegmentos.push(sg); }
+            try{ if(gTrackSegmentos.length) localStorage.setItem('gv_trk_segmentos', JSON.stringify(gTrackSegmentos)); else localStorage.removeItem('gv_trk_segmentos'); localStorage.removeItem('gv_trk_segmento'); }catch(__eLSs){}
             gTrackSelectedId = null;
+            gTrackSegMenuAbierto = true; /* el menu queda abierto para seguir tildando */
             renderTracking();
           });
         });
-        document.addEventListener('click', function __cerrarSeg(){ if(__segMenu) __segMenu.style.display = 'none'; document.removeEventListener('click', __cerrarSeg); });
+        /* despues de tildar se vuelve a dibujar la tabla: se reabre el menu en el mismo lugar */
+        if(gTrackSegMenuAbierto){ var __rs2 = __segHead.getBoundingClientRect(); __segMenu.style.top = (__rs2.bottom + 2) + 'px'; __segMenu.style.left = __rs2.left + 'px'; __segMenu.style.display = 'block'; }
+        document.addEventListener('click', function __cerrarSeg(){ gTrackSegMenuAbierto = false; if(__segMenu) __segMenu.style.display = 'none'; document.removeEventListener('click', __cerrarSeg); });
       }
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
       if(verTodosBtn) verTodosBtn.addEventListener('click', function(e){ e.stopPropagation(); gTrackSelectedId = null; renderTracking(); });
