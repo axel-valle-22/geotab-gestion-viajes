@@ -431,9 +431,9 @@ function renderProgresoSitios(v){
     var cp = paradas[currentIdx];
     var est = estadoSitio(v, cp.id);
     if(est === 'pendiente'){
-      actionBtn = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="llegada-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Llegue - Iniciar ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
+      actionBtn = '<button class="gv-btn gv-btn-primary gv-btn-sm" data-action="llegada-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Llegue a ' + GV.escapeHtml(cp.direccion || ('parada ' + (cp.idx + 1))) + ' - Iniciar ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
     } else if(est === 'en_sitio'){
-      actionBtn = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="salida-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Sali - Termine ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
+      actionBtn = '<button class="gv-btn gv-btn-suc gv-btn-sm" data-action="salida-sitio" data-id="' + v.id + '" data-site="' + cp.id + '">Sali de ' + GV.escapeHtml(cp.direccion || ('parada ' + (cp.idx + 1))) + ' - Termine ' + GV.tipoParadaLabel(cp.tipo) + '</button>';
     }
   }
   return '<div class="gv-sitios-progreso" style="margin-top:10px">' +
