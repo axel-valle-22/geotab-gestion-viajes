@@ -1544,6 +1544,13 @@ function confirmarSalidaDeOrigen(v, r){
     if(v.salidaOrigenTentativaDesde){ GV.Storage.updateViaje(v.id, { salidaOrigenTentativaDesde: null }); v.salidaOrigenTentativaDesde = null; }
     return false;
   }
+  /* 11/11 (caso C353 Gramajo): el viaje se cargo el 10/11 a las 14:24 para salir el 11/11 a las 08:35. Como el camion
+     estaba fuera de la base, quedo marcada una "salida tentativa" a las 14:28 del dia anterior que nunca se borro, y a la
+     manana se uso como salida real. Una tentativa anterior a 4 h antes de la salida programada no es la salida de este
+     viaje: se descarta y se empieza a contar de nuevo. */
+  if(v.salidaOrigenTentativaDesde && new Date(v.salidaOrigenTentativaDesde).getTime() < new Date(v.fechaSalida).getTime() - 4*3600000){
+    v.salidaOrigenTentativaDesde = null;
+  }
   if(!v.salidaOrigenTentativaDesde){
     var __ahoraTentativa = new Date().toISOString();
     GV.Storage.updateViaje(v.id, { salidaOrigenTentativaDesde: __ahoraTentativa });
@@ -2082,7 +2089,8 @@ function gvReevaluarViajeAhora(viajeId){
         }
         var sinArrancar = v.estado === 'planificado' || (v.estado === 'demorado' && v.demoradoOrigen && !v.iniciadoEn);
         if(sinArrancar){
-          if(!(sr.origen && sr.origen.egreso)){ sr.origen = Object.assign({}, sr.origen || {}, { egreso: v.salidaOrigenTentativaDesde || st.ingreso }); patch.sitiosReal = sr; }
+          var __tentOk2 = v.salidaOrigenTentativaDesde && new Date(v.salidaOrigenTentativaDesde).getTime() >= new Date(v.fechaSalida).getTime() - 4*3600000;
+          if(!(sr.origen && sr.origen.egreso)){ sr.origen = Object.assign({}, sr.origen || {}, { egreso: __tentOk2 ? v.salidaOrigenTentativaDesde : st.ingreso }); patch.sitiosReal = sr; }
           var demoraMs = Math.max(0, new Date(sr.origen.egreso).getTime() - new Date(v.fechaSalida).getTime());
           patch.estado = 'en_curso';
           patch.iniciadoEn = v.iniciadoEn || sr.origen.egreso;
@@ -2341,7 +2349,9 @@ function gvRefinarSalidaOrigenGps(v){
     var inicio = new Date(v.iniciadoEn).getTime();
     /* Sospechoso: no hay egreso, el egreso es posterior a la llegada a la primera parada, o el viaje arranco
        apenas se cargo (se programo con el camion ya en camino). */
-    var sospechoso = !egr || (primerIng !== null && egr > primerIng) || (creado && Math.abs(inicio - creado) < 10 * 60000);
+    var __margenSosp = ((v.origenPedidoSLB && !v.nocturno) ? 240 : 30) * 60000;
+    var sospechoso = !egr || (primerIng !== null && egr > primerIng) || (creado && Math.abs(inicio - creado) < 10 * 60000)
+      || (egr < new Date(v.fechaSalida).getTime() - __margenSosp); /* 11/11 caso C353: egreso sellado con una hora del dia anterior */
     if(!sospechoso) return;
     __gvSalidaRefinando[v.id] = true;
     var fs = new Date(v.fechaSalida).getTime();
