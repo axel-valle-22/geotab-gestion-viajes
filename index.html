@@ -2351,7 +2351,11 @@ function gvRefinarSalidaOrigenGps(v){
        apenas se cargo (se programo con el camion ya en camino). */
     var __margenSosp = ((v.origenPedidoSLB && !v.nocturno) ? 240 : 30) * 60000;
     var sospechoso = !egr || (primerIng !== null && egr > primerIng) || (creado && Math.abs(inicio - creado) < 10 * 60000)
-      || (egr < new Date(v.fechaSalida).getTime() - __margenSosp); /* 11/11 caso C353: egreso sellado con una hora del dia anterior */
+      || (egr < new Date(v.fechaSalida).getTime() - __margenSosp) /* 11/11 caso C353: egreso sellado con una hora del dia anterior */
+      /* 11/11 (caso T293 Alveal): al auto-iniciar (o al cambiar el origen) el egreso del origen se sella con la hora en que
+         alguna pantalla lo vio afuera (08:17), no con la hora real en que salio (07:25). Si el egreso no salio del GPS, se
+         recalcula una vez con el historial. Solo viajes de los ultimos 2 dias, para no reprocesar todo el historico. */
+      || (v.autoIniciado && egr && !(sr.origen && sr.origen.egresoGps) && (Date.now() - new Date(v.fechaSalida).getTime()) < 2 * 86400000);
     if(!sospechoso) return;
     __gvSalidaRefinando[v.id] = true;
     var fs = new Date(v.fechaSalida).getTime();
@@ -8707,6 +8711,16 @@ if(soloFiltro){ dibujarHist(detHistAll, __prevT, true); return; }
 var to = v.completadoEn ? new Date(v.completadoEn) : (v.canceladoEn ? new Date(v.canceladoEn) : new Date());
 var __dayStart2 = new Date(v.fechaSalida); __dayStart2.setHours(0,0,0,0);
 var from = __dayStart2;
+/* 11/11: el reproductor arranca media hora antes del inicio del viaje (salida programada o salida real del origen, la que
+   sea primero), no a las 00:00: asi la marca del origen queda al principio de la barra y no al final. */
+try{
+  var __srR = v.sitiosReal || {};
+  var __cands = [new Date(v.fechaSalida).getTime()];
+  if(__srR.origen && __srR.origen.egreso) __cands.push(new Date(__srR.origen.egreso).getTime());
+  if(v.iniciadoEn) __cands.push(new Date(v.iniciadoEn).getTime());
+  __cands = __cands.filter(function(t){ return !isNaN(t); });
+  if(__cands.length){ var __iniR = Math.min.apply(null, __cands) - 30 * 60000; if(__iniR > from.getTime() - 36 * 3600000) from = new Date(__iniR); }
+}catch(__eFrom){}
 fetchHistoryForViaje(v, from, to).then(function(recs){
   recs = recs || [];
   /* 23/10 (2): el refresco de cada 60 s no redibuja nada si no llegaron puntos nuevos (antes borraba y redibujaba
