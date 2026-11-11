@@ -3283,11 +3283,23 @@ function gvSolicitudLabel(v){
     return n ? (s + '-' + (n + 1)) : s;
   }catch(e){ return String((v && v.solicitud) || ''); }
 }
+/* 11/11: en los viajes de SLB se muestra el CVU del servicio (ej. DE62882) en lugar del N° de solicitud TR. Si el viaje
+   agrupa varios servicios se muestra el primero y "+N" (todos en el tooltip). Los viajes sin CVU siguen mostrando la solicitud. */
+function gvCvusViaje(v){
+  var out = [];
+  try{ (v && v.slbFilas || []).forEach(function(f){ var c = f && f.cvu ? String(f.cvu).trim() : ''; if(c && out.indexOf(c) < 0) out.push(c); }); }catch(e){}
+  return out;
+}
+function gvCvuTexto(v){ var c = gvCvusViaje(v); return c.length ? (c[0] + (c.length > 1 ? (' +' + (c.length - 1)) : '')) : ''; }
 function gvSolicitudChip(v){
+  var cv = gvCvusViaje(v);
+  if(cv.length) return ' <span title="CVU ' + GV.escapeHtml(cv.join(' / ')) + (v.solicitud ? (' - Sol. ' + GV.escapeHtml(String(v.solicitud))) : '') + '" style="background:#eef2ff;color:#3730a3;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">CVU ' + GV.escapeHtml(gvCvuTexto(v)) + '</span>';
   var t = gvSolicitudLabel(v);
   return t ? (' <span title="N° de solicitud de Gooper" style="background:#eef2ff;color:#3730a3;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">Sol. ' + GV.escapeHtml(t) + '</span>') : '';
 }
 function gvSolicitudSub(v){
+  var cv = gvCvusViaje(v);
+  if(cv.length) return '<div style="font-size:.7rem;color:#6b7280;font-weight:500" title="CVU ' + GV.escapeHtml(cv.join(' / ')) + '">CVU ' + GV.escapeHtml(gvCvuTexto(v)) + '</div>';
   var t = gvSolicitudLabel(v);
   return t ? ('<div style="font-size:.7rem;color:#6b7280;font-weight:500">Sol. ' + GV.escapeHtml(t) + '</div>') : '';
 }
@@ -6102,7 +6114,7 @@ overlay.innerHTML =
 /* 02/11 (j): encabezado minimalista. Tocar "camion - chofer" abre el cambio de chofer/camion y tocar el chip "Sol." edita
    la solicitud (los botones viejos quedan ocultos y se disparan desde aca); botones mas chicos y con nombres cortos. */
 '<style>#gv-det-acciones .gv-btn{padding:2px 10px;font-size:.75rem;line-height:1.35;min-height:0;border-radius:999px}#gv-det-acciones .gv-btn-sec{border-color:transparent;background:#f3f4f6}#gv-det-unidad[data-edit]{cursor:pointer;border-bottom:1px dashed transparent}#gv-det-unidad[data-edit]:hover{border-bottom-color:currentColor}#gv-det-sol-chip{cursor:pointer}#gv-det-sol-chip:hover{filter:brightness(.95)}</style>' +
-'<h3 style="margin:0"><span id="gv-det-unidad"' + (v.estado !== 'cancelado' ? ' data-edit="1" title="Tocar para cambiar el chofer o el camion"' : '') + '>' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</span>' + (gvSolicitudLabel(v) ? (' <span id="gv-det-sol-chip" title="N° de solicitud de Gooper (tocar para editar)" style="background:#eef2ff;color:#3730a3;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">Sol. ' + GV.escapeHtml(gvSolicitudLabel(v)) + '</span>') : (' <span id="gv-det-sol-chip" title="Cargar el N° de solicitud de Gooper" style="background:#f3f4f6;color:#6b7280;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">+ Sol.</span>')) + gvDtmChipHtml(v) + gvDtmDetalleHtml(v) + '</h3>' +
+'<h3 style="margin:0"><span id="gv-det-unidad"' + (v.estado !== 'cancelado' ? ' data-edit="1" title="Tocar para cambiar el chofer o el camion"' : '') + '>' + GV.escapeHtml(v.vehiculo||'?') + ' - ' + GV.escapeHtml(v.conductor||'?') + '</span>' + (gvCvusViaje(v).length ? gvSolicitudChip(v) : gvSolicitudLabel(v) ? (' <span id="gv-det-sol-chip" title="N° de solicitud de Gooper (tocar para editar)" style="background:#eef2ff;color:#3730a3;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">Sol. ' + GV.escapeHtml(gvSolicitudLabel(v)) + '</span>') : (' <span id="gv-det-sol-chip" title="Cargar el N° de solicitud de Gooper" style="background:#f3f4f6;color:#6b7280;border-radius:6px;padding:1px 6px;font-size:.72rem;font-weight:600;margin-left:6px;white-space:nowrap">+ Sol.</span>')) + gvDtmChipHtml(v) + gvDtmDetalleHtml(v) + '</h3>' +
 '<div id="gv-det-acciones" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center;flex:1 1 auto;padding:0 56px 0 0">' +
 ((v.estado==='demorado'&&v.demoradoOrigen&&!v.iniciadoEn) ? '<button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-det-justificar" title="La unidad todavia no salio del origen: carga el motivo de la demora (la salida programada no se modifica)">Justificar demora</button>' : '') +
 (v.llegadaDestinoPendienteEn ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-det-descartar-llegada" title="Borra el aviso de llegada al destino si fue un error (la unidad en realidad no llego)">Descartar aviso</button>' : '') +
