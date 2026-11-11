@@ -147,7 +147,7 @@ estilos del add-in (el mismo que usa common.js). */
 if(document.getElementById('gv-trk-styles')) return;
 var st = document.createElement('style');
 st.id = 'gv-trk-styles';
-st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:110px 150px minmax(140px,1.2fr) 112px minmax(150px,1.6fr) 104px minmax(120px,1fr) 64px minmax(140px,1.6fr) 70px 70px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n/* Ajuste 1/10: todas las columnas centradas (titulo y contenido alineados al centro de la columna). */\n#gv-track-list .gv-trk-row > *{text-align:center !important}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-24hs{display:inline-block;font-size:.6rem;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:4px;padding:1px 4px;margin-left:2px;vertical-align:1px}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-porsalir{color:#6b7280}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151;font-size:.7rem}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n.gv-trk-hs-head{font-size:.56rem}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:90px 140px 1fr minmax(110px,1.4fr) 92px 62px minmax(140px,1.8fr) 58px 58px}.gv-trk-hide-sm{display:none}}";
+st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff}\n#gv-track-list .gv-trk-row{display:grid;grid-template-columns:110px 90px 150px minmax(140px,1.2fr) 112px minmax(150px,1.6fr) 104px minmax(120px,1fr) 64px minmax(140px,1.6fr) 70px 70px 58px;align-items:center;gap:8px;padding:5px 10px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n/* Ajuste 1/10: todas las columnas centradas (titulo y contenido alineados al centro de la columna). */\n#gv-track-list .gv-trk-row > *{text-align:center !important}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 10px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-segm{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;color:#0f766e;background:#ccfbf1;border-radius:6px;padding:2px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-24hs{display:inline-block;font-size:.6rem;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:4px;padding:1px 4px;margin-left:2px;vertical-align:1px}\n.gv-trk-est{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-porsalir{color:#6b7280}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151;font-size:.7rem}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n.gv-trk-hs-head{font-size:.56rem}\n@media(max-width:900px){#gv-track-list .gv-trk-row{grid-template-columns:90px 80px 140px 1fr minmax(110px,1.4fr) 92px 62px minmax(140px,1.8fr) 58px 58px}.gv-trk-hide-sm{display:none}}";
 /* No se usa #gv-style-container: common.js (GV.injectCSS) omite inyectar el CSS base
        del add-in si ese contenedor ya tiene un <style>, y la vista quedaba sin estilos. */
     (document.head || document.documentElement || document.body).appendChild(st);
@@ -2857,6 +2857,26 @@ try{
             if(ns.length) porVeh[d.id] = ns;
           });
           GV.__clientesPorVeh = porVeh;
+          /* 11/11: SEGMENTO de cada unidad = el subgrupo directo de su cliente en MyGeotab
+             (Clientes > SLB > WCF, ALS, POOL...). Se usa en la columna Segmento de Seguimiento. */
+          var segDe = {};
+          if(raiz){
+            (raiz.children || []).forEach(function(ch){
+              var cg = gById[ch.id]; if(!cg) return;
+              (cg.children || []).forEach(function(sc){
+                var sg = gById[sc.id]; if(!sg) return;
+                var pilaS = [sg.id];
+                while(pilaS.length){ var sid = pilaS.pop(); segDe[sid] = sg.name; ((gById[sid] || {}).children || []).forEach(function(c3){ pilaS.push(c3.id); }); }
+              });
+            });
+          }
+          var segVeh = {};
+          devs.forEach(function(d){
+            var ns = [];
+            (d.groups || []).forEach(function(x){ var n = segDe[x.id]; if(n && ns.indexOf(n) < 0) ns.push(n); });
+            if(ns.length) segVeh[d.id] = ns;
+          });
+          GV.__segmentosPorVeh = segVeh;
         }catch(__eCli){ console.error('clientes por unidad', __eCli); }
         try{ if(document.getElementById('gv-track-list')) renderTracking(); }catch(e){}
       }, function(){});
@@ -3959,6 +3979,8 @@ var waitEl = document.getElementById('gv-track-wait-' + v.id);
 
 var gTrackCliente = null;
 try{ gTrackCliente = localStorage.getItem('gv_trk_cliente') || null; }catch(__eLS0){}
+var gTrackSegmento = null;
+try{ gTrackSegmento = localStorage.getItem('gv_trk_segmento') || null; }catch(__eLS0s){}
 /* Clientes (grupos hijos de "Clientes" en MyGeotab) de la unidad del viaje. */
 /* 03/11: camiones "ON CALL": se elige el cliente real del viaje (lista de los grupos A y B de Coordinacion) y se
    muestra "ON CALL - <cliente>". Se guarda en el viaje (onCallCliente). */
@@ -4213,6 +4235,10 @@ function gvOnCallPopover(chip){
   }, 0);
 }
 document.addEventListener('click', function(e){ var c = e.target && e.target.closest && e.target.closest('.gv-oncall-chip'); if(c){ e.stopPropagation(); e.preventDefault(); gvOnCallPopover(c); } }, true);
+function gvSegmentosDeViaje(v){
+  var m = GV.__segmentosPorVeh || {};
+  return (v && v.vehiculoId && m[v.vehiculoId]) ? m[v.vehiculoId].slice() : [];
+}
 function gvClientesDeViaje(v){
   var m = GV.__clientesPorVeh || {};
   return (v && v.vehiculoId && m[v.vehiculoId]) ? m[v.vehiculoId].slice() : [];
@@ -4366,6 +4392,15 @@ function renderTracking(){
     if(gTrackCliente){
       todos = todos.filter(function(v){ var cs = gvClientesFiltro(v); return gTrackCliente === 'Sin cliente' ? !cs.length : cs.indexOf(gTrackCliente) >= 0; });
     }
+    /* 11/11: filtro por segmento (columna Segmento). Las opciones salen de los viajes que quedan con el filtro de cliente. */
+    var __todosSinFiltroSeg = todos;
+    var __segmentosHoy = [];
+    todos.forEach(function(v){ var ss = gvSegmentosDeViaje(v); if(!ss.length) ss = ['Sin segmento']; ss.forEach(function(sg){ if(__segmentosHoy.indexOf(sg) < 0) __segmentosHoy.push(sg); }); });
+    __segmentosHoy.sort(function(a, b){ if(a === 'Sin segmento') return 1; if(b === 'Sin segmento') return -1; return a.localeCompare(b); });
+    if(gTrackSegmento && __segmentosHoy.indexOf(gTrackSegmento) < 0) gTrackSegmento = null;
+    if(gTrackSegmento){
+      todos = todos.filter(function(v){ var ss = gvSegmentosDeViaje(v); return gTrackSegmento === 'Sin segmento' ? !ss.length : ss.indexOf(gTrackSegmento) >= 0; });
+    }
     /* 21/10: buscador de Seguimiento (unidad, chofer, patente, solicitud, cliente, sitio): filtra al instante. */
     var __qTrack = ((document.getElementById('gv-track-buscar') || {}).value || '').trim();
     if(__qTrack){ try{ todos = todos.filter(function(v){ return gvViajeCoincideBusqueda(v, __qTrack); }); }catch(__eQT){} }
@@ -4446,6 +4481,10 @@ function renderTracking(){
 '<div id="gv-trk-cli-menu" style="display:none;position:fixed;z-index:100050;background:#fff;border:1px solid var(--gv-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:170px;padding:4px;text-transform:none;font-weight:500;letter-spacing:0">' +
 ['__todos'].concat(__clientesHoy).map(function(c){ var act = (c === '__todos') ? !gTrackCliente : (gTrackCliente === c); var n = (c === '__todos') ? __todosSinFiltro.length : __todosSinFiltro.filter(function(v){ var cs = gvClientesFiltro(v); return c === 'Sin cliente' ? !cs.length : cs.indexOf(c) >= 0; }).length; return '<div class="gv-trk-cli-opt" data-cli="' + GV.escapeHtml(c) + '" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '">' + (c === '__todos' ? 'Todos los clientes' : GV.escapeHtml(c)) + ' <span style="color:#9ca3af">(' + n + ')</span></div>'; }).join('') +
 '</div></div>' +
+'<div class="gv-trk-cell gv-trk-cli-head" id="gv-trk-seg-head" title="Filtrar por segmento" style="cursor:pointer;position:relative;user-select:none">Segmento ' + (gTrackSegmento ? ('<span style="background:var(--gv-accent);color:#fff;border-radius:6px;padding:0 5px;font-size:.62rem">' + GV.escapeHtml(gTrackSegmento) + '</span>') : '') + ' &#9662;' +
+'<div id="gv-trk-seg-menu" style="display:none;position:fixed;z-index:100050;background:#fff;border:1px solid var(--gv-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:170px;padding:4px;text-transform:none;font-weight:500;letter-spacing:0">' +
+['__todos'].concat(__segmentosHoy).map(function(sg){ var act = (sg === '__todos') ? !gTrackSegmento : (gTrackSegmento === sg); var n = (sg === '__todos') ? __todosSinFiltroSeg.length : __todosSinFiltroSeg.filter(function(v){ var ss = gvSegmentosDeViaje(v); return sg === 'Sin segmento' ? !ss.length : ss.indexOf(sg) >= 0; }).length; return '<div class="gv-trk-seg-opt" data-seg="' + GV.escapeHtml(sg) + '" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (act ? 'background:var(--gv-accent-light);font-weight:700' : '') + '">' + (sg === '__todos' ? 'Todos los segmentos' : GV.escapeHtml(sg)) + ' <span style="color:#9ca3af">(' + n + ')</span></div>'; }).join('') +
+'</div></div>' +
 '<div class="gv-trk-cell">Unidad</div>' +
 '<div class="gv-trk-cell">Conductor</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm">Estado</div>' +
@@ -4479,8 +4518,10 @@ var __navInitTxt = __navInit ? __navInit.texto : '';
 var rutaTxt = (v.origen ? GV.siteNameFor(v.origen) : '?') + ' -> ' + (v.destino ? GV.siteNameFor(v.destino) : 'sin destino programado');
 var __hsChoferHtml = gvHsChoferHtml(v, hoyStr);
 var __cliTxt = gvClientesDeViaje(v).join(', ');
+var __segTxt = gvSegmentosDeViaje(v).join(', ');
 return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id="' + v.id + '" title="' + GV.escapeHtml(rutaTxt) + '">' +
 '<div class="gv-trk-cell">' + (__cliTxt ? gvClienteBadgesHtml(v, true) : '<span style="color:#9ca3af">-</span>') + '</div>' +
+'<div class="gv-trk-cell" title="' + GV.escapeHtml(__segTxt) + '">' + (__segTxt ? ('<span class="gv-trk-segm">' + GV.escapeHtml(__segTxt) + '</span>') : '<span style="color:#9ca3af">-</span>') + '</div>' +
 '<div class="gv-trk-cell"><span class="gv-trk-unidad">' + GV.escapeHtml(vp.interno) + '</span>' + (vp.patente ? (' <span class="gv-trk-pat">' + GV.escapeHtml(vp.patente) + '</span>') : '') + (gvEsVehiculo24hs(v) ? ' <span class="gv-trk-24hs" title="Camion de 24 hs (grupo Camiones 24 hs en MyGeotab): la jornada del chofer se cuenta por turno">24hs</span>' : '') + gvDtmChipHtml(v) + '</div>' +
 '<div class="gv-trk-cell">' + GV.escapeHtml(v.conductor || '') + gvSolicitudSub(v) + '</div>' +
 '<div class="gv-trk-cell gv-trk-hide-sm"><span class="gv-trk-est" style="background:' + ec[0] + ';color:' + ec[1] + '">' + GV.statusLabel(v.estado || 'planificado') + contTxt + '</span></div>' +
@@ -4515,6 +4556,21 @@ todos.forEach(function(v){ updateTrackBadges(v); });
           });
         });
         document.addEventListener('click', function __cerrarCli(){ if(__cliMenu) __cliMenu.style.display = 'none'; document.removeEventListener('click', __cerrarCli); });
+      }
+      var __segHead = document.getElementById('gv-trk-seg-head'), __segMenu = document.getElementById('gv-trk-seg-menu');
+      if(__segHead && __segMenu){
+        __segHead.addEventListener('click', function(e){ e.stopPropagation(); if(__segMenu.style.display === 'none'){ var __rs = __segHead.getBoundingClientRect(); __segMenu.style.top = (__rs.bottom + 2) + 'px'; __segMenu.style.left = __rs.left + 'px'; __segMenu.style.display = 'block'; } else { __segMenu.style.display = 'none'; } });
+        __segMenu.querySelectorAll('.gv-trk-seg-opt').forEach(function(op){
+          op.addEventListener('click', function(e){
+            e.stopPropagation();
+            var sg = op.getAttribute('data-seg');
+            gTrackSegmento = (sg === '__todos') ? null : sg;
+            try{ if(gTrackSegmento) localStorage.setItem('gv_trk_segmento', gTrackSegmento); else localStorage.removeItem('gv_trk_segmento'); }catch(__eLSs){}
+            gTrackSelectedId = null;
+            renderTracking();
+          });
+        });
+        document.addEventListener('click', function __cerrarSeg(){ if(__segMenu) __segMenu.style.display = 'none'; document.removeEventListener('click', __cerrarSeg); });
       }
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
       if(verTodosBtn) verTodosBtn.addEventListener('click', function(e){ e.stopPropagation(); gTrackSelectedId = null; renderTracking(); });
