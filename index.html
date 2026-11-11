@@ -1548,7 +1548,11 @@ function confirmarSalidaDeOrigen(v, r){
      estaba fuera de la base, quedo marcada una "salida tentativa" a las 14:28 del dia anterior que nunca se borro, y a la
      manana se uso como salida real. Una tentativa anterior a 4 h antes de la salida programada no es la salida de este
      viaje: se descarta y se empieza a contar de nuevo. */
-  if(v.salidaOrigenTentativaDesde && new Date(v.salidaOrigenTentativaDesde).getTime() < new Date(v.fechaSalida).getTime() - 4*3600000){
+  /* 11/11 (b): si todavia faltan mas de 4 h para la salida programada, no se marca ninguna tentativa (antes se borraba y se
+     volvia a marcar en cada consulta de cada pantalla -> una escritura cada pocos segundos y volvio el cartel rojo). */
+  var __limTent = new Date(v.fechaSalida).getTime() - 4*3600000;
+  if(Date.now() < __limTent) return false;
+  if(v.salidaOrigenTentativaDesde && new Date(v.salidaOrigenTentativaDesde).getTime() < __limTent){
     v.salidaOrigenTentativaDesde = null;
   }
   if(!v.salidaOrigenTentativaDesde){
@@ -2239,7 +2243,12 @@ function gvCorregirReingresos(v){
       });
       if(!hubo) return;
       patch.sitiosReal = srN;
-      if(reabierto) patch.dwellState = { siteId: reabierto, arrivedAt: srN[reabierto].ingreso, alertado: true, lastAlertBucket: 999, confirmado: true };
+      if(reabierto){
+        patch.dwellState = { siteId: reabierto, arrivedAt: srN[reabierto].ingreso, alertado: true, lastAlertBucket: 999, confirmado: true };
+        /* 11/11 (caso T330 Wilheim, RIG 230 - Mata Mora): sin este permiso el guardado "protegia" el egreso ya registrado y lo
+           volvia a poner, asi que la parada quedaba con reingreso anotado pero igual figuraba como finalizada (egreso 08:18). */
+        patch.__borrarHorarios = [reabierto];
+      }
       GV.Storage.updateViaje(v.id, patch).then(function(){ try{ renderTrips(); renderTracking(); }catch(e){} });
     })['catch'](function(){});
   }catch(e){ console.error('gvCorregirReingresos', e); }
@@ -7706,7 +7715,17 @@ var __hr = fullHist[__hi];
 var __within = GV.isWithinSiteEx({lat:__hr.latitude,lng:__hr.longitude}, p, pts, __inside ? GV.SITE_EXIT_HYSTERESIS_M : 0);
 if(__within && !__inside){ __inside=true; __in = __hr.dateTime; }
 else if(!__within && __inside){
-if(new Date(__hr.dateTime).getTime() - new Date(__in).getTime() >= __minDwellMs){ __out = __hr.dateTime; break; }
+if(new Date(__hr.dateTime).getTime() - new Date(__in).getTime() >= __minDwellMs){
+/* 11/11 (caso T330 Wilheim, RIG 230 - Mata Mora): una salida corta del circulo con reingreso enseguida (08:18 -> 08:19)
+   no es una salida: si vuelve a entrar al mismo sitio dentro de GV_REINGRESO_MIN minutos, se sigue contando como la
+   misma permanencia (antes el detalle sellaba ese egreso y lo volvia a guardar en cada refresco). */
+var __tSal = new Date(__hr.dateTime).getTime(), __vuelve = -1;
+for(var __j = __hi + 1; __j < fullHist.length; __j++){
+  var __hj = fullHist[__j]; if(new Date(__hj.dateTime).getTime() - __tSal > (typeof GV_REINGRESO_MIN !== 'undefined' ? GV_REINGRESO_MIN : 15) * 60000) break;
+  if(__hj.latitude != null && GV.isWithinSiteEx({lat:__hj.latitude,lng:__hj.longitude}, p, pts, 0)){ __vuelve = __j; break; }
+}
+if(__vuelve >= 0 && p.tipo){ __hi = __vuelve; continue; }
+__out = __hr.dateTime; break; }
 __inside=false; __in=null;
 }
 }
