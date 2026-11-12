@@ -147,7 +147,7 @@ estilos del add-in (el mismo que usa common.js). */
 if(document.getElementById('gv-trk-styles')) return;
 var st = document.createElement('style');
 st.id = 'gv-trk-styles';
-st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff;display:grid;grid-template-columns:max-content max-content max-content minmax(100px,1fr) max-content minmax(120px,1.6fr) max-content minmax(100px,1fr) max-content minmax(70px,.7fr) max-content max-content max-content}\n/* 11/11: columnas al ancho justo de su contenido (subgrid: todas las filas comparten el mismo ancho por columna); el espacio que sobra va a Conductor, Detalle, En vivo y Progreso. */\n#gv-track-list .gv-trk-row{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;gap:0 6px;padding:5px 8px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n/* Ajuste 1/10: todas las columnas centradas (titulo y contenido alineados al centro de la columna). */\n#gv-track-list .gv-trk-row > *{text-align:center !important}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 8px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-segm{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;color:#0f766e;background:#ccfbf1;border-radius:6px;padding:2px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-24hs{display:inline-block;font-size:.6rem;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:4px;padding:1px 4px;margin-left:2px;vertical-align:1px}\n.gv-trk-est{display:inline-block;max-width:115px;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-porsalir{color:#6b7280}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151;font-size:.7rem}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n.gv-trk-hs-head{font-size:.56rem}\n@media(max-width:900px){#gv-track-list .gv-trk-table{grid-template-columns:max-content max-content max-content minmax(90px,1fr) minmax(110px,1.4fr) max-content max-content minmax(70px,.8fr) max-content max-content}.gv-trk-hide-sm{display:none}}";
+st.textContent = "/* ---------- Seguimiento: vista compacta en filas + barra de avance ----------\nCada viaje ocupa una sola fila. El avance se calcula sobre los hitos operativos del viaje\n(el origen si ademas es carga/descarga, cada parada de carga/descarga y el destino): el\nhito ya cumplido suma su tramo completo y el hito donde la unidad esta trabajando ahora\nsuma la mitad. */\n#gv-track-list .gv-trk-table{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff;display:grid;grid-template-columns:max-content max-content max-content minmax(100px,1fr) max-content minmax(120px,1.6fr) max-content minmax(100px,1fr) max-content minmax(140px,1fr) max-content max-content max-content}\n/* 11/11: columnas al ancho justo de su contenido (subgrid: todas las filas comparten el mismo ancho por columna); el espacio que sobra va a Conductor, Detalle, En vivo y Progreso. */\n#gv-track-list .gv-trk-row{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;gap:0 6px;padding:5px 8px;border-top:1px solid #f1f5f9;font-size:.78rem;cursor:pointer}\n#gv-track-list .gv-trk-row:hover{background:#f8fbff}\n/* Ajuste 1/10: todas las columnas centradas (titulo y contenido alineados al centro de la columna). */\n#gv-track-list .gv-trk-row > *{text-align:center !important}\n#gv-track-list .gv-trk-row.gv-trk-sel{background:#eff6ff;box-shadow:inset 3px 0 0 var(--gv-accent)}\n#gv-track-list .gv-trk-head,#gv-track-list .gv-trk-head:hover{background:#f8fafc;border-top:none;cursor:default;font-size:.64rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;padding:6px 8px}\n.gv-trk-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-unidad{font-weight:700;color:var(--gv-accent)}\n.gv-trk-segm{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;color:#0f766e;background:#ccfbf1;border-radius:6px;padding:2px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-pat{font-size:.7rem;color:#6b7280;font-weight:600}\n.gv-trk-24hs{display:inline-block;font-size:.6rem;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:4px;padding:1px 4px;margin-left:2px;vertical-align:1px}\n.gv-trk-est{display:inline-block;max-width:115px;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-live{font-size:.7rem;font-weight:600}\n/* el estado en vivo comparte las clases gv-live-* con el banner grande de las tarjetas: aca hay que anular ese fondo */\n.gv-trk-live.gv-live-moving,.gv-trk-live.gv-live-stopped,.gv-trk-live.gv-live-nocomm,.gv-trk-live.gv-live-unknown{background:transparent;border:0;padding:0;margin:0;border-radius:0}\n.gv-trk-live.gv-live-moving{color:#047857}\n.gv-trk-live.gv-live-stopped{color:#b45309}\n.gv-trk-live.gv-live-nocomm{color:#b91c1c}\n.gv-trk-live.gv-live-unknown{color:#9ca3af}\n.gv-trk-pct{font-weight:700;color:#111827;text-align:right}\n.gv-trk-bar{display:flex;align-items:center;gap:2px;height:16px;background:#eef2f7;border:1px solid #e2e8f0;border-radius:5px;padding:2px}\n.gv-trk-seg{flex:1;height:100%;border-radius:3px;min-width:6px}\n.gv-trk-seg.gv-trk-done{background:#7ac943}\n.gv-trk-seg.gv-trk-active{background:#5b62e8}\n.gv-trk-seg.gv-trk-pend{background-color:#eaf0f7;background-image:repeating-linear-gradient(135deg,#bcd0e6 0 4px,rgba(0,0,0,0) 4px 8px)}\n.gv-trk-flag{flex:0 0 auto;font-size:.74rem;line-height:1;padding-left:3px}\n/* 12/11: fin estimado de la unidad al lado de la banderita */\n.gv-trk-prog{display:flex;align-items:center;gap:5px;min-width:0}\n.gv-trk-prog .gv-trk-bar{flex:1 1 auto;min-width:46px}\n.gv-trk-fin{flex:0 1 auto;min-width:0;max-width:92px;text-align:left;line-height:1.15;overflow:hidden;cursor:default}\n.gv-trk-fin b{display:block;font-size:.68rem;font-weight:700;color:#1e3a8a;white-space:nowrap}\n.gv-trk-fin span{display:block;font-size:.6rem;font-weight:600;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.gv-trk-fin-real b{color:#065f46}\n.gv-trk-det{border:none;background:none;padding:0;color:var(--gv-accent);font-weight:700;font-size:.7rem;cursor:pointer;text-align:right}\n.gv-trk-site{display:inline-block;max-width:100%;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}\n.gv-trk-site-onsite{background:#e0f2fe;color:#075985}\n.gv-trk-site-over{background:#fee2e2;color:#7f1d1d}\n.gv-trk-nav{font-weight:600}\n.gv-trk-nav-camino{color:#1e40af}\n.gv-trk-nav-porsalir{color:#6b7280}\n.gv-trk-nav-sitio{color:#78350f}\n.gv-trk-nav-desmov{color:#6d28d9}\n.gv-trk-nav-fin{color:#065f46}\n.gv-trk-hs{font-variant-numeric:tabular-nums;font-weight:600;color:#374151;font-size:.7rem}\n.gv-trk-hs-alerta{color:#b91c1c;font-weight:700}\n.gv-trk-hs-head{font-size:.56rem}\n@media(max-width:900px){#gv-track-list .gv-trk-table{grid-template-columns:max-content max-content max-content minmax(90px,1fr) minmax(110px,1.4fr) max-content max-content minmax(130px,1fr) max-content max-content}.gv-trk-hide-sm{display:none}}";
 /* No se usa #gv-style-container: common.js (GV.injectCSS) omite inyectar el CSS base
        del add-in si ese contenedor ya tiene un <style>, y la vista quedaba sin estilos. */
     (document.head || document.documentElement || document.body).appendChild(st);
@@ -3591,6 +3591,75 @@ function gvLineaDiasHtml(v, av){
     return '<div class="gv-trk-dias" title="Viaje de ' + nDias + ' dia' + (nDias > 1 ? 's' : '') + ' (desde el ' + fecha(0) + ')" style="display:flex;gap:2px;padding:0 3px;margin-bottom:3px">' + slots + '<span style="flex:0 0 14px"></span></div>';
   }catch(e){ return ''; }
 }
+/* 12/11: FIN ESTIMADO de la unidad (Seguimiento, al lado de la banderita): egreso estimado de la ULTIMA parada del
+   viaje y su nombre, para saber a que hora y donde queda libre la unidad y poder asignarle otro viaje. Se estima
+   igual que el detalle: se parte de lo real (ingreso/egreso ya registrados) y se suman tramos + permanencias
+   programadas; el primer sitio de carga/descarga con horario fijo usa ese horario; si un tramo cruza la medianoche
+   (salvo camiones de 24 hs / nocturnos) sigue al dia siguiente desde las 08:00. Sin paradas, se usa el destino. */
+function gvFinEstimado(v, estados){
+  if(!v || v.estado === 'cancelado') return null;
+  var pts = gvRutaPuntosViaje(v);
+  if(pts.length < 1) return null;
+  var objIdx = -1;
+  for(var k = pts.length - 1; k >= 0; k--){ if(String(pts[k].id).indexOf('parada') === 0){ objIdx = k; break; } }
+  if(objIdx < 0){ for(var k2 = pts.length - 1; k2 >= 1; k2--){ if(pts[k2].id === 'destino'){ objIdx = k2; break; } } }
+  if(objIdx < 0) return null;
+  var sr = estados || v.sitiosReal || {};
+  var cache = gvRutaLegsCache[v.id];
+  var legs = (cache && cache.sig === gvSigPts(pts.map(function(x){ return x.p; }))) ? cache.legs : null;
+  var fijo = gvIngresoFijoPrimeraOper(v);
+  var activo = (v.estado === 'en_curso' || v.estado === 'demorado');
+  var ahora = Date.now(), sinPern = gvSinPernocte(v);
+  function legSeg(i){
+    var d = (legs && legs[i - 1] && typeof legs[i - 1].duration === 'number') ? legs[i - 1].duration : null;
+    if(d == null){ try{ var m = GV.buscarRutaAprendida(pts[i - 1].p, pts[i].p, v.id); if(m && m.r && m.r.minProm) d = m.r.minProm * 60; }catch(e){} }
+    if(d == null){ var dk = GV.distKm(pts[i - 1].p, pts[i].p) || 0; d = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
+    return d;
+  }
+  function permMin(p){ var pr = (p.esperaAcordada && typeof p.esperaAcordada.duracionProgramadaMin === 'number') ? p.esperaAcordada.duracionProgramadaMin : (p.duracionMin || 0); return p.tipo ? pr : 0; }
+  var t = null, ing = null, eg = null;
+  for(var i = 0; i <= objIdx; i++){
+    var p = pts[i].p, s = sr[pts[i].id] || {};
+    var rIn = s.ingreso ? new Date(s.ingreso).getTime() : NaN, rOut = s.egreso ? new Date(s.egreso).getTime() : NaN;
+    if(i === 0){
+      ing = null;
+      eg = !isNaN(rOut) ? rOut : new Date(v.fechaSalida).getTime();
+      if(isNaN(eg)) return null;
+      if(isNaN(rOut) && activo && eg < ahora) eg = ahora;
+      t = eg; continue;
+    }
+    if(!isNaN(rIn)) ing = rIn;
+    else {
+      var base = t, dur = legSeg(i);
+      ing = base + dur * 1000;
+      if(!sinPern && GV.dateStr(new Date(ing)) !== GV.dateStr(new Date(base))){ var re = new Date(base); re.setDate(re.getDate() + 1); re.setHours(GV_PERNOCTE_HORA, 0, 0, 0); ing = re.getTime() + dur * 1000; }
+      if(fijo && fijo.id === pts[i].id) ing = fijo.fecha.getTime();
+      else if(p.llegadaProgramada){ var lp = new Date(p.llegadaProgramada).getTime(); if(!isNaN(lp) && lp > ing) ing = lp; }
+    }
+    if(!isNaN(rOut)) eg = rOut;
+    else if(p.tipo === 'espera' && p.permaneceHasta) eg = new Date(p.permaneceHasta).getTime();
+    else {
+      eg = ing + permMin(p) * 60000;
+      if(p.tipo && p.esperaAcordada && p.esperaAcordada.hasta){ var h = new Date(p.esperaAcordada.hasta).getTime(); if(!isNaN(h) && h > eg) eg = h; }
+      if(activo && eg < ahora) eg = ahora; /* ya deberia haber salido y no salio: como minimo, ahora */
+    }
+    t = eg;
+  }
+  var pObj = pts[objIdx].p, sObj = sr[pts[objIdx].id] || {};
+  var real = !!(pts[objIdx].id === 'destino' ? sObj.ingreso : sObj.egreso);
+  var hora = (pts[objIdx].id === 'destino') ? ing : eg;
+  if(v.estado === 'completado' && !real) return null;
+  return { nombre: GV.siteNameFor(pObj) || 'Ultima parada', fecha: new Date(hora), real: real, esDestino: pts[objIdx].id === 'destino' };
+}
+function gvFinEstimadoHtml(v, estados){
+  var f = null; try{ f = gvFinEstimado(v, estados); }catch(e){ return ''; }
+  if(!f || isNaN(f.fecha.getTime())) return '';
+  var d = f.fecha, p2 = function(n){ return (n < 10 ? '0' : '') + n; };
+  var hh = p2(d.getHours()) + ':' + p2(d.getMinutes());
+  var dia = (GV.dateStr(d) !== GV.dateStr(new Date())) ? (p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ') : '';
+  var tit = (f.real ? 'Termino en ' : 'Termina en ') + f.nombre + ' - ' + (f.esDestino ? 'llegada ' : 'egreso ') + (f.real ? 'real ' : 'estimado ') + GV.fmtDate(d);
+  return '<div class="gv-trk-fin' + (f.real ? ' gv-trk-fin-real' : '') + '" title="' + GV.escapeHtml(tit) + '"><b>' + dia + hh + '</b><span>' + GV.escapeHtml(f.nombre) + '</span></div>';
+}
 function gvBarraAvanceHtml(v, estados){
 var av = gvAvanceViaje(v, estados);
 if(!av.hitos.length){
@@ -3602,7 +3671,7 @@ var c = av.clases[i];
 var mod = c === 'done' ? 'done' : (c === 'active' ? 'active' : 'pend');
 return '<div class="gv-trk-seg gv-trk-' + mod + '" title="' + GV.escapeHtml(h.label + ' - ' + txt[c]) + '"></div>';
 }).join('');
-return gvLineaDiasHtml(v, av) + '<div class="gv-trk-bar" title="' + av.pct + '% del recorrido cumplido (' + av.hitos.length + ' hitos)">' + segs + '<span class="gv-trk-flag" title="Fin del viaje"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true" style="display:block"><rect x="1" y="1" width="1.1" height="10" fill="#6b7280"/><rect x="2.3" y="1.3" width="8.2" height="5.2" fill="#ffffff" stroke="#9ca3af" stroke-width=".5"/><rect x="2.3" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="6.4" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="4.35" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="8.45" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="2.3" y="4.76" width="2.05" height="1.74" fill="#374151"/><rect x="6.4" y="4.76" width="2.05" height="1.74" fill="#374151"/></svg></span></div>';
+return gvLineaDiasHtml(v, av) + '<div class="gv-trk-prog">' + '<div class="gv-trk-bar" title="' + av.pct + '% del recorrido cumplido (' + av.hitos.length + ' hitos)">' + segs + '<span class="gv-trk-flag" title="Fin del viaje"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true" style="display:block"><rect x="1" y="1" width="1.1" height="10" fill="#6b7280"/><rect x="2.3" y="1.3" width="8.2" height="5.2" fill="#ffffff" stroke="#9ca3af" stroke-width=".5"/><rect x="2.3" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="6.4" y="1.3" width="2.05" height="1.73" fill="#374151"/><rect x="4.35" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="8.45" y="3.03" width="2.05" height="1.73" fill="#374151"/><rect x="2.3" y="4.76" width="2.05" height="1.74" fill="#374151"/><rect x="6.4" y="4.76" width="2.05" height="1.74" fill="#374151"/></svg></span></div>' + gvFinEstimadoHtml(v, estados) + '</div>';
 }
 
 var GV_TRK_EST_COLORS = { planificado:['#e5e7eb','#374151'], en_curso:['#dbeafe','#1e40af'], demorado:['#fee2e2','#991b1b'], completado:['#d1fae5','#065f46'], cancelado:['#f3f4f6','#6b7280'] };
