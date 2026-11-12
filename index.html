@@ -8352,7 +8352,7 @@ var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
 /* 12/11: en el primer sitio de carga/descarga el Ingreso est. se puede editar siempre (horario fijo, independiente de la salida del origen) */
 if(!__isOrigen && __isParada && (+__paradaIdx) === gvIdxPrimeraOper(v)){
   __ingresoEstCell = '<span class="gv-ing-fijo-edit" data-parada-idx="' + __paradaIdx + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="' + (r.ingresoFijo ? 'Horario fijo de ingreso (no depende de la salida del origen). Click para cambiarlo o quitarlo.' : 'Click para fijar el horario de ingreso a este sitio (no dependera de la salida del origen)') + '">' + fmtTimeCell(r.ingreso) + '</span>' +
-    (r.ingresoFijo ? '<div style="font-size:.66rem;font-weight:700;color:#0f766e;margin-top:2px">&#128274; fijo</div>' : '<div style="font-size:.66rem;color:#9ca3af;margin-top:2px">&#9998; editar</div>');
+    (r.ingresoFijo ? '' : '<div style="font-size:.66rem;color:#9ca3af;margin-top:2px">&#9998; editar</div>');
 }
 /* 19/10: se oculta la leyenda "(recalculado por GPS: el horario registrado no era coherente)" a pedido de logistica.
    El horario mostrado sigue siendo el recalculado por GPS; solo se quita el texto. */
