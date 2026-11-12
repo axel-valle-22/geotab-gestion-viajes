@@ -2841,6 +2841,12 @@ try{
           var idsN = {};
           if(gN){ devs.forEach(function(d){ if((d.groups || []).some(function(x){ return x.id === gN.id; })) idsN[d.id] = true; }); }
           GV.__vehNocIds = idsN;
+          /* 12/11: PICKUPS = unidades del grupo "Pick Up" de MyGeotab (y sus subgrupos). Lo usa el filtro general de Seguimiento. */
+          var __npu = function(x){ return String(x || '').toLowerCase().replace(/[^a-z]/g, ''); };
+          var __gById = {}; (grupos || []).forEach(function(x){ __gById[x.id] = x; });
+          var __pu = {}; (grupos || []).forEach(function(x){ if(__npu(x.name) === 'pickup' || __npu(x.name) === 'pickups'){ var pila = [x.id]; while(pila.length){ var gid = pila.pop(); __pu[gid] = true; ((__gById[gid] || {}).children || []).forEach(function(c){ pila.push(c.id); }); } } });
+          var idsPU = {}; devs.forEach(function(d){ if((d.groups || []).some(function(x){ return __pu[x.id]; })) idsPU[d.id] = true; });
+          GV.__vehPickupIds = idsPU;
         }catch(__eNoc){}
         /* Ajuste 15/10: cliente de cada unidad = los subgrupos de "Clientes" en MyGeotab (SLB, SIDERCA,
            HALLIBURTON...) a los que esta asignado el vehiculo. Se usa en la columna Cliente de Seguimiento. */
@@ -3244,6 +3250,7 @@ abrirDetalleViaje(id);
     this.setAttribute('aria-expanded', abrir ? 'true' : 'false');
     if(abrir){ gTrackFitKey = null; renderTracking(); } /* al abrir el mapa se encuadra de nuevo */
   });
+  try{ gvFiltroGenInit(); }catch(__eFgi){ console.warn('[GV] filtro general:', __eFgi); }
 
   var gerList = document.getElementById('gv-gerenciamientos-list');
   if(gerList){
@@ -4331,6 +4338,98 @@ function gvOnCallPopover(chip){
   }, 0);
 }
 document.addEventListener('click', function(e){ var c = e.target && e.target.closest && e.target.closest('.gv-oncall-chip'); if(c){ e.stopPropagation(); e.preventDefault(); gvOnCallPopover(c); } }, true);
+/* ---------------- 12/11: FILTRO GENERAL de Seguimiento ----------------
+   Filtra a la vez la tabla y el mapa de Seguimiento y los tres cuadros de abajo (libres, sin planificacion,
+   finalizados). Opciones (se pueden tildar varias): Grupo A y Grupo B (todo el grupo o clientes sueltos, segun la
+   lista GV_ONCALL_SUBCLIENTES), ON CALL (grupos comodin ON CALL / BACK UP) y Pickups (grupo "Pick Up" de MyGeotab).
+   Un viaje ON CALL con cliente asignado aparece en ON CALL y tambien en el grupo de ese cliente. Nada tildado = todo. */
+var gFiltroGen = { clientes: [], oncall: false, pickups: false };
+try{ var __fg = JSON.parse(localStorage.getItem('gv_filtro_gen') || 'null'); if(__fg && typeof __fg === 'object') gFiltroGen = { clientes: Array.isArray(__fg.clientes) ? __fg.clientes : [], oncall: !!__fg.oncall, pickups: !!__fg.pickups }; }catch(__eFg){}
+function gvFiltroGenActivo(){ return !!(gFiltroGen.clientes.length || gFiltroGen.oncall || gFiltroGen.pickups); }
+function gvNormCli(c){ var u = String(c || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim(); if(/^HASA$/.test(u) || /HALLIBURTON/.test(u)) return 'HASA'; return u; }
+/* cliente de la lista A/B que corresponde a un nombre de grupo de MyGeotab (ej. "SLB Neuquen" -> "SLB") */
+function gvClienteDeLista(nombre){
+  var n = gvNormCli(nombre); if(!n) return null;
+  for(var i = 0; i < GV_ONCALL_SUBCLIENTES.length; i++){ var cs = GV_ONCALL_SUBCLIENTES[i].clientes; for(var j = 0; j < cs.length; j++){ var k = gvNormCli(cs[j]); if(n === k || n.indexOf(k) === 0 || k.split('/').some(function(p){ return p && n.indexOf(p.trim()) >= 0; })) return cs[j]; } }
+  return null;
+}
+function gvPasaFiltroGen(vehId, viaje){
+  if(!gvFiltroGenActivo()) return true;
+  var cs = (vehId && (GV.__clientesPorVeh || {})[vehId]) || [];
+  if(gFiltroGen.pickups && vehId && (GV.__vehPickupIds || {})[vehId]) return true;
+  var esOnCall = cs.some(function(c){ return !!gvComodinTipo(c); });
+  if(gFiltroGen.oncall && esOnCall) return true;
+  if(gFiltroGen.clientes.length){
+    var reales = cs.filter(function(c){ return !gvComodinTipo(c); });
+    if(viaje && viaje.onCallCliente) reales = reales.concat([viaje.onCallCliente]);
+    if(reales.some(function(c){ var l = gvClienteDeLista(c); return l && gFiltroGen.clientes.indexOf(l) >= 0; })) return true;
+  }
+  return false;
+}
+function gvFiltroGenTexto(){
+  if(!gvFiltroGenActivo()) return 'Todos';
+  var partes = [];
+  GV_ONCALL_SUBCLIENTES.forEach(function(g){ var sel = g.clientes.filter(function(c){ return gFiltroGen.clientes.indexOf(c) >= 0; }); if(sel.length === g.clientes.length) partes.push(g.grupo); else if(sel.length) partes.push(sel.join(', ')); });
+  if(gFiltroGen.oncall) partes.push('ON CALL'); if(gFiltroGen.pickups) partes.push('Pickups');
+  return partes.join(' + ');
+}
+function gvFiltroGenAplicar(){
+  try{ localStorage.setItem('gv_filtro_gen', JSON.stringify(gFiltroGen)); }catch(e){}
+  var b = document.getElementById('gv-filtro-gen-btn');
+  if(b){ var t = gvFiltroGenTexto(); b.innerHTML = 'Filtro: <b>' + GV.escapeHtml(t) + '</b> &#9662;'; b.title = t; b.style.background = gvFiltroGenActivo() ? 'var(--gv-accent-light)' : ''; b.style.borderColor = gvFiltroGenActivo() ? 'var(--gv-accent)' : ''; }
+  gTrackSelectedId = null;
+  try{ renderTracking(); }catch(e){}
+  try{ gvRenderMasHoy(false); gvPintarSinPlan(); gvPintarLibres(); }catch(e){}
+}
+var gFiltroGenAbiertos = {};
+function gvFiltroGenMenu(){
+  var m = document.getElementById('gv-filtro-gen-menu'); if(!m) return;
+  var fila = function(attrs, chk, txt, extra, sangria){ return '<label ' + attrs + ' style="display:flex;align-items:center;gap:7px;padding:5px 10px;' + (sangria ? 'padding-left:30px;' : '') + 'border-radius:6px;cursor:pointer;font-size:.8rem;color:#20232B;' + (chk ? 'font-weight:700;background:var(--gv-accent-light)' : '') + '"><input type="checkbox" style="margin:0;accent-color:var(--gv-accent)"' + (chk ? ' checked' : '') + '>' + txt + (extra || '') + '</label>'; };
+  var h = fila('data-fg="todos"', !gvFiltroGenActivo(), 'Todos');
+  GV_ONCALL_SUBCLIENTES.forEach(function(g, gi){
+    var sel = g.clientes.filter(function(c){ return gFiltroGen.clientes.indexOf(c) >= 0; }).length, todo = sel === g.clientes.length;
+    var ab = !!gFiltroGenAbiertos[gi];
+    h += '<div style="display:flex;align-items:center">' + fila('data-fg="grupo" data-gi="' + gi + '"', todo, GV.escapeHtml(g.grupo) + (sel && !todo ? ' <span style="color:#9ca3af;font-weight:500">(' + sel + ')</span>' : '')).replace('style="display:flex', 'style="flex:1;display:flex') +
+      '<button type="button" data-fg-abrir="' + gi + '" title="Ver los clientes del grupo" style="border:0;background:none;cursor:pointer;color:#6b7280;padding:4px 8px;font-size:.8rem">' + (ab ? '&#9662;' : '&#9656;') + '</button></div>';
+    if(ab) g.clientes.forEach(function(c){ h += fila('data-fg="cli" data-c="' + GV.escapeHtml(c) + '"', gFiltroGen.clientes.indexOf(c) >= 0, GV.escapeHtml(c), '', true); });
+  });
+  h += fila('data-fg="oncall"', gFiltroGen.oncall, 'ON CALL / BACK UP');
+  h += fila('data-fg="pickups"', gFiltroGen.pickups, 'Pickups');
+  m.innerHTML = h;
+}
+function gvFiltroGenInit(){
+  var buscar = document.getElementById('gv-track-buscar'); if(!buscar || document.getElementById('gv-filtro-gen')) return;
+  var w = document.createElement('div'); w.id = 'gv-filtro-gen'; w.style.cssText = 'position:relative;display:inline-block';
+  w.innerHTML = '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-filtro-gen-btn" style="white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis"></button>' +
+    '<div id="gv-filtro-gen-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:100050;background:#fff;border:1px solid var(--gv-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:230px;max-height:420px;overflow:auto;padding:4px;text-align:left"></div>';
+  buscar.parentNode.insertBefore(w, buscar);
+  var btn = w.querySelector('#gv-filtro-gen-btn'), menu = w.querySelector('#gv-filtro-gen-menu');
+  btn.addEventListener('click', function(e){ e.stopPropagation(); if(menu.style.display === 'none'){ gvFiltroGenMenu(); menu.style.display = 'block'; } else menu.style.display = 'none'; });
+  menu.addEventListener('click', function(e){
+    e.stopPropagation();
+    var ab = e.target.closest('[data-fg-abrir]');
+    if(ab){ e.preventDefault(); var gi = +ab.getAttribute('data-fg-abrir'); gFiltroGenAbiertos[gi] = !gFiltroGenAbiertos[gi]; gvFiltroGenMenu(); return; }
+    var op = e.target.closest('[data-fg]'); if(!op) return;
+    e.preventDefault();
+    var t = op.getAttribute('data-fg');
+    if(t === 'todos') gFiltroGen = { clientes: [], oncall: false, pickups: false };
+    else if(t === 'oncall') gFiltroGen.oncall = !gFiltroGen.oncall;
+    else if(t === 'pickups') gFiltroGen.pickups = !gFiltroGen.pickups;
+    else if(t === 'grupo'){
+      var g = GV_ONCALL_SUBCLIENTES[+op.getAttribute('data-gi')];
+      var todo = g.clientes.every(function(c){ return gFiltroGen.clientes.indexOf(c) >= 0; });
+      gFiltroGen.clientes = gFiltroGen.clientes.filter(function(c){ return g.clientes.indexOf(c) < 0; });
+      if(!todo) gFiltroGen.clientes = gFiltroGen.clientes.concat(g.clientes);
+    } else if(t === 'cli'){
+      var c = op.getAttribute('data-c'), k = gFiltroGen.clientes.indexOf(c);
+      if(k >= 0) gFiltroGen.clientes.splice(k, 1); else gFiltroGen.clientes.push(c);
+    }
+    gvFiltroGenMenu();
+    gvFiltroGenAplicar();
+  });
+  document.addEventListener('click', function(){ menu.style.display = 'none'; });
+  gvFiltroGenAplicar();
+}
 function gvSegmentosDeViaje(v){
   var m = GV.__segmentosPorVeh || {};
   return (v && v.vehiculoId && m[v.vehiculoId]) ? m[v.vehiculoId].slice() : [];
@@ -4351,7 +4450,7 @@ function gvRenderMasHoy(forzar){
   if(!cont || cont.style.display === 'none') return;
   var hoyStr = GV.dateStr(new Date());
   /* --- finalizados hoy --- */
-  var fin = GV.Storage.getViajes().filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === hoyStr; })
+  var fin = GV.Storage.getViajes().filter(function(v){ return v.estado === 'completado' && v.completadoEn && GV.dateStr(v.completadoEn) === hoyStr && gvPasaFiltroGen(v.vehiculoId, v); })
     .sort(function(a, b){ return new Date(b.completadoEn) - new Date(a.completadoEn); });
   var finEl = document.getElementById('gv-mh-fin'), finN = document.getElementById('gv-mh-fin-n');
   if(finN) finN.textContent = '(' + fin.length + ')';
@@ -4472,13 +4571,15 @@ function gvRenderMasHoy(forzar){
   }, function(){ var el = document.getElementById('gv-mh-sp'); if(el) el.innerHTML = '<div style="font-size:.8rem;color:#dc2626;padding:8px">No se pudo consultar la posicion de la flota.</div>'; });
 }
 function gvPintarSinPlan(){
+  var __lista = gMhSinPlan.filter(function(u){ return gvPasaFiltroGen(u.vehId); });
+  var __verSlb = !gvFiltroGenActivo() || gFiltroGen.clientes.indexOf('SLB') >= 0;
   var el = document.getElementById('gv-mh-sp'), n = document.getElementById('gv-mh-sp-n');
   if(!el) return;
-  if(n) n.textContent = '(' + (gMhSinPlan.length + gPropuestasSLB.length + gCambiosSLB.length) + ')';
-  var __slbHtml = gvSlbHtmlPropuestas();
-  if(!gMhSinPlan.length){ el.innerHTML = __slbHtml + (__slbHtml ? '' : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'); gvSlbEnlazarBotones(el); return; }
+  if(n) n.textContent = '(' + (__lista.length + (__verSlb ? gPropuestasSLB.length + gCambiosSLB.length : 0)) + ')';
+  var __slbHtml = __verSlb ? gvSlbHtmlPropuestas() : '';
+  if(!__lista.length){ el.innerHTML = __slbHtml + (__slbHtml ? '' : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades circulando sin viaje cargado.</div>'); gvSlbEnlazarBotones(el); return; }
   var grupos = {};
-  gMhSinPlan.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
+  __lista.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
   var claves = Object.keys(grupos).sort(function(a, b){ return a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b); });
   el.innerHTML = __slbHtml + claves.map(function(c){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
@@ -4494,12 +4595,13 @@ function gvPintarSinPlan(){
   gvSlbEnlazarBotones(el);
 }
 function gvPintarLibres(){
+  var __lista = gMhLibres.filter(function(u){ return gvPasaFiltroGen(u.vehId); });
   var el = document.getElementById('gv-mh-lib'), n = document.getElementById('gv-mh-lib-n');
   if(!el) return;
-  if(n) n.textContent = '(' + gMhLibres.length + ')';
-  if(!gMhLibres.length){ el.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades libres en las bases.</div>'; return; }
+  if(n) n.textContent = '(' + __lista.length + ')';
+  if(!__lista.length){ el.innerHTML = '<div style="font-size:.8rem;color:#9ca3af;padding:8px">No hay unidades libres en las bases.</div>'; return; }
   var grupos = {};
-  gMhLibres.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
+  __lista.forEach(function(u){ var cs = u.clientes.length ? u.clientes : ['Sin cliente']; cs.forEach(function(c){ (grupos[c] = grupos[c] || []).push(u); }); });
   var claves = Object.keys(grupos).sort(function(a, b){ return a === 'Sin cliente' ? 1 : b === 'Sin cliente' ? -1 : a.localeCompare(b); });
   el.innerHTML = claves.map(function(c){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
@@ -4767,6 +4869,8 @@ function renderTracking(){
       if(GV.dateStr(v.fechaSalida) === hoyStr) return true;
       return v.estado === 'en_curso' || v.estado === 'demorado';
     });
+    /* 12/11: filtro general (Grupo A/B, ON CALL, Pickups) antes que los filtros de columna */
+    if(gvFiltroGenActivo()) todos = todos.filter(function(v){ return gvPasaFiltroGen(v.vehiculoId, v); });
     /* Ajuste 15/10: filtro por cliente (columna Cliente). */
     var __todosSinFiltro = todos;
     var __clientesHoy = [];
