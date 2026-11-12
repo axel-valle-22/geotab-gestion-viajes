@@ -4430,8 +4430,9 @@ function gvPintarSinPlan(){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
         return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
-          '<b>' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">chofer no identificado</i>') + '</span>' +
-          (u.detenida ? ('<span style="margin-left:auto;color:#6b7280;white-space:nowrap" title="Detenida fuera de las bases de TDP">Detenida' + (u.detenidaMs ? ' hace ' + GV.fmtDurMin(u.detenidaMs) : '') + '</span>') : ('<span style="margin-left:auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar viaje</span></div>';
+          /* 12/11: con tres cuadros cada uno es mas angosto: todo en una linea, el chofer se corta con "..." */
+          '<b style="white-space:nowrap;flex:0 0 auto">' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + GV.escapeHtml(u.cond || 'chofer no identificado') + '">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">sin chofer</i>') + '</span>' +
+          (u.detenida ? ('<span style="flex:0 0 auto;color:#6b7280;white-space:nowrap" title="Detenida fuera de las bases de TDP">Detenida' + (u.detenidaMs ? ' ' + GV.fmtDurMin(u.detenidaMs) : '') + '</span>') : ('<span style="flex:0 0 auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="flex:0 0 auto;color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar</span></div>';
       }).join('');
   }).join('');
   gvSlbEnlazarBotones(el);
