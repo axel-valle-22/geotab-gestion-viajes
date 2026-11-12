@@ -4361,7 +4361,7 @@ function gvRenderMasHoy(forzar){
       var dur = (ini && v.completadoEn) ? GV.fmtDurMin(new Date(v.completadoEn) - new Date(ini)) : '';
       var ruta = [v.origen ? GV.siteNameFor(v.origen) : ''].concat((v.paradas || []).map(function(p){ return GV.siteNameFor(p); })).concat(v.destino ? [GV.siteNameFor(v.destino)] : []).filter(Boolean).join(' → ');
       return '<div data-mh-viaje="' + v.id + '" title="Ver el detalle del viaje" style="cursor:pointer;padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;border-radius:6px" onmouseover="this.style.background=\'#f0fdf4\'" onmouseout="this.style.background=\'\'">' +
-        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' + (cli ? gvClienteBadgesHtml(v, false) : '') + '<span style="margin-left:auto;color:#059669;font-weight:600;white-space:nowrap">' + (GV.dateStr(ini) !== hoyStr ? new Date(ini).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' : '') + gvHoraCorta(ini) + ' → ' + gvHoraCorta(v.completadoEn) + (dur ? ' (' + dur + ')' : '') + '</span></div>' +
+        '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b>' + GV.escapeHtml(v.conductor || '') + '</b><span style="color:#374151">' + GV.escapeHtml(v.vehiculo || '') + '</span>' + (cli ? gvClienteBadgesHtml(v, false) : '') + '</div>' + /* 12/11: se saca la fecha/horario en verde para que quede mas limpio */
         '<div style="color:#6b7280;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + GV.escapeHtml(ruta) + '</div></div>';
     }).join('') : '<div style="font-size:.8rem;color:#9ca3af;padding:8px">Todavia no se cerro ningun viaje hoy.</div>';
   }
@@ -4432,7 +4432,8 @@ function gvPintarSinPlan(){
         return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
           /* 12/11: con tres cuadros cada uno es mas angosto: todo en una linea, el chofer se corta con "..." */
           '<b style="white-space:nowrap;flex:0 0 auto">' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + GV.escapeHtml(u.cond || 'chofer no identificado') + '">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">sin chofer</i>') + '</span>' +
-          (u.detenida ? ('<span style="flex:0 0 auto;color:#6b7280;white-space:nowrap" title="Detenida fuera de las bases de TDP">Detenida' + (u.detenidaMs ? ' ' + GV.fmtDurMin(u.detenidaMs) : '') + '</span>') : ('<span style="flex:0 0 auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="flex:0 0 auto;color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar</span></div>';
+          /* 12/11: ya no se muestra "Detenida ..." (mas limpio); si esta circulando se sigue viendo la velocidad */
+          (u.detenida ? '' : ('<span style="flex:0 0 auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="flex:0 0 auto;color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar</span></div>';
       }).join('');
   }).join('');
   gvSlbEnlazarBotones(el);
