@@ -2303,37 +2303,57 @@ GV.Storage = (function(){
      con 0 viajes y no se volvia a intentar hasta recargar la pagina. Ahora: se lee siempre del servidor, si
      falla o vuelve vacio se reintenta (5 s, 15 s, 30 s, 60 s y despues cada 2 min), nunca se pisa un historico
      ya cargado con uno vacio, y se relee cada 15 min para que una pestana abierta todo el dia no quede corta. */
-  var _histReintento = null, _histIntentos = 0, _histCargando = null;
+  /* 12/11: la lectura de TODA la coleccion de una vez (unos 3 MB) a veces quedaba colgada para siempre (ni respuesta ni
+     error: se vio en vivo, mientras un documento suelto respondia en 0,2 s), y el Panel seguia sin los dias anteriores.
+     Ahora se lee documento por documento, en paralelo, cada uno con su limite de tiempo: los meses desde
+     HIST_DESDE hasta el actual (AAAA-MM, AAAA-MM_2 ... _5) y la memoria de rutas (rutas_0 ... rutas_7). Lo que llega
+     se muestra enseguida; lo que falla o no responde se reintenta solo (5 s, 15 s, 30 s, 60 s, despues cada 2 min) y
+     mientras tanto se conserva lo que ya se habia leido de ese documento. */
+  var HIST_DESDE = '2026-07', HIST_TIMEOUT_MS = 30000;
+  var _histReintento = null, _histIntentos = 0, _histCargando = null, _histDocs = {};
+  function idsHistorico(){
+    var ids = [], p = HIST_DESDE.split('-'), y = +p[0], m = +p[1], hoy = new Date(), yf = hoy.getFullYear(), mf = hoy.getMonth() + 1;
+    while(y < yf || (y === yf && m <= mf)){
+      var k = y + '-' + ('0' + m).slice(-2);
+      for(var n = 1; n <= 5; n++) ids.push(n === 1 ? k : k + '_' + n);
+      m++; if(m > 12){ m = 1; y++; }
+    }
+    for(var r = 0; r < 8; r++) ids.push('rutas_' + r);
+    return ids;
+  }
+  function conLimite(pr, ms){ return new Promise(function(res, rej){ var t = setTimeout(function(){ rej(new Error('sin respuesta en ' + (ms / 1000) + ' s')); }, ms); pr.then(function(x){ clearTimeout(t); res(x); }, function(e){ clearTimeout(t); rej(e); }); }); }
+  function armarHistorico(){
+    var viajes = [], ids = {}, docDe = {}, vistos = {};
+    Object.keys(_histDocs).sort().forEach(function(id){
+      var d = _histDocs[id]; if(!d) return;
+      if(d._reg === 'rutas'){ var R = d.rutas || {}; Object.keys(R).forEach(function(k){ _rutas[k] = R[k]; }); return; }
+      (d.viajes || []).forEach(function(v){ if(!v || vistos[v.id]) return; vistos[v.id] = 1; viajes.push(v); docDe[v.id] = id; });
+      (d.alertas || []).forEach(function(a){ if(a && a.id) ids[a.id] = true; });
+    });
+    _hist.viajes = viajes; _hist.alertaIds = ids; _hist.docDeViaje = docDe;
+  }
   function cargarHistorico(){
     if(!_fbDb) return Promise.resolve();
     if(_histCargando) return _histCargando;
-    _histCargando = _fbDb.collection('gv_historico').get({ source: 'server' }).then(function(qs){
-      var viajes = [], ids = {}, docDe = {}, docsMes = 0, rutas = {};
-      qs.forEach(function(doc){
-        var d = doc.data() || {};
-        /* Ajuste 15/10: memoria de rutas, agrupada en 8 documentos (rutas_0 ... rutas_7, _reg:'rutas')
-           para que abrir el panel lea 8 documentos y no uno por ruta. */
-        if(d._reg === 'rutas'){ var R = d.rutas || {}; Object.keys(R).forEach(function(k){ rutas[k] = R[k]; }); return; }
-        docsMes++;
-        (d.viajes || []).forEach(function(v){ viajes.push(v); docDe[v.id] = doc.id; });
-        (d.alertas || []).forEach(function(a){ if(a && a.id) ids[a.id] = true; });
-      });
-      if(!docsMes && !viajes.length){ throw new Error('gv_historico vino vacio'); }
-      Object.keys(rutas).forEach(function(k){ _rutas[k] = rutas[k]; });
-      /* los viajes que se trajeron al documento principal mientras se leia no se duplican: todosLosViajes() ya
-         prioriza el principal */
-      _hist.viajes = viajes; _hist.alertaIds = ids; _hist.docDeViaje = docDe; _hist.cargado = true;
-      _histIntentos = 0;
-      if(_histReintento){ clearTimeout(_histReintento); _histReintento = null; }
+    var col = _fbDb.collection('gv_historico'), lista = idsHistorico(), fallas = 0;
+    _histCargando = Promise.all(lista.map(function(id){
+      return conLimite(col.doc(id).get({ source: 'server' }), HIST_TIMEOUT_MS).then(function(snap){
+        if(snap.exists) _histDocs[id] = snap.data() || {}; else delete _histDocs[id];
+      }, function(err){ fallas++; try{ console.warn('[GV] historico ' + id + ': no se pudo leer (se reintenta):', err && (err.message || err)); }catch(_e){} });
+    })).then(function(){
+      armarHistorico();
+      if(Object.keys(_histDocs).length) _hist.cargado = true;
       notify();
-    })['catch'](function(err){
-      try{ console.warn('[GV] no se pudo leer el historico (se reintenta):', err && (err.message || err)); }catch(_e){}
-      var esperas = [5000, 15000, 30000, 60000];
-      var ms = esperas[Math.min(_histIntentos, esperas.length - 1)];
-      if(_histIntentos >= esperas.length) ms = 120000;
-      _histIntentos++;
-      if(!_histReintento) _histReintento = setTimeout(function(){ _histReintento = null; cargarHistorico(); }, ms);
-    }).then(function(){ _histCargando = null; });
+      if(fallas){
+        var esperas = [5000, 15000, 30000, 60000];
+        var ms = _histIntentos < esperas.length ? esperas[_histIntentos] : 120000;
+        _histIntentos++;
+        if(!_histReintento) _histReintento = setTimeout(function(){ _histReintento = null; cargarHistorico(); }, ms);
+      } else {
+        _histIntentos = 0;
+        if(_histReintento){ clearTimeout(_histReintento); _histReintento = null; }
+      }
+    }).then(function(){ _histCargando = null; }, function(){ _histCargando = null; });
     return _histCargando;
   }
   setInterval(function(){ try{ cargarHistorico(); }catch(e){} }, 15 * 60000);
@@ -2421,6 +2441,7 @@ GV.Storage = (function(){
     _hist.viajes.splice(idx, 1);
     _data.viajes.push(v);
     var docId = _hist.docDeViaje[id]; delete _hist.docDeViaje[id];
+    try{ if(docId && _histDocs[docId] && _histDocs[docId].viajes) _histDocs[docId].viajes = _histDocs[docId].viajes.filter(function(x){ return x.id !== id; }); }catch(_eHD){}
     if(_fbDb && docId){
       var ref = _fbDb.collection('gv_historico').doc(docId);
       _fbDb.runTransaction(function(tx){
