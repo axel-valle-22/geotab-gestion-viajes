@@ -2297,22 +2297,46 @@ GV.Storage = (function(){
     return t != null && t < limite;
   }
 
+  /* 11/11: a veces, al recargar, el Panel no mostraba los viajes de dias anteriores. La lectura de gv_historico
+     era un get() comun: si en ese momento Firestore se consideraba "sin conexion" (pasa con la conexion lenta
+     o por long-polling) devolvia la cache en memoria VACIA sin dar error, se marcaba el historico como cargado
+     con 0 viajes y no se volvia a intentar hasta recargar la pagina. Ahora: se lee siempre del servidor, si
+     falla o vuelve vacio se reintenta (5 s, 15 s, 30 s, 60 s y despues cada 2 min), nunca se pisa un historico
+     ya cargado con uno vacio, y se relee cada 15 min para que una pestana abierta todo el dia no quede corta. */
+  var _histReintento = null, _histIntentos = 0, _histCargando = null;
   function cargarHistorico(){
     if(!_fbDb) return Promise.resolve();
-    return _fbDb.collection('gv_historico').get().then(function(qs){
-      var viajes = [], ids = {}, docDe = {};
+    if(_histCargando) return _histCargando;
+    _histCargando = _fbDb.collection('gv_historico').get({ source: 'server' }).then(function(qs){
+      var viajes = [], ids = {}, docDe = {}, docsMes = 0, rutas = {};
       qs.forEach(function(doc){
         var d = doc.data() || {};
         /* Ajuste 15/10: memoria de rutas, agrupada en 8 documentos (rutas_0 ... rutas_7, _reg:'rutas')
            para que abrir el panel lea 8 documentos y no uno por ruta. */
-        if(d._reg === 'rutas'){ var R = d.rutas || {}; Object.keys(R).forEach(function(k){ _rutas[k] = R[k]; }); return; }
+        if(d._reg === 'rutas'){ var R = d.rutas || {}; Object.keys(R).forEach(function(k){ rutas[k] = R[k]; }); return; }
+        docsMes++;
         (d.viajes || []).forEach(function(v){ viajes.push(v); docDe[v.id] = doc.id; });
         (d.alertas || []).forEach(function(a){ if(a && a.id) ids[a.id] = true; });
       });
+      if(!docsMes && !viajes.length){ throw new Error('gv_historico vino vacio'); }
+      Object.keys(rutas).forEach(function(k){ _rutas[k] = rutas[k]; });
+      /* los viajes que se trajeron al documento principal mientras se leia no se duplican: todosLosViajes() ya
+         prioriza el principal */
       _hist.viajes = viajes; _hist.alertaIds = ids; _hist.docDeViaje = docDe; _hist.cargado = true;
+      _histIntentos = 0;
+      if(_histReintento){ clearTimeout(_histReintento); _histReintento = null; }
       notify();
-    })['catch'](function(){ /* sin historico: se sigue con lo del documento principal */ });
+    })['catch'](function(err){
+      try{ console.warn('[GV] no se pudo leer el historico (se reintenta):', err && (err.message || err)); }catch(_e){}
+      var esperas = [5000, 15000, 30000, 60000];
+      var ms = esperas[Math.min(_histIntentos, esperas.length - 1)];
+      if(_histIntentos >= esperas.length) ms = 120000;
+      _histIntentos++;
+      if(!_histReintento) _histReintento = setTimeout(function(){ _histReintento = null; cargarHistorico(); }, ms);
+    }).then(function(){ _histCargando = null; });
+    return _histCargando;
   }
+  setInterval(function(){ try{ cargarHistorico(); }catch(e){} }, 15 * 60000);
 
   // Mueve al historico lo viejo. Una transaccion de Firestore garantiza que se saque del
   // documento principal y se agregue al mes al mismo tiempo (o nada, si algo falla).
@@ -2377,6 +2401,10 @@ GV.Storage = (function(){
             _writeNonce: _genWriteNonce()
           }, { merge: true });
           movidos = aMover.length + alMover.length;
+          /* 11/11: lo movido se suma enseguida al historico en memoria, asi no desaparece del Panel en el rato
+             entre que el documento principal ya no lo tiene y se termina de releer gv_historico */
+          aMover.forEach(function(v){ if(!_hist.viajes.some(function(h){ return h.id === v.id; })){ _hist.viajes.push(v); } var k = claveMes(v); if(destinos[k]) _hist.docDeViaje[v.id] = destinos[k].ref.id; });
+          alMover.forEach(function(a){ if(a && a.id) _hist.alertaIds[a.id] = true; });
           return true;
         });
       });
