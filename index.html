@@ -3635,6 +3635,8 @@ function gvFinEstimado(v, estados){
       if(!sinPern && GV.dateStr(new Date(ing)) !== GV.dateStr(new Date(base))){ var re = new Date(base); re.setDate(re.getDate() + 1); re.setHours(GV_PERNOCTE_HORA, 0, 0, 0); ing = re.getTime() + dur * 1000; }
       if(fijo && fijo.id === pts[i].id) ing = fijo.fecha.getTime();
       else if(p.llegadaProgramada){ var lp = new Date(p.llegadaProgramada).getTime(); if(!isNaN(lp) && lp > ing) ing = lp; }
+      /* todavia no llego y el estimado ya paso (va demorado en el camino): llega, como minimo, ahora */
+      if(activo && ing < ahora) ing = ahora;
     }
     if(!isNaN(rOut)) eg = rOut;
     else if(p.tipo === 'espera' && p.permaneceHasta) eg = new Date(p.permaneceHasta).getTime();
