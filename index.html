@@ -4666,6 +4666,30 @@ function gvNuevoViajeDesdeUnidad(vehId){
   if(msg){ msg.style.display = 'block'; msg.style.background = '#fffbeb'; msg.style.color = '#92400e'; msg.textContent = u.libre ? ('Unidad ' + u.veh + (u.desmov ? (' desmovilizando desde ' + u.desde) : (' libre en ' + u.base)) + ': se completaron la unidad y el origen (ultima posicion). Agrega el chofer, los puntos de carga/descarga y el destino, y guarda.') : ('Unidad ' + u.veh + ' circulando sin viaje cargado: se completaron la unidad' + (u.cond ? ', el chofer' : '') + ' y el origen (ultima posicion). Agrega los puntos de carga/descarga y el destino, y guarda.'); }
 }
 
+/* 12/11: capas de ruta por viaje en Seguimiento (ver renderTracking): ocultas por defecto con todos los viajes a la
+   vista; gvRutaVer(id, true/false) las muestra u oculta. Tocar un camion la deja fija (gTrackRutaFija). */
+var gTrackRutas = {}, gTrackRutaVista = null, gTrackRutaFija = null;
+function gvCapaRuta(id, ocultar){
+  var g = gTrackRutas[id] = { items: [], ocultar: ocultar };
+  return {
+    add: function(o){ gTrackLayer.add(o); g.items.push(o); if(g.ocultar && gTrackRutaVista !== id && gTrackRutaFija !== id){ try{ o.setMap(null); }catch(e){} } return o; },
+    hasLayer: function(o){ return gTrackLayer.hasLayer(o); },
+    removeLayer: function(o){ gTrackLayer.removeLayer(o); var i = g.items.indexOf(o); if(i >= 0) g.items.splice(i, 1); }
+  };
+}
+function gvRutaVer(id, on){
+  var g = gTrackRutas[id]; if(!g || !g.ocultar || !gTrackMap) return;
+  g.items.forEach(function(o){ try{ o.setMap(on ? gTrackMap : null); }catch(e){} });
+}
+function gvRutaHover(id, on){
+  if(on){ if(gTrackRutaVista && gTrackRutaVista !== id && gTrackRutaVista !== gTrackRutaFija) gvRutaVer(gTrackRutaVista, false); gTrackRutaVista = id; gvRutaVer(id, true); }
+  else { if(gTrackRutaVista === id){ gTrackRutaVista = null; if(gTrackRutaFija !== id) gvRutaVer(id, false); } }
+}
+function gvRutaFijar(id){
+  if(gTrackRutaFija === id){ gTrackRutaFija = null; if(gTrackRutaVista !== id) gvRutaVer(id, false); return; }
+  if(gTrackRutaFija) gvRutaVer(gTrackRutaFija, false);
+  gTrackRutaFija = id; gvRutaVer(id, true);
+}
 function renderTracking(){
   try{ gvRenderMasHoy(false); }catch(__eMh){}
   var box = document.getElementById('gv-track-map');
@@ -4763,36 +4787,42 @@ function renderTracking(){
     activos.forEach(function(v){ activosIds[v.id] = true; });
 
     var bounds = [];
+    /* 12/11: con TODOS los viajes a la vista, el mapa muestra solo los camiones: la ruta, los puntos y las geocercas
+       de cada viaje se dibujan pero quedan ocultos, y aparecen al pasar el mouse (o tocar) su camion en el mapa o su
+       fila en la tabla. Con un viaje elegido se ve su ruta completa, como siempre. */
+    gTrackRutas = {};
+    var __todosModo = !gTrackSelectedId;
     activos.forEach(function(v){
+      var L = gvCapaRuta(v.id, __todosModo);
       var pts = [];
       if(v.origen) pts.push({ lat: v.origen.lat, lng: v.origen.lng });
       (v.paradas||[]).forEach(function(p){ pts.push({ lat: p.lat, lng: p.lng }); });
       if(v.destino) pts.push({ lat: v.destino.lat, lng: v.destino.lng });
       if(pts.length > 1){
-              var __fallbackLine = gTrackLayer.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
+              var __fallbackLine = L.add(new google.maps.Polyline({ path: pts, strokeColor: '#00A6E0', strokeOpacity: .5, strokeWeight: 3 }));
               (function(fallbackLine, gen){
                 GV.getRoute(pts, { excluirViajeId: v.id }).then(function(route){
                   try{ if(route && route.legs){ gvRutaLegsCache[v.id] = { n: pts.length, sig: gvSigPts(pts), legs: route.legs }; if(v.compartirToken) gvHorarioProgramado(GV.Storage.getViaje(v.id) || v, route.legs); } }catch(__eLC){}
                   if(gen !== gTrackRenderGen) return;
                   if(route && route.coords && route.coords.length > 1){
-                    if(gTrackLayer.hasLayer(fallbackLine)){ gTrackLayer.removeLayer(fallbackLine); }
-                    gTrackLayer.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
+                    if(L.hasLayer(fallbackLine)){ L.removeLayer(fallbackLine); }
+                    L.add(new google.maps.Polyline({ path: route.coords.map(function(c){ return { lat: c[0], lng: c[1] }; }), strokeColor: '#00A6E0', strokeOpacity: .8, strokeWeight: 4 }));
                   }
                 });
               })(__fallbackLine, myGen);
             }
-      pts.forEach(function(p){ bounds.push(p); });
+      if(!__todosModo) pts.forEach(function(p){ bounds.push(p); }); /* con todos a la vista se encuadran los camiones */
       if(v.origen){
-        var __oMarker = gTrackLayer.add(new google.maps.Marker({ position: { lat: v.origen.lat, lng: v.origen.lng }, icon: GV.stopIcon('O', '#059669'), zIndex: 500, title: 'Origen: ' + GV.siteNameFor(v.origen) + (v.origen.tipo ? ' (' + GV.tipoParadaLabel(v.origen.tipo) + ')' : '') }));
-        if(v.origen.tipo) siteGeofenceLayer(v.origen, gTrackLayer, { otros: siteListFor(v) });
+        var __oMarker = L.add(new google.maps.Marker({ position: { lat: v.origen.lat, lng: v.origen.lng }, icon: GV.stopIcon('O', '#059669'), zIndex: 500, title: 'Origen: ' + GV.siteNameFor(v.origen) + (v.origen.tipo ? ' (' + GV.tipoParadaLabel(v.origen.tipo) + ')' : '') }));
+        if(v.origen.tipo) siteGeofenceLayer(v.origen, L, { otros: siteListFor(v) });
       }
       if(v.destino){
-        var __dMarker = gTrackLayer.add(new google.maps.Marker({ position: { lat: v.destino.lat, lng: v.destino.lng }, icon: GV.stopIcon('D', '#dc2626'), zIndex: 500, title: 'Destino: ' + GV.siteNameFor(v.destino) + (v.destino.tipo ? ' (' + GV.tipoParadaLabel(v.destino.tipo) + ')' : '') }));
-        if(v.destino.tipo) siteGeofenceLayer(v.destino, gTrackLayer, { otros: siteListFor(v) });
+        var __dMarker = L.add(new google.maps.Marker({ position: { lat: v.destino.lat, lng: v.destino.lng }, icon: GV.stopIcon('D', '#dc2626'), zIndex: 500, title: 'Destino: ' + GV.siteNameFor(v.destino) + (v.destino.tipo ? ' (' + GV.tipoParadaLabel(v.destino.tipo) + ')' : '') }));
+        if(v.destino.tipo) siteGeofenceLayer(v.destino, L, { otros: siteListFor(v) });
       }
       (v.paradas||[]).forEach(function(p, __pi){
-        gTrackLayer.add(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, icon: GV.stopIcon(__pi+1, '#d97706'), zIndex: 500, title: (__pi+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p) }));
-        if(p.tipo) siteGeofenceLayer(p, gTrackLayer, { otros: siteListFor(v) });
+        L.add(new google.maps.Marker({ position: { lat: p.lat, lng: p.lng }, icon: GV.stopIcon(__pi+1, '#d97706'), zIndex: 500, title: (__pi+1) + '. ' + GV.tipoParadaLabel(p.tipo) + ': ' + GV.siteNameFor(p) }));
+        if(p.tipo) siteGeofenceLayer(p, L, { otros: siteListFor(v) });
       });
     });
 
@@ -4909,6 +4939,8 @@ todos.forEach(function(v){ updateTrackBadges(v); });
         });
       });
       listEl.querySelectorAll('[data-track-id]').forEach(function(card){
+        card.addEventListener('mouseenter', function(){ gvRutaHover(card.getAttribute('data-track-id'), true); });
+        card.addEventListener('mouseleave', function(){ gvRutaHover(card.getAttribute('data-track-id'), false); });
         card.addEventListener('click', function(){
           var id = card.getAttribute('data-track-id');
           gTrackSelectedId = (gTrackSelectedId === id) ? null : id;
@@ -4938,8 +4970,10 @@ todos.forEach(function(v){ updateTrackBadges(v); });
                de movimiento (circulando/detenido) se ve al pasar el cursor, en la etiqueta. */
             var __truckMarker = gTrackLayer.add(new google.maps.Marker({ position: pos, icon: GV.vehicleIcon(res[0].bearing, '#00A6E0'), zIndex: 1000 }));
             var __truckLabel = gTrackLayer.add(GV.makeLabelOverlay(pos, GV.escapeHtml(__etiquetaCorta)));
-            __truckMarker.addListener('mouseover', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaHover)); });
-            __truckMarker.addListener('mouseout', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaCorta)); });
+            __truckMarker.addListener('mouseover', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaHover)); gvRutaHover(v.id, true); });
+            __truckMarker.addListener('mouseout', function(){ __truckLabel.setContent(GV.escapeHtml(__etiquetaCorta)); gvRutaHover(v.id, false); });
+            /* tocar el camion deja su ruta fija (para celular / para mirarla con calma); tocarlo de nuevo la oculta */
+            __truckMarker.addListener('click', function(){ gvRutaFijar(v.id); });
           }
         }
         if(v.compartirToken && v.estado !== 'completado' && v.estado !== 'cancelado'){
