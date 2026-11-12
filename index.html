@@ -3445,11 +3445,24 @@ function gvSigPts(pts){ return (pts || []).map(function(p){ return Number(p && p
    salida programada + tiempo de cada tramo + permanencia programada (o la espera acordada, si la hay). No se
    recalcula con lo que va pasando en el viaje: queda guardado en el viaje (v.horarioProgramado) y solo se vuelve a
    calcular si cambia la programacion (fecha de salida, sitios, tipos, permanencias o esperas acordadas). */
+/* 12/11: el PRIMER sitio de carga/descarga del viaje tiene un horario de ingreso propio, editable desde el detalle
+   (columna Ingreso est.). Si esta cargado (paradas[i].llegadaProgramada) es fijo: no se calcula ni se corre con la
+   salida del origen; los sitios siguientes se encadenan desde ese horario. Sin cargar, se estima como siempre. */
+function gvIdxPrimeraOper(v){
+  var ps = (v && v.paradas) || [];
+  for(var i = 0; i < ps.length; i++){ var t = ps[i] && ps[i].tipo; if(t === 'carga' || t === 'descarga' || t === 'ambos') return i; }
+  return -1;
+}
+function gvIngresoFijoPrimeraOper(v){
+  var i = gvIdxPrimeraOper(v); if(i < 0) return null;
+  var lp = v.paradas[i].llegadaProgramada; if(!lp) return null;
+  var d = new Date(lp); return isNaN(d.getTime()) ? null : { id: 'parada' + i, idx: i, fecha: d };
+}
 function gvFirmaProgramacion(v){
   return JSON.stringify([v.fechaSalida || ''].concat(gvRutaPuntosViaje(v).map(function(x){
     var p = x.p || {};
     return [x.id, Number(p.lat).toFixed(5), Number(p.lng).toFixed(5), p.tipo || '', p.duracionMin || 0, (p.esperaAcordada && p.esperaAcordada.hasta) || '', p.permaneceHasta || ''];
-  })));
+  })).concat([(gvIngresoFijoPrimeraOper(v) || {}).fecha ? gvIngresoFijoPrimeraOper(v).fecha.toISOString() : '']));
 }
 function gvCalcularHorarioProgramado(v, legs){
   var pts = gvRutaPuntosViaje(v);
@@ -3470,6 +3483,7 @@ function gvCalcularHorarioProgramado(v, legs){
     if(legSeg == null){ var m = GV.buscarRutaAprendida(pts[i - 1].p, pts[i].p, v.id); if(m && m.r && m.r.minProm) legSeg = m.r.minProm * 60; }
     if(legSeg == null){ var dk = GV.distKm(pts[i - 1].p, pts[i].p) || 0; legSeg = GV.duracionCamionSeg(dk * 1.35 * 1000, 0); }
     var ing = t + legSeg * 1000;
+    var __fijoHP = gvIngresoFijoPrimeraOper(v); if(__fijoHP && __fijoHP.id === pts[i].id) ing = __fijoHP.fecha.getTime();
     var eg = egresoDe(pts[i].p, ing);
     out[pts[i].id] = { ingreso: new Date(ing).toISOString(), egreso: new Date(eg).toISOString() };
     t = eg;
@@ -6903,6 +6917,51 @@ renderTrips(); renderTracking(); renderStats();
    A diferencia de "Reprogramar" no vuelve a elegir chofer/camion ni borra el gerenciamiento.
    - Si el viaje todavia no salio: vuelve a "planificado" y la demora de salida se mide contra el horario nuevo.
    - Si ya salio: se recalcula la demora de salida contra la salida real ya registrada. */
+/* 12/11: horario de ingreso FIJO del primer sitio de carga/descarga (ver gvIngresoFijoPrimeraOper) */
+function abrirIngresoFijo(idx){
+var __vI = GV.Storage.getViaje(v.id) || v;
+var par = (__vI.paradas || [])[idx]; if(!par) return;
+var __rowI = (__itinRows || []).filter(function(x){ return x.id === 'parada' + idx; })[0];
+var __base = par.llegadaProgramada ? new Date(par.llegadaProgramada) : ((__rowI && __rowI.ingreso) ? new Date(__rowI.ingreso) : new Date(__vI.fechaSalida));
+var __p2 = function(n){ return (n < 10 ? '0' : '') + n; };
+var __fv = isNaN(__base.getTime()) ? '' : (__base.getFullYear() + '-' + __p2(__base.getMonth() + 1) + '-' + __p2(__base.getDate()));
+var __hv = isNaN(__base.getTime()) ? '' : (__p2(__base.getHours()) + ':' + __p2(__base.getMinutes()));
+var ovI = document.createElement('div');
+ovI.className = 'gv-modal-overlay';
+ovI.style.zIndex = '100001';
+ovI.innerHTML =
+'<div class="gv-modal" style="max-width:400px">' +
+'<h3 style="margin:0 0 12px">Horario de ingreso a ' + GV.escapeHtml(GV.siteNameFor(par)) + '</h3>' +
+'<div style="font-size:.8rem;color:#6b7280;margin-bottom:12px">' + (par.llegadaProgramada ? ('Horario fijo actual: <b>' + GV.fmtDate(par.llegadaProgramada) + '</b>.') : 'Hoy se estima con la salida del origen + el tramo.') + ' Con un horario fijo, este sitio no se corre al cambiar la salida del origen; los sitios siguientes se calculan desde aca.</div>' +
+'<div class="gv-form-row gv-two-col"><div><label>Fecha</label><input type="date" id="gv-if-fecha" value="' + __fv + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div><div><label>Hora</label><input type="time" id="gv-if-hora" value="' + __hv + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></div></div>' +
+'<div class="gv-modal-actions">' + (par.llegadaProgramada ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-if-quitar" style="margin-right:auto">Quitar horario fijo</button>' : '') + '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-if-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-if-save">Guardar horario</button></div>' +
+'</div>';
+document.body.appendChild(ovI);
+function closeI(){ ovI.remove(); }
+function guardarI(valor){
+  var vAct = GV.Storage.getViaje(v.id) || v;
+  var ps = (vAct.paradas || []).map(function(x){ return Object.assign({}, x); });
+  if(!ps[idx]) { closeI(); return; }
+  var antes = ps[idx].llegadaProgramada || null;
+  if(valor){ ps[idx].llegadaProgramada = valor; ps[idx].llegadaProgramadaManual = true; } else { delete ps[idx].llegadaProgramada; delete ps[idx].llegadaProgramadaManual; }
+  GV.Storage.updateViaje(v.id, { paradas: ps }).then(function(){
+    try{ GV.Storage.addAlerta({ id: 'al_' + v.id + '_ingresofijo_' + Date.now(), tipo: 'info', mensaje: (vAct.conductor || '') + ' - ' + (vAct.vehiculo || '') + ': horario de ingreso a ' + GV.siteNameFor(ps[idx]) + (valor ? (' fijado en ' + GV.fmtDate(valor)) : ' vuelve a calcularse con la salida') + (antes ? (' (antes ' + GV.fmtDate(antes) + ')') : '') + '.', fecha: new Date().toISOString(), viajeId: v.id }); }catch(__eAI){}
+    closeI(); closeDetalle(); abrirDetalleViaje(v.id);
+    try{ renderTrips(); renderTracking(); }catch(__eRI){}
+  });
+}
+document.getElementById('gv-if-cancel').addEventListener('click', closeI);
+ovI.addEventListener('click', function(e){ if(e.target === ovI) closeI(); });
+var __qI = document.getElementById('gv-if-quitar'); if(__qI) __qI.addEventListener('click', function(){ guardarI(null); });
+document.getElementById('gv-if-save').addEventListener('click', function(){
+  var f = document.getElementById('gv-if-fecha').value, h = document.getElementById('gv-if-hora').value;
+  if(!f || !h){ alert('Completa la fecha y la hora de ingreso.'); return; }
+  var d = new Date(f + 'T' + h + ':00');
+  if(isNaN(d.getTime())){ alert('Fecha u hora invalida.'); return; }
+  guardarI(d.toISOString());
+});
+}
+
 function abrirHorarioSalida(){
 var ovH = document.createElement('div');
 ovH.className = 'gv-modal-overlay';
@@ -7748,6 +7807,9 @@ try{
 }catch(__ePn){}
 }
 var ingreso = new Date(t);
+/* 12/11: primer sitio de carga/descarga con horario fijo: se usa tal cual, sin depender de la salida del origen */
+var __fijoPO = gvIngresoFijoPrimeraOper(v);
+if(__fijoPO && __fijoPO.id === p.id){ ingreso = new Date(__fijoPO.fecha); __pernocteRow = null; }
 var egreso = ingreso;
 /* Una parada "espera" no tiene minutos fijos de permanencia: el egreso estimado es directamente
 el horario limite (permaneceHasta) que cargo el coordinador, no ingreso + minutos. */
@@ -7935,8 +7997,11 @@ try{ if(typeof detHistPts !== 'undefined' && detHistPts && detHistPts.length > 1
      a poner este recalculo solo donde corresponde. Bug real M349 Brandt: el plan ponia la noche antes del punto 9, la
      unidad llego al 9 el mismo dia, y el egreso estimado del punto 8 quedaba en 3/11 08:00. */
   rows.forEach(function(x){ x.pernocte = null; });
+  var __fijoRC = gvIngresoFijoPrimeraOper(v);
   for(var i = 1; i < rows.length; i++){
     var prev = rows[i - 1], r = rows[i];
+    /* 12/11: primer sitio de carga/descarga con horario fijo: el Ingreso est. es ese horario, no sale del sitio anterior */
+    if(__fijoRC && r.id === __fijoRC.id){ r.ingreso = new Date(__fijoRC.fecha); r.pernocte = null; r.ingresoFijo = true; r.egreso = __egresoDesde(r, r.realIn || r.ingreso); continue; }
     /* La salida del sitio anterior que se toma es la MAS TARDIA entre la real y la estimada: si la unidad
        salio despues de lo previsto (pernocte, demora) manda la real; si hay una espera acordada o una
        permanencia programada mas larga, manda la estimada, y al cambiarla se corre tambien el sitio siguiente. */
@@ -8283,6 +8348,11 @@ __salidaNote = '<span class="gv-er-nota" style="color:#059669">a<br>horario</spa
 var __choferTagIn = r.choferMarcoIngreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco inicio de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeInline(r.choferMarcoIngreso) + '</span>') : '';
 var __choferTagOut = r.choferMarcoEgreso ? ('<br><span style="font-size:.68rem;color:#7c3aed">Chofer marco fin de ' + GV.tipoParadaLabel(r.tipo).toLowerCase() + ': ' + fmtTimeInline(r.choferMarcoEgreso) + '</span>') : '';
 var __ingresoEstCell = __isOrigen ? '-' : fmtTimeCell(r.ingreso);
+/* 12/11: en el primer sitio de carga/descarga el Ingreso est. se puede editar siempre (horario fijo, independiente de la salida del origen) */
+if(!__isOrigen && __isParada && (+__paradaIdx) === gvIdxPrimeraOper(v)){
+  __ingresoEstCell = '<span class="gv-ing-fijo-edit" data-parada-idx="' + __paradaIdx + '" style="cursor:pointer;color:var(--gv-accent);text-decoration:underline dotted;text-underline-offset:2px" title="' + (r.ingresoFijo ? 'Horario fijo de ingreso (no depende de la salida del origen). Click para cambiarlo o quitarlo.' : 'Click para fijar el horario de ingreso a este sitio (no dependera de la salida del origen)') + '">' + fmtTimeCell(r.ingreso) + '</span>' +
+    (r.ingresoFijo ? '<div style="font-size:.66rem;font-weight:700;color:#0f766e;margin-top:2px">&#128274; fijo</div>' : '<div style="font-size:.66rem;color:#9ca3af;margin-top:2px">&#9998; editar</div>');
+}
 /* 19/10: se oculta la leyenda "(recalculado por GPS: el horario registrado no era coherente)" a pedido de logistica.
    El horario mostrado sigue siendo el recalculado por GPS; solo se quita el texto. */
 var __dudosoTag = '';
@@ -8314,6 +8384,9 @@ try{ gvDetAlinearAcciones(); }catch(__eAl){}
   if(__jjB[__hkB] && __jjB[__hkB].fuente !== 'manual') delete __jjB[__hkB];
   GV.Storage.updateViaje(v.id, { nocturno: !__act, nocturnoCambiadoEn: new Date().toISOString(), jornadas: __jjB }).then(function(){ var __cx = document.getElementById('gv-det-close'); if(__cx) __cx.click(); abrirDetalleViaje(v.id); try{ renderTracking(); renderTrips(); checkJornadas(); }catch(__eNb){} });
 }); } })();
+itinEl.querySelectorAll('.gv-ing-fijo-edit').forEach(function(el){
+el.addEventListener('click', function(e){ e.stopPropagation(); abrirIngresoFijo(+el.getAttribute('data-parada-idx')); });
+});
 itinEl.querySelectorAll('.gv-dwell-edit').forEach(function(el){
 el.addEventListener('click', function(){ abrirEditorSitio(el.getAttribute('data-site-id')); });
 });
