@@ -4672,7 +4672,7 @@ var gTrackRutas = {}, gTrackRutaVista = null, gTrackRutaFija = null;
 /* 12/11: el mapa de Seguimiento ya NO se vuelve a encuadrar en cada actualizacion (pisaba el zoom que hacia el
    usuario). Se encuadra solo la primera vez que se arma el mapa y cuando cambia lo que se esta mirando (viaje
    elegido, filtro de cliente o segmento, buscador). Para volver a ver todos: boton "Ver todos" del mapa. */
-var gTrackFitKey = null, gTrackUltBounds = null;
+var gTrackFitKey = null, gTrackUltBounds = null, gTrackCamPos = [], gTrackUsuarioMovio = false;
 function gvTrackEncuadrar(bounds){
   if(!gTrackMap || !bounds || !bounds.length) return;
   gTrackUltBounds = bounds.slice();
@@ -4680,8 +4680,18 @@ function gvTrackEncuadrar(bounds){
   if(key === gTrackFitKey) return;
   var div = null; try{ div = gTrackMap.getDiv(); }catch(e){}
   if(div && !div.offsetWidth) return; /* mapa oculto: con tamano 0 el encuadre queda alejadisimo; se hace al mostrarlo */
-  gTrackFitKey = key;
+  gTrackFitKey = key; gTrackUsuarioMovio = false;
   GV.fitBoundsArr(gTrackMap, bounds, 30);
+  /* Google Maps a veces todavia no tomo el tamano final del mapa recien desplegado y el primer encuadre queda muy
+     alejado: se repite dos veces mas en el primer segundo y medio, salvo que el usuario ya haya movido el mapa */
+  var map = gTrackMap;
+  [500, 1500].forEach(function(ms){ setTimeout(function(){ if(map === gTrackMap && gTrackFitKey === key && !gTrackUsuarioMovio && gTrackUltBounds && gTrackUltBounds.length){ try{ GV.fixMapSize(map); }catch(e){} GV.fitBoundsArr(map, gTrackUltBounds, 30); } }, ms); });
+}
+function gvTrackVerTodos(){
+  var pts = (gTrackCamPos && gTrackCamPos.length) ? gTrackCamPos : gTrackUltBounds;
+  if(!gTrackMap || !pts || !pts.length) return;
+  try{ GV.fixMapSize(gTrackMap); }catch(e){}
+  GV.fitBoundsArr(gTrackMap, pts, 30);
 }
 function gvCapaRuta(id, ocultar){
   var g = gTrackRutas[id] = { items: [], ocultar: ocultar };
@@ -4739,8 +4749,11 @@ function renderTracking(){
         var __vt = document.createElement('button'); __vt.type = 'button'; __vt.textContent = 'Ver todos';
         __vt.title = 'Volver a encuadrar todos los camiones';
         __vt.style.cssText = 'margin:10px;padding:6px 12px;background:#fff;border:0;border-radius:2px;box-shadow:0 1px 4px rgba(0,0,0,.3);font:500 13px Roboto,Arial,sans-serif;cursor:pointer;color:#333';
-        __vt.addEventListener('click', function(){ if(gTrackUltBounds && gTrackUltBounds.length) GV.fitBoundsArr(gTrackMap, gTrackUltBounds, 30); });
+        __vt.addEventListener('click', function(e){ e.stopPropagation(); gvTrackVerTodos(); });
         gTrackMap.controls[google.maps.ControlPosition.TOP_LEFT].push(__vt);
+        /* si el usuario mueve o acerca el mapa, no se le vuelve a encuadrar solo */
+        var __dv = gTrackMap.getDiv();
+        ['mousedown', 'wheel', 'touchstart'].forEach(function(ev){ __dv.addEventListener(ev, function(e){ if(e.target && e.target.closest && e.target.closest('button')) return; gTrackUsuarioMovio = true; }, { passive: true }); });
       }catch(__eVt){}
     }
     gTrackLayer.clearLayers();
@@ -4972,6 +4985,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
       });
     }
 
+    gTrackCamPos = [];
     if(!gApi){ if(bounds.length) gvTrackEncuadrar(bounds); return; }
 
     var pending = todos.length;
@@ -4984,6 +4998,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
           var __ts = classifyVehicleStatus(v.vehiculoId, res[0]); var __tsEl = document.getElementById('gv-track-status-' + v.id); if(__tsEl){ __tsEl.className = 'gv-trk-cell gv-trk-hide-sm gv-trk-live gv-live-' + __ts.cls; __tsEl.textContent = __ts.label; }
           if(activosIds[v.id]){
             bounds.push(pos);
+            if(myGen === gTrackRenderGen) gTrackCamPos.push(pos);
             var __vp2 = vehiculoParts(v.vehiculo);
             var __etiquetaCorta = __vp2.interno + (__vp2.patente ? (' - ' + __vp2.patente) : '') + (v.conductor ? (' (' + v.conductor + ')') : '');
             var __etiquetaHover = __etiquetaCorta + ' - ' + __ts.label;
