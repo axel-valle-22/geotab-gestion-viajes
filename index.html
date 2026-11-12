@@ -4516,7 +4516,7 @@ function gvPintarLibres(){
    la posicion de ese camion cada 15 s: si se mueve, el punto se desplaza, se dibuja el recorrido desde que se abrio y
    se ve la velocidad (y si ya salio de la base). Sirve para corroborar que de verdad esta en esa base. */
 var gLibPip = null;
-function gvLibrePipCerrar(){ if(gLibPip && gLibPip.timer) clearInterval(gLibPip.timer); gLibPip = null; var el = document.getElementById('gv-lib-pip'); if(el) el.remove(); }
+function gvLibrePipCerrar(){ if(gLibPip && gLibPip.anim) cancelAnimationFrame(gLibPip.anim); if(gLibPip && gLibPip.timer) clearInterval(gLibPip.timer); gLibPip = null; var el = document.getElementById('gv-lib-pip'); if(el) el.remove(); }
 function gvLibreUbicacionPip(vehId, origen){
   /* origen 'sp' = cuadro "Viajes en curso sin planificacion" (la ventanita se abre a su derecha) */
   var esSp = origen === 'sp';
@@ -4540,14 +4540,14 @@ function gvLibreUbicacionPip(vehId, origen){
     '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #e5e7eb;background:#f9fafb">' +
       '<b style="font-size:.82rem;color:#111827;white-space:nowrap">' + GV.escapeHtml(u.veh) + '</b>' +
       '<span id="gv-lib-pip-est" style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0"></span>' +
-      '<span title="Se actualiza solo cada 15 s" style="margin-left:auto;font-size:.62rem;font-weight:700;color:#dc2626;white-space:nowrap">&#9679; EN VIVO</span>' +
+      '<span title="Posicion consultada cada 3 s; entre reportes se estima con la velocidad y el rumbo, como en Geotab" style="margin-left:auto;font-size:.62rem;font-weight:700;color:#dc2626;white-space:nowrap">&#9679; EN VIVO</span>' +
       '<button type="button" id="gv-lib-pip-x" title="Cerrar" style="border:0;background:none;font-size:1.1rem;line-height:1;cursor:pointer;color:#6b7280">&times;</button></div>' +
     '<div id="gv-lib-pip-map" style="height:190px;background:#e5e7eb"></div>' +
     '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:.74rem">' +
       '<span id="gv-lib-pip-dir" style="flex:1;min-width:0;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Buscando direccion...</span>' +
       '<span id="gv-lib-pip-act" style="flex:0 0 auto;background:#ecfdf5;color:#065f46;border-radius:999px;padding:3px 8px;font-size:.66rem;white-space:nowrap"></span></div>';
   pip.querySelector('#gv-lib-pip-x').addEventListener('click', gvLibrePipCerrar);
-  var st = gLibPip = { sp: esSp, desmov: !!u.desmov, desde: u.desde || '', vehId: vehId, veh: u.veh, base: u.base, baseLat: u.baseLat, baseLng: u.baseLng, lat: u.lat, lng: u.lng, t: u.t, vel: 0, mov: false, map: null, marker: null, linea: null, camino: [{ lat: u.lat, lng: u.lng }], dirPos: null, timer: null };
+  var st = gLibPip = { bearing: 0, anim: null, fix: null, mostrada: null, cuadro: 0, sp: esSp, desmov: !!u.desmov, desde: u.desde || '', vehId: vehId, veh: u.veh, base: u.base, baseLat: u.baseLat, baseLng: u.baseLng, lat: u.lat, lng: u.lng, t: u.t, vel: 0, mov: false, map: null, marker: null, linea: null, camino: [{ lat: u.lat, lng: u.lng }], dirPos: null, timer: null };
   function p2(n){ return (n < 10 ? '0' : '') + n; }
   function pintarTexto(){
     if(gLibPip !== st) return;
@@ -4569,12 +4569,43 @@ function gvLibreUbicacionPip(vehId, origen){
       GV.reverseGeocode(st.lat, st.lng).then(function(label){ var el = document.getElementById('gv-lib-pip-dir'); if(!el || gLibPip !== st) return; if(!label){ el.textContent = st.lat.toFixed(5) + ', ' + st.lng.toFixed(5); return; } el.title = label; el.textContent = String(label).split(',').map(function(x){ return x.trim(); }).filter(Boolean).slice(0, 3).join(', '); })['catch'](function(){ var el = document.getElementById('gv-lib-pip-dir'); if(el) el.textContent = st.lat.toFixed(5) + ', ' + st.lng.toFixed(5); });
     }
   }
+  /* 12/11: icono como el de Geotab: circulo azul con flechita blanca que apunta hacia donde va (rumbo del GPS) cuando
+     circula, y con un cuadradito cuando esta detenido */
+  function iconoUnidad(){
+    var g = window.google, svg;
+    if(st.mov) svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="#2563eb" stroke="#fff" stroke-width="2.5"/><path d="M15 6.5 L20.5 20 L15 16.8 L9.5 20 Z" fill="#fff" transform="rotate(' + (Math.round(st.bearing || 0)) + ' 15 15)"/></svg>';
+    else svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="#2563eb" stroke="#fff" stroke-width="2.5"/><rect x="11" y="11" width="8" height="8" rx="1" fill="#fff"/></svg>';
+    return { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg), scaledSize: new g.maps.Size(30, 30), anchor: new g.maps.Point(15, 15) };
+  }
+  /* 12/11: movimiento FLUIDO como en Geotab. El equipo GPS no manda un punto por segundo (registra cada varios
+     segundos, mas seguido en las curvas); lo que hace Geotab es ESTIMAR la posicion entre un reporte y el otro con la
+     velocidad y el rumbo. Aca igual: se consulta la posicion cada 3 s y, en el medio, el camion avanza cuadro a cuadro
+     segun su velocidad y rumbo (hasta 20 s despues del ultimo reporte); cuando llega un reporte nuevo se corrige
+     suavemente hacia el, sin saltos. Detenido, queda quieto en el ultimo punto. */
+  function estimada(){
+    var f = st.fix; if(!f) return { lat: st.lat, lng: st.lng };
+    if(!st.mov || !(st.vel > 0)) return { lat: f.lat, lng: f.lng };
+    var seg = Math.min(20, Math.max(0, (Date.now() - f.tLocal) / 1000));
+    var dKm = st.vel * seg / 3600, rad = Math.PI / 180, br = (st.bearing || 0) * rad;
+    return { lat: f.lat + (dKm / 111.32) * Math.cos(br), lng: f.lng + (dKm / (111.32 * Math.cos(f.lat * rad))) * Math.sin(br) };
+  }
+  function animar(){
+    if(gLibPip !== st || !st.marker) return;
+    var obj = estimada(), cur = st.mostrada || obj;
+    /* correccion suave: cada cuadro se acerca un 12% a la posicion estimada */
+    var k = st.mostrada ? 0.12 : 1;
+    var nue = { lat: cur.lat + (obj.lat - cur.lat) * k, lng: cur.lng + (obj.lng - cur.lng) * k };
+    st.mostrada = nue;
+    st.marker.setPosition(nue);
+    st.cuadro = (st.cuadro || 0) + 1;
+    if(st.cuadro % 30 === 0){ try{ var b = st.map.getBounds(); if(b && !b.contains(nue)) st.map.panTo(nue); }catch(e){} }
+    st.anim = requestAnimationFrame(animar);
+  }
   function pintarMapa(){
-    if(gLibPip !== st || !st.map) return;
-    var pos = { lat: st.lat, lng: st.lng };
-    st.marker.setPosition(pos);
+    if(gLibPip !== st || !st.map || !st.marker) return;
+    st.marker.setIcon(iconoUnidad());
     st.linea.setPath(st.camino);
-    try{ var b = st.map.getBounds(); if(!b || !b.contains(pos)) st.map.panTo(pos); }catch(e){}
+    if(!st.anim) st.anim = requestAnimationFrame(animar);
   }
   pintarTexto();
   GV.loadGoogleMaps().then(function(){
@@ -4591,8 +4622,7 @@ function gvLibreUbicacionPip(vehId, origen){
     /* zona de la base que se usa para decidir "libre en base" (500 m alrededor del sitio) */
     if(typeof st.baseLat === 'number'){ try{ new google.maps.Circle({ map: st.map, center: { lat: st.baseLat, lng: st.baseLng }, radius: 500, strokeColor: '#059669', strokeOpacity: .7, strokeWeight: 1, fillColor: '#10b981', fillOpacity: .12, clickable: false }); }catch(e){} }
     st.linea = new google.maps.Polyline({ map: st.map, path: st.camino, strokeColor: '#2563eb', strokeOpacity: .8, strokeWeight: 3, clickable: false });
-    st.marker = new google.maps.Marker({ map: st.map, position: { lat: st.lat, lng: st.lng }, title: st.veh, zIndex: 10,
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#2563eb', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 } });
+    st.marker = new google.maps.Marker({ map: st.map, position: { lat: st.lat, lng: st.lng }, title: st.veh, zIndex: 10, icon: iconoUnidad() });
   })['catch'](function(){ var m = document.getElementById('gv-lib-pip-map'); if(m) m.innerHTML = '<div style="padding:12px;font-size:.8rem;color:#6b7280">No se pudo cargar el mapa.</div>'; });
   /* posicion en vivo de ese camion */
   function consultar(){
@@ -4603,12 +4633,20 @@ function gvLibreUbicacionPip(vehId, origen){
       var nueva = { lat: r.latitude, lng: r.longitude };
       var ult = st.camino[st.camino.length - 1];
       if(!ult || (GV.distKm(ult, nueva) || 0) > 0.01) st.camino.push(nueva);
+      var __nuevoFix = !st.fix || st.fix.t !== r.dateTime;
       st.lat = nueva.lat; st.lng = nueva.lng; st.t = r.dateTime || st.t;
+      if(__nuevoFix) st.fix = { lat: nueva.lat, lng: nueva.lng, t: r.dateTime, tLocal: Date.now() };
       st.vel = Math.round(r.speed || 0); st.mov = (r.isDriving === true || st.vel >= 5);
+      if(typeof r.bearing === 'number' && st.mov) st.bearing = r.bearing;
+      else if(st.mov && st.camino.length > 1){ /* sin rumbo del GPS: se calcula con los dos ultimos puntos */
+        var a = st.camino[st.camino.length - 2], c = st.camino[st.camino.length - 1], rad = Math.PI / 180;
+        var y = Math.sin((c.lng - a.lng) * rad) * Math.cos(c.lat * rad), x = Math.cos(a.lat * rad) * Math.sin(c.lat * rad) - Math.sin(a.lat * rad) * Math.cos(c.lat * rad) * Math.cos((c.lng - a.lng) * rad);
+        st.bearing = (Math.atan2(y, x) / rad + 360) % 360;
+      }
       pintarTexto(); pintarMapa();
     }, function(){});
   }
-  st.timer = setInterval(consultar, 15000);
+  st.timer = setInterval(consultar, 3000);
   consultar();
 }
 /* Abre Nuevo Viaje con la unidad, el chofer detectado (si Geotab lo identifico) y el origen en la ultima posicion
