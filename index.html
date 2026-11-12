@@ -4581,7 +4581,7 @@ function gvLibreUbicacionPip(vehId){
        Trafico ni pantalla completa (se ve como una mini imagen) */
     try{
       Object.keys(google.maps.ControlPosition).forEach(function(k){ try{ var c = st.map.controls[google.maps.ControlPosition[k]]; if(c && c.clear) c.clear(); }catch(e){} });
-      st.map.setOptions({ mapTypeId: 'hybrid', disableDefaultUI: true, zoomControl: true, zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_BOTTOM },
+      st.map.setOptions({ mapTypeId: 'hybrid', disableDefaultUI: true, fullscreenControl: false, streetViewControl: false, rotateControl: false, cameraControl: false, zoomControl: true, zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_BOTTOM },
         mapTypeControl: true, mapTypeControlOptions: { mapTypeIds: ['roadmap', 'hybrid'], style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR, position: google.maps.ControlPosition.TOP_RIGHT }, gestureHandling: 'greedy' });
     }catch(e){}
     /* zona de la base que se usa para decidir "libre en base" (500 m alrededor del sitio) */
