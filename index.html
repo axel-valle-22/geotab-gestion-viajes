@@ -4520,8 +4520,19 @@ function gvLibreUbicacionPip(vehId){
   var u = gMhLibres.filter(function(x){ return x.vehId === vehId; })[0]; if(!u) return;
   gvLibrePipCerrar();
   var pip = document.createElement('div'); pip.id = 'gv-lib-pip';
-  pip.style.cssText = 'position:fixed;right:20px;bottom:20px;width:320px;max-width:calc(100vw - 40px);z-index:2147483000;background:#fff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);overflow:hidden;font-family:inherit';
-  document.body.appendChild(pip);
+  pip.style.cssText = 'position:absolute;width:320px;max-width:calc(100vw - 40px);z-index:1000;background:#fff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);overflow:hidden;font-family:inherit;text-align:left';
+  /* 12/11: se abre AL LADO del cuadro de Unidades libres, encima del de "sin planificacion" y alineada arriba con los
+     cuadros. Va dentro del bloque de abajo (MyGeotab desplaza un contenedor interno, no la ventana), asi acompana la
+     pagina al desplazarse. */
+  var __mh = document.getElementById('gv-mas-hoy'), __caja = (document.getElementById('gv-mh-lib') || {}).parentElement;
+  if(__mh && __caja){
+    if(getComputedStyle(__mh).position === 'static') __mh.style.position = 'relative';
+    __mh.appendChild(pip);
+    var rm = __mh.getBoundingClientRect(), rc = __caja.getBoundingClientRect();
+    var left = rc.right - rm.left + 12;
+    if(rm.left + left + 320 > window.innerWidth - 8) left = Math.max(0, window.innerWidth - 8 - 320 - rm.left);
+    pip.style.left = left + 'px'; pip.style.top = (rc.top - rm.top) + 'px';
+  } else { pip.style.position = 'fixed'; pip.style.right = '20px'; pip.style.bottom = '20px'; document.body.appendChild(pip); }
   pip.innerHTML =
     '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #e5e7eb;background:#f9fafb">' +
       '<b style="font-size:.82rem;color:#111827;white-space:nowrap">' + GV.escapeHtml(u.veh) + '</b>' +
@@ -4566,7 +4577,13 @@ function gvLibreUbicacionPip(vehId){
     if(gLibPip !== st || !document.getElementById('gv-lib-pip-map')) return;
     var google = window.google;
     st.map = GV.createMap('gv-lib-pip-map', { center: { lat: st.lat, lng: st.lng }, zoom: 16 });
-    try{ st.map.setMapTypeId('roadmap'); }catch(e){}
+    /* mapa chico: arranca en HIBRIDO (satelite con calles); queda el selector Mapa/Hibrido y el zoom, sin el boton de
+       Trafico ni pantalla completa (se ve como una mini imagen) */
+    try{
+      Object.keys(google.maps.ControlPosition).forEach(function(k){ try{ var c = st.map.controls[google.maps.ControlPosition[k]]; if(c && c.clear) c.clear(); }catch(e){} });
+      st.map.setOptions({ mapTypeId: 'hybrid', disableDefaultUI: true, zoomControl: true, zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_BOTTOM },
+        mapTypeControl: true, mapTypeControlOptions: { mapTypeIds: ['roadmap', 'hybrid'], style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR, position: google.maps.ControlPosition.TOP_RIGHT }, gestureHandling: 'greedy' });
+    }catch(e){}
     /* zona de la base que se usa para decidir "libre en base" (500 m alrededor del sitio) */
     if(typeof st.baseLat === 'number'){ try{ new google.maps.Circle({ map: st.map, center: { lat: st.baseLat, lng: st.baseLng }, radius: 500, strokeColor: '#059669', strokeOpacity: .7, strokeWeight: 1, fillColor: '#10b981', fillOpacity: .12, clickable: false }); }catch(e){} }
     st.linea = new google.maps.Polyline({ map: st.map, path: st.camino, strokeColor: '#2563eb', strokeOpacity: .8, strokeWeight: 3, clickable: false });
