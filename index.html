@@ -3242,7 +3242,7 @@ abrirDetalleViaje(id);
     mapBox.style.display = abrir ? 'block' : 'none';
     this.textContent = abrir ? 'Ocultar mapa' : 'Mostrar mapa';
     this.setAttribute('aria-expanded', abrir ? 'true' : 'false');
-    if(abrir) renderTracking();
+    if(abrir){ gTrackFitKey = null; renderTracking(); } /* al abrir el mapa se encuadra de nuevo */
   });
 
   var gerList = document.getElementById('gv-gerenciamientos-list');
@@ -4669,6 +4669,20 @@ function gvNuevoViajeDesdeUnidad(vehId){
 /* 12/11: capas de ruta por viaje en Seguimiento (ver renderTracking): ocultas por defecto con todos los viajes a la
    vista; gvRutaVer(id, true/false) las muestra u oculta. Tocar un camion la deja fija (gTrackRutaFija). */
 var gTrackRutas = {}, gTrackRutaVista = null, gTrackRutaFija = null;
+/* 12/11: el mapa de Seguimiento ya NO se vuelve a encuadrar en cada actualizacion (pisaba el zoom que hacia el
+   usuario). Se encuadra solo la primera vez que se arma el mapa y cuando cambia lo que se esta mirando (viaje
+   elegido, filtro de cliente o segmento, buscador). Para volver a ver todos: boton "Ver todos" del mapa. */
+var gTrackFitKey = null, gTrackUltBounds = null;
+function gvTrackEncuadrar(bounds){
+  if(!gTrackMap || !bounds || !bounds.length) return;
+  gTrackUltBounds = bounds.slice();
+  var key = [gTrackSelectedId || '', gTrackCliente || '', (gTrackSegmentos || []).join(','), ((document.getElementById('gv-track-buscar') || {}).value || '').trim()].join('|');
+  if(key === gTrackFitKey) return;
+  var div = null; try{ div = gTrackMap.getDiv(); }catch(e){}
+  if(div && !div.offsetWidth) return; /* mapa oculto: con tamano 0 el encuadre queda alejadisimo; se hace al mostrarlo */
+  gTrackFitKey = key;
+  GV.fitBoundsArr(gTrackMap, bounds, 30);
+}
 function gvCapaRuta(id, ocultar){
   var g = gTrackRutas[id] = { items: [], ocultar: ocultar };
   return {
@@ -4719,6 +4733,15 @@ function renderTracking(){
       /* Mismo mapa base (Google, con selector Mapa/Satelite y capa de Trafico) que el buscador de
          sitios y el mapa de detalle. */
       gTrackLayer = GV.layerGroup(gTrackMap);
+      gTrackFitKey = null; /* mapa nuevo: se encuadra la proxima vez */
+      /* boton "Ver todos": vuelve a encuadrar todos los camiones a la vista */
+      try{
+        var __vt = document.createElement('button'); __vt.type = 'button'; __vt.textContent = 'Ver todos';
+        __vt.title = 'Volver a encuadrar todos los camiones';
+        __vt.style.cssText = 'margin:10px;padding:6px 12px;background:#fff;border:0;border-radius:2px;box-shadow:0 1px 4px rgba(0,0,0,.3);font:500 13px Roboto,Arial,sans-serif;cursor:pointer;color:#333';
+        __vt.addEventListener('click', function(){ if(gTrackUltBounds && gTrackUltBounds.length) GV.fitBoundsArr(gTrackMap, gTrackUltBounds, 30); });
+        gTrackMap.controls[google.maps.ControlPosition.TOP_LEFT].push(__vt);
+      }catch(__eVt){}
     }
     gTrackLayer.clearLayers();
     gTrackRenderGen++;
@@ -4949,10 +4972,10 @@ todos.forEach(function(v){ updateTrackBadges(v); });
       });
     }
 
-    if(!gApi){ if(bounds.length) GV.fitBoundsArr(gTrackMap, bounds, 30); return; }
+    if(!gApi){ if(bounds.length) gvTrackEncuadrar(bounds); return; }
 
     var pending = todos.length;
-    if(!pending){ if(bounds.length) GV.fitBoundsArr(gTrackMap, bounds, 30); return; }
+    if(!pending){ if(bounds.length) gvTrackEncuadrar(bounds); return; }
     todos.forEach(function(v){
       gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: v.vehiculoId } } }, function(res){
         if(res && res.length && res[0].latitude){
@@ -4995,8 +5018,8 @@ todos.forEach(function(v){ updateTrackBadges(v); });
           });
         }
         pending--;
-        if(pending <= 0 && bounds.length){ GV.fitBoundsArr(gTrackMap, bounds, 30); }
-      }, function(){ pending--; if(pending <= 0 && bounds.length){ GV.fitBoundsArr(gTrackMap, bounds, 30); } });
+        if(pending <= 0 && bounds.length){ gvTrackEncuadrar(bounds); }
+      }, function(){ pending--; if(pending <= 0 && bounds.length){ gvTrackEncuadrar(bounds); } });
     });
   }).catch(function(err){ if(box) box.textContent = 'Error al cargar el mapa: ' + err.message; });
 }
