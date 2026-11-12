@@ -3233,7 +3233,7 @@ abrirDetalleViaje(id);
   });
   document.getElementById('gv-mh-fin').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-viaje]'); if(el) abrirDetalleViaje(el.getAttribute('data-mh-viaje')); });
   document.getElementById('gv-mh-sp').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); });
-  (function(){ var __lib = document.getElementById('gv-mh-lib'); if(__lib) __lib.addEventListener('click', function(e){ var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); }); })();
+  (function(){ var __lib = document.getElementById('gv-mh-lib'); if(__lib) __lib.addEventListener('click', function(e){ var ub = e.target.closest('[data-mh-lib-ubic]'); if(ub){ gvLibreUbicacionPip(ub.getAttribute('data-mh-lib-ubic')); return; } var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); }); })();
   /* Desplegar / minimizar el mapa de Seguimiento. Al desplegarlo se vuelve a renderizar para
      que Google Maps tome el tamano real del contenedor (estaba oculto) y encuadre los viajes. */
   document.getElementById('gv-btn-toggle-track-map').addEventListener('click', function(){
@@ -4344,6 +4344,7 @@ function gvClientesDeViaje(v){
    ahora y no tienen ningun viaje activo cargado, agrupadas por cliente (grupos "Clientes" de MyGeotab).
    La posicion de toda la flota se pide como maximo una vez por minuto y solo con el bloque abierto. */
 var gMhUltimaConsulta = 0, gMhSinPlan = [], gMhLibres = [];
+var GV_DESMOV_HORAS = 6, GV_DESMOV_PARADA_MIN = 20; /* 12/11: ver "libre desmovilizando" en gvRenderMasHoy */
 function gvHoraCorta(iso){ if(!iso) return '-'; var d = new Date(iso); return isNaN(d) ? '-' : d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 function gvRenderMasHoy(forzar){
   var cont = document.getElementById('gv-mas-hoy');
@@ -4408,13 +4409,66 @@ function gvRenderMasHoy(forzar){
       return !!__baseDe({ lat: r.latitude, lng: r.longitude });
     }).map(function(r){
       var id = r.device.id, b = __baseDe({ lat: r.latitude, lng: r.longitude });
-      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: 0, base: b ? (GV.siteNameFor(b) || b.nombre || 'base') : 'base', libreMs: __durMs(r.currentStateDuration),
+      return { vehId: id, veh: nomVeh[id], lat: r.latitude, lng: r.longitude, vel: 0, t: r.dateTime, baseLat: b ? b.lat : null, baseLng: b ? b.lng : null, base: b ? (GV.siteNameFor(b) || b.nombre || 'base') : 'base', libreMs: __durMs(r.currentStateDuration),
         condId: null, cond: null, clientes: (GV.__clientesPorVeh || {})[id] || [], libre: true };
     });
     var act = document.getElementById('gv-mh-sp-act'); if(act) act.textContent = 'act. ' + gvHoraCorta(new Date().toISOString());
     var actL = document.getElementById('gv-mh-lib-act'); if(actL) actL.textContent = 'act. ' + gvHoraCorta(new Date().toISOString());
     gvPintarSinPlan();
     gvPintarLibres();
+    /* 12/11: LIBRE DESMOVILIZANDO. Un camion que circula sin viaje pero que cerro su ultimo viaje hace menos de
+       GV_DESMOV_HORAS no esta necesariamente "sin planificacion": puede estar volviendo a la base. Se mira su recorrido
+       desde el cierre (historial de GPS) y se lo pasa a Unidades libres como "Desmovilizando desde <sitio>" solo si:
+       1) va hacia una base (esta igual o mas cerca de la base mas proxima que al cerrar el viaje),
+       2) desde que se alejo del lugar de cierre no estuvo detenido mas de GV_DESMOV_PARADA_MIN fuera de una base
+          (una parada asi suele ser una carga/descarga de otro trabajo), y
+       3) todavia no entro a una base (si entro y volvio a salir, esta trabajando).
+       Si falla cualquiera, queda en "Viajes en curso sin planificacion". */
+    try{
+      var __cercana = function(pos){ var mejor = null, dm = 1e9; __bases.forEach(function(b){ var d = GV.distKm(pos, b); if(d != null && d < dm){ dm = d; mejor = b; } }); return mejor ? { b: mejor, d: dm } : null; };
+      var __lim = ahora - GV_DESMOV_HORAS * 3600000;
+      var __ultViaje = {};
+      GV.Storage.getViajes().forEach(function(v){
+        if(!v.vehiculoId || v.estado !== 'completado' || !v.completadoEn) return;
+        var t = new Date(v.completadoEn).getTime(); if(isNaN(t) || t < __lim) return;
+        var x = __ultViaje[v.vehiculoId]; if(!x || t > x.t) __ultViaje[v.vehiculoId] = { v: v, t: t };
+      });
+      var __cands = gMhSinPlan.filter(function(u){ return __ultViaje[u.vehId]; });
+      var __gen = gMhUltimaConsulta;
+      __cands.forEach(function(u){
+        var uv = __ultViaje[u.vehId], v = uv.v;
+        var pts = [v.origen].concat(v.paradas || []).concat(v.destino ? [v.destino] : []).filter(function(p){ return p && typeof p.lat === 'number'; });
+        var fin = pts[pts.length - 1]; if(!fin) return;
+        gApi.call('Get', { typeName: 'LogRecord', search: { deviceSearch: { id: u.vehId }, fromDate: new Date(uv.t).toISOString(), toDate: new Date().toISOString() } }, function(recs){
+          if(__gen !== gMhUltimaConsulta) return; /* llego tarde: ya hay una consulta mas nueva */
+          recs = (recs || []).filter(function(r){ return r && r.latitude != null && r.dateTime; }).sort(function(a, b){ return new Date(a.dateTime) - new Date(b.dateTime); });
+          var cierre = recs.length ? { lat: recs[0].latitude, lng: recs[0].longitude } : { lat: fin.lat, lng: fin.lng };
+          /* 3) no entro a una base desde el cierre */
+          if(recs.some(function(r){ return !!__baseDe({ lat: r.latitude, lng: r.longitude }); })) return;
+          /* 2) sin paradas largas fuera de base despues de alejarse del lugar de cierre */
+          var k0 = -1; for(var i = 0; i < recs.length; i++){ if((GV.distKm(cierre, { lat: recs[i].latitude, lng: recs[i].longitude }) || 0) > 0.3){ k0 = i; break; } }
+          if(k0 >= 0){
+            var ini = null;
+            for(var j = k0; j < recs.length; j++){
+              var r = recs[j], pos = { lat: r.latitude, lng: r.longitude }, quieto = (r.speed || 0) < 5;
+              if(quieto){ if(!ini || (GV.distKm(ini.pos, pos) || 0) > 0.15) ini = { t: new Date(r.dateTime).getTime(), pos: pos }; }
+              else ini = null;
+              var tFin = (j + 1 < recs.length) ? new Date(recs[j + 1].dateTime).getTime() : ahora;
+              if(ini && quieto && (tFin - ini.t) > GV_DESMOV_PARADA_MIN * 60000) return;
+            }
+          }
+          /* 1) va hacia una base */
+          var cC = __cercana(cierre), cA = __cercana({ lat: u.lat, lng: u.lng });
+          if(!cC || !cA || cA.d > cC.d + 0.5) return;
+          /* pasa a Unidades libres */
+          gMhSinPlan = gMhSinPlan.filter(function(x){ return x.vehId !== u.vehId; });
+          gMhLibres = gMhLibres.filter(function(x){ return x.vehId !== u.vehId; }).concat([{ vehId: u.vehId, veh: u.veh, lat: u.lat, lng: u.lng, vel: u.vel, t: u.t,
+            baseLat: cA.b.lat, baseLng: cA.b.lng, base: GV.siteNameFor(cA.b) || cA.b.nombre || 'base', libreMs: null,
+            condId: u.condId, cond: u.cond, clientes: u.clientes, libre: true, desmov: true, desde: GV.siteNameFor(fin) || 'el ultimo sitio' }]);
+          gvPintarSinPlan(); gvPintarLibres();
+        }, function(){});
+      });
+    }catch(__eDm){ console.warn('[GV] desmovilizando:', __eDm); }
   }, function(){ var el = document.getElementById('gv-mh-sp'); if(el) el.innerHTML = '<div style="font-size:.8rem;color:#dc2626;padding:8px">No se pudo consultar la posicion de la flota.</div>'; });
 }
 function gvPintarSinPlan(){
@@ -4449,11 +4503,92 @@ function gvPintarLibres(){
   el.innerHTML = claves.map(function(c){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh, 'es', { numeric: true }); }).map(function(u){
-        return '<div data-mh-veh="' + u.vehId + '" title="Libre en ' + GV.escapeHtml(u.base) + (u.libreMs ? (' hace ' + GV.fmtDurMin(u.libreMs)) : '') + '. Click para cargarle un viaje." style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#eff6ff\'" onmouseout="this.style.background=\'\'">' +
-          '<b style="white-space:nowrap">' + GV.escapeHtml(u.veh) + '</b>' +
-          '<span style="margin-left:auto;color:#2563eb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">Libre en ' + GV.escapeHtml(u.base) + '</span></div>';
+        /* 12/11: click en la unidad -> Nuevo Viaje; click en "Libre en ..." -> ventanita con el mapa de donde esta */
+        return '<div style="padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px">' +
+          '<b data-mh-veh="' + u.vehId + '" title="Cargar un viaje para esta unidad" style="white-space:nowrap;cursor:pointer" onmouseover="this.style.color=\'var(--gv-accent)\'" onmouseout="this.style.color=\'\'">' + GV.escapeHtml(u.veh) + '</b>' +
+          '<span data-mh-lib-ubic="' + u.vehId + '" title="Ver en el mapa donde esta' + (u.libreMs ? (' (detenida hace ' + GV.fmtDurMin(u.libreMs) + ')') : '') + '" style="margin-left:auto;color:' + (u.desmov ? '#d97706' : '#059669') + ';font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px">' + (u.desmov ? ('Desmovilizando desde ' + GV.escapeHtml(u.desde)) : ('Libre en ' + GV.escapeHtml(u.base))) + '</span></div>';
       }).join('');
   }).join('');
+}
+/* 12/11: ventanita flotante (tipo PIP, chica) con la ubicacion EN VIVO de una unidad libre, como la tarjeta de Activo
+   de MyGeotab: mapa con la posicion, direccion y hora del ultimo reporte. Mientras esta abierta se vuelve a consultar
+   la posicion de ese camion cada 15 s: si se mueve, el punto se desplaza, se dibuja el recorrido desde que se abrio y
+   se ve la velocidad (y si ya salio de la base). Sirve para corroborar que de verdad esta en esa base. */
+var gLibPip = null;
+function gvLibrePipCerrar(){ if(gLibPip && gLibPip.timer) clearInterval(gLibPip.timer); gLibPip = null; var el = document.getElementById('gv-lib-pip'); if(el) el.remove(); }
+function gvLibreUbicacionPip(vehId){
+  var u = gMhLibres.filter(function(x){ return x.vehId === vehId; })[0]; if(!u) return;
+  gvLibrePipCerrar();
+  var pip = document.createElement('div'); pip.id = 'gv-lib-pip';
+  pip.style.cssText = 'position:fixed;right:20px;bottom:20px;width:320px;max-width:calc(100vw - 40px);z-index:2147483000;background:#fff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);overflow:hidden;font-family:inherit';
+  document.body.appendChild(pip);
+  pip.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #e5e7eb;background:#f9fafb">' +
+      '<b style="font-size:.82rem;color:#111827;white-space:nowrap">' + GV.escapeHtml(u.veh) + '</b>' +
+      '<span id="gv-lib-pip-est" style="font-size:.72rem;color:#059669;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0"></span>' +
+      '<span title="Se actualiza solo cada 15 s" style="margin-left:auto;font-size:.62rem;font-weight:700;color:#dc2626;white-space:nowrap">&#9679; EN VIVO</span>' +
+      '<button type="button" id="gv-lib-pip-x" title="Cerrar" style="border:0;background:none;font-size:1.1rem;line-height:1;cursor:pointer;color:#6b7280">&times;</button></div>' +
+    '<div id="gv-lib-pip-map" style="height:190px;background:#e5e7eb"></div>' +
+    '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:.74rem">' +
+      '<span id="gv-lib-pip-dir" style="flex:1;min-width:0;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Buscando direccion...</span>' +
+      '<span id="gv-lib-pip-act" style="flex:0 0 auto;background:#ecfdf5;color:#065f46;border-radius:999px;padding:3px 8px;font-size:.66rem;white-space:nowrap"></span></div>';
+  pip.querySelector('#gv-lib-pip-x').addEventListener('click', gvLibrePipCerrar);
+  var st = gLibPip = { desmov: !!u.desmov, desde: u.desde || '', vehId: vehId, veh: u.veh, base: u.base, baseLat: u.baseLat, baseLng: u.baseLng, lat: u.lat, lng: u.lng, t: u.t, vel: 0, mov: false, map: null, marker: null, linea: null, camino: [{ lat: u.lat, lng: u.lng }], dirPos: null, timer: null };
+  function p2(n){ return (n < 10 ? '0' : '') + n; }
+  function pintarTexto(){
+    if(gLibPip !== st) return;
+    var d = st.t ? new Date(st.t) : null;
+    var act = document.getElementById('gv-lib-pip-act');
+    if(act) act.textContent = 'Ultima actualizacion: ' + ((d && !isNaN(d)) ? (p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds())) : '-');
+    var est = document.getElementById('gv-lib-pip-est');
+    if(est){
+      var enBase = (typeof st.baseLat === 'number') ? ((GV.distKm({ lat: st.lat, lng: st.lng }, { lat: st.baseLat, lng: st.baseLng }) || 0) <= 0.5) : true;
+      if(st.desmov && !enBase){ est.style.color = '#d97706'; est.textContent = 'Desmovilizando desde ' + st.desde + (st.mov ? (' - ' + st.vel + ' km/h') : ''); }
+      else if(st.mov){ est.style.color = '#d97706'; est.textContent = 'En movimiento ' + st.vel + ' km/h' + (enBase ? '' : ' - salio de ' + st.base); }
+      else if(!enBase){ est.style.color = '#d97706'; est.textContent = 'Detenido fuera de ' + st.base; }
+      else { est.style.color = '#059669'; est.textContent = 'Libre en ' + st.base; }
+    }
+    /* la direccion se vuelve a buscar solo si el camion se movio mas de 100 m */
+    if(!st.dirPos || (GV.distKm(st.dirPos, { lat: st.lat, lng: st.lng }) || 0) > 0.1){
+      st.dirPos = { lat: st.lat, lng: st.lng };
+      GV.reverseGeocode(st.lat, st.lng).then(function(label){ var el = document.getElementById('gv-lib-pip-dir'); if(!el || gLibPip !== st) return; if(!label){ el.textContent = st.lat.toFixed(5) + ', ' + st.lng.toFixed(5); return; } el.title = label; el.textContent = String(label).split(',').map(function(x){ return x.trim(); }).filter(Boolean).slice(0, 3).join(', '); })['catch'](function(){ var el = document.getElementById('gv-lib-pip-dir'); if(el) el.textContent = st.lat.toFixed(5) + ', ' + st.lng.toFixed(5); });
+    }
+  }
+  function pintarMapa(){
+    if(gLibPip !== st || !st.map) return;
+    var pos = { lat: st.lat, lng: st.lng };
+    st.marker.setPosition(pos);
+    st.linea.setPath(st.camino);
+    try{ var b = st.map.getBounds(); if(!b || !b.contains(pos)) st.map.panTo(pos); }catch(e){}
+  }
+  pintarTexto();
+  GV.loadGoogleMaps().then(function(){
+    if(gLibPip !== st || !document.getElementById('gv-lib-pip-map')) return;
+    var google = window.google;
+    st.map = GV.createMap('gv-lib-pip-map', { center: { lat: st.lat, lng: st.lng }, zoom: 16 });
+    try{ st.map.setMapTypeId('roadmap'); }catch(e){}
+    /* zona de la base que se usa para decidir "libre en base" (500 m alrededor del sitio) */
+    if(typeof st.baseLat === 'number'){ try{ new google.maps.Circle({ map: st.map, center: { lat: st.baseLat, lng: st.baseLng }, radius: 500, strokeColor: '#059669', strokeOpacity: .7, strokeWeight: 1, fillColor: '#10b981', fillOpacity: .12, clickable: false }); }catch(e){} }
+    st.linea = new google.maps.Polyline({ map: st.map, path: st.camino, strokeColor: '#2563eb', strokeOpacity: .8, strokeWeight: 3, clickable: false });
+    st.marker = new google.maps.Marker({ map: st.map, position: { lat: st.lat, lng: st.lng }, title: st.veh, zIndex: 10,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#2563eb', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 } });
+  })['catch'](function(){ var m = document.getElementById('gv-lib-pip-map'); if(m) m.innerHTML = '<div style="padding:12px;font-size:.8rem;color:#6b7280">No se pudo cargar el mapa.</div>'; });
+  /* posicion en vivo de ese camion */
+  function consultar(){
+    if(gLibPip !== st || !document.getElementById('gv-lib-pip')){ gvLibrePipCerrar(); return; }
+    if(!gApi) return;
+    gApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: st.vehId } } }, function(res){
+      var r = (res || [])[0]; if(!r || gLibPip !== st || r.latitude == null) return;
+      var nueva = { lat: r.latitude, lng: r.longitude };
+      var ult = st.camino[st.camino.length - 1];
+      if(!ult || (GV.distKm(ult, nueva) || 0) > 0.01) st.camino.push(nueva);
+      st.lat = nueva.lat; st.lng = nueva.lng; st.t = r.dateTime || st.t;
+      st.vel = Math.round(r.speed || 0); st.mov = (r.isDriving === true || st.vel >= 5);
+      pintarTexto(); pintarMapa();
+    }, function(){});
+  }
+  st.timer = setInterval(consultar, 15000);
+  consultar();
 }
 /* Abre Nuevo Viaje con la unidad, el chofer detectado (si Geotab lo identifico) y el origen en la ultima posicion
    del camion (como el boton "Usar ultima posicion del camion": si esta circulando, el viaje nace en curso). */
@@ -4469,7 +4604,7 @@ function gvNuevoViajeDesdeUnidad(vehId){
   gvSetRouteTxt('gv-origen-txt', gOrigen);
   GV.reverseGeocode(u.lat, u.lng).then(function(label){ if(gOrigen && gOrigen.ultimaPosVeh === vehId && label){ gOrigen.direccion = label; gvSetRouteTxt('gv-origen-txt', gOrigen); } })['catch'](function(){});
   var msg = document.getElementById('gv-form-msg');
-  if(msg){ msg.style.display = 'block'; msg.style.background = '#fffbeb'; msg.style.color = '#92400e'; msg.textContent = u.libre ? ('Unidad ' + u.veh + ' libre en ' + u.base + ': se completaron la unidad y el origen (ultima posicion). Agrega el chofer, los puntos de carga/descarga y el destino, y guarda.') : ('Unidad ' + u.veh + ' circulando sin viaje cargado: se completaron la unidad' + (u.cond ? ', el chofer' : '') + ' y el origen (ultima posicion). Agrega los puntos de carga/descarga y el destino, y guarda.'); }
+  if(msg){ msg.style.display = 'block'; msg.style.background = '#fffbeb'; msg.style.color = '#92400e'; msg.textContent = u.libre ? ('Unidad ' + u.veh + (u.desmov ? (' desmovilizando desde ' + u.desde) : (' libre en ' + u.base)) + ': se completaron la unidad y el origen (ultima posicion). Agrega el chofer, los puntos de carga/descarga y el destino, y guarda.') : ('Unidad ' + u.veh + ' circulando sin viaje cargado: se completaron la unidad' + (u.cond ? ', el chofer' : '') + ' y el origen (ultima posicion). Agrega los puntos de carga/descarga y el destino, y guarda.'); }
 }
 
 function renderTracking(){
@@ -9292,7 +9427,7 @@ if(typeof geotab !== 'undefined' && geotab.addin){
   geotab.addin.GestionViajesDP = function(){
     return {
       initialize: function(api, state, callback){ doInit(api); if(typeof callback === 'function') callback(); },
-      focus: function(){}, blur: function(){}
+      focus: function(){}, blur: function(){ try{ gvLibrePipCerrar(); }catch(e){} } /* 12/11: la ventanita de ubicacion no queda flotando en otras pantallas de MyGeotab */
     };
   };
 }
