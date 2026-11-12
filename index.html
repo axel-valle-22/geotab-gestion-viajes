@@ -4633,7 +4633,7 @@ return '<div class="gv-trk-row' + (sel ? ' gv-trk-sel' : '') + '" data-track-id=
 todos.forEach(function(v){ updateTrackBadges(v); });
       var __cliHead = document.getElementById('gv-trk-cli-head'), __cliMenu = document.getElementById('gv-trk-cli-menu');
       if(__cliHead && __cliMenu){
-        __cliHead.addEventListener('click', function(e){ e.stopPropagation(); if(__cliMenu.style.display === 'none'){ var __rc = __cliHead.getBoundingClientRect(); __cliMenu.style.top = (__rc.bottom + 2) + 'px'; __cliMenu.style.left = __rc.left + 'px'; __cliMenu.style.display = 'block'; } else { __cliMenu.style.display = 'none'; } });
+        __cliHead.addEventListener('click', function(e){ e.stopPropagation(); if(__cliMenu.style.display === 'none'){ var __rc = __cliHead.getBoundingClientRect(); var __oc = gvOffFijo(); __cliMenu.style.top = (__rc.bottom + 2 - __oc.y) + 'px'; __cliMenu.style.left = (__rc.left - __oc.x) + 'px'; __cliMenu.style.display = 'block'; } else { __cliMenu.style.display = 'none'; } });
         __cliMenu.querySelectorAll('.gv-trk-cli-opt').forEach(function(op){
           op.addEventListener('click', function(e){
             e.stopPropagation();
@@ -4648,7 +4648,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
       }
       var __segHead = document.getElementById('gv-trk-seg-head'), __segMenu = document.getElementById('gv-trk-seg-menu');
       if(__segHead && __segMenu){
-        __segHead.addEventListener('click', function(e){ e.stopPropagation(); if(__segMenu.style.display === 'none'){ var __rs = __segHead.getBoundingClientRect(); __segMenu.style.top = (__rs.bottom + 2) + 'px'; __segMenu.style.left = __rs.left + 'px'; __segMenu.style.display = 'block'; gTrackSegMenuAbierto = true; } else { __segMenu.style.display = 'none'; gTrackSegMenuAbierto = false; } });
+        __segHead.addEventListener('click', function(e){ e.stopPropagation(); if(__segMenu.style.display === 'none'){ var __rs = __segHead.getBoundingClientRect(); var __os = gvOffFijo(); __segMenu.style.top = (__rs.bottom + 2 - __os.y) + 'px'; __segMenu.style.left = (__rs.left - __os.x) + 'px'; __segMenu.style.display = 'block'; gTrackSegMenuAbierto = true; } else { __segMenu.style.display = 'none'; gTrackSegMenuAbierto = false; } });
         __segMenu.addEventListener('click', function(e){ e.stopPropagation(); });
         __segMenu.querySelectorAll('.gv-trk-seg-opt').forEach(function(op){
           op.addEventListener('click', function(e){
@@ -4663,7 +4663,7 @@ todos.forEach(function(v){ updateTrackBadges(v); });
           });
         });
         /* despues de tildar se vuelve a dibujar la tabla: se reabre el menu en el mismo lugar */
-        if(gTrackSegMenuAbierto){ var __rs2 = __segHead.getBoundingClientRect(); __segMenu.style.top = (__rs2.bottom + 2) + 'px'; __segMenu.style.left = __rs2.left + 'px'; __segMenu.style.display = 'block'; }
+        if(gTrackSegMenuAbierto){ var __rs2 = __segHead.getBoundingClientRect(); var __os2 = gvOffFijo(); __segMenu.style.top = (__rs2.bottom + 2 - __os2.y) + 'px'; __segMenu.style.left = (__rs2.left - __os2.x) + 'px'; __segMenu.style.display = 'block'; }
         document.addEventListener('click', function __cerrarSeg(){ gTrackSegMenuAbierto = false; if(__segMenu) __segMenu.style.display = 'none'; document.removeEventListener('click', __cerrarSeg); });
       }
       var verTodosBtn = document.getElementById('gv-track-ver-todos');
@@ -9245,11 +9245,50 @@ window.initialize = function(api, state, callback){
   if(typeof callback === 'function') callback();
 };
 
+/* 12/11: MODO NOCTURNO. Boton arriba a la derecha (barra de pestanas). Se invierten los colores del add-in con un
+   filtro (asi tambien se oscurecen los cientos de estilos fijos del HTML); mapas, fotos y videos se vuelven a invertir
+   para que se vean normales. La preferencia queda guardada en el navegador. La clase va en <html> solo mientras el
+   add-in esta abierto (focus/blur), asi no afecta al resto de MyGeotab. */
+var GV_DARK_KEY = 'gv_modo_nocturno';
+function gvDarkPref(){ try{ return localStorage.getItem(GV_DARK_KEY) === '1'; }catch(e){ return false; } }
+function gvDarkActivo(){ return document.documentElement.classList.contains('gv-dark'); }
+/* con el filtro puesto, los menus position:fixed que estan DENTRO de #gv-app se ubican respecto de #gv-app y no de la
+   ventana: hay que restarle su posicion */
+function gvOffFijo(){ if(!gvDarkActivo()) return { x: 0, y: 0 }; var a = document.getElementById('gv-app'); if(!a) return { x: 0, y: 0 }; var r = a.getBoundingClientRect(); return { x: r.left, y: r.top }; }
+function gvDarkAplicar(on){
+  document.documentElement.classList.toggle('gv-dark', !!on);
+  var b = document.getElementById('gv-dark-btn');
+  if(b){ b.innerHTML = on ? '<span class="gv-dark-ico">&#9728;&#65039;</span> Modo d&iacute;a' : '<span class="gv-dark-ico">&#127769;</span> Modo nocturno'; b.title = on ? 'Volver al modo dia' : 'Activar modo nocturno'; }
+}
+(function(){
+  if(!document.getElementById('gv-dark-css')){
+    var st = document.createElement('style'); st.id = 'gv-dark-css';
+    st.textContent =
+      'html.gv-dark #gv-app,html.gv-dark body>.gv-modal-overlay>*,html.gv-dark body>div[id^="gv-"]:not(#gv-app){filter:invert(.9) hue-rotate(180deg)}' +
+      'html.gv-dark #gv-app :is(img,video,.gm-style),html.gv-dark body>.gv-modal-overlay :is(img,video,.gm-style){filter:invert(1) hue-rotate(180deg)}' +
+      'html.gv-dark body>.gv-modal-overlay{background:rgba(0,0,0,.65)}' +
+      'html.gv-dark #gv-app{min-height:100vh}html.gv-dark #gv-dark-btn .gv-dark-ico{display:inline-block;filter:invert(1) hue-rotate(180deg)}' +
+      '#gv-dark-btn{margin-left:auto;border:1px solid var(--gv-border);background:#fff;color:#20232B;border-radius:999px;padding:6px 14px;font:600 .8rem inherit;cursor:pointer;white-space:nowrap}' +
+      '#gv-dark-btn:hover{background:#f3f4f6}';
+    document.head.appendChild(st);
+  }
+  function ponerBoton(){
+    var tabs = document.getElementById('gv-tabs');
+    if(!tabs || document.getElementById('gv-dark-btn')) return;
+    var b = document.createElement('button'); b.type = 'button'; b.id = 'gv-dark-btn';
+    b.addEventListener('click', function(){ var on = !gvDarkActivo(); try{ localStorage.setItem(GV_DARK_KEY, on ? '1' : '0'); }catch(e){} gvDarkAplicar(on); });
+    tabs.appendChild(b);
+    gvDarkAplicar(gvDarkPref());
+  }
+  ponerBoton();
+  if(!document.getElementById('gv-dark-btn')) document.addEventListener('DOMContentLoaded', ponerBoton);
+})();
+
 if(typeof geotab !== 'undefined' && geotab.addin){
   geotab.addin.GestionViajesDP = function(){
     return {
       initialize: function(api, state, callback){ doInit(api); if(typeof callback === 'function') callback(); },
-      focus: function(){}, blur: function(){}
+      focus: function(){ try{ gvDarkAplicar(gvDarkPref()); }catch(e){} }, blur: function(){ try{ document.documentElement.classList.remove('gv-dark'); }catch(e){} }
     };
   };
 }
