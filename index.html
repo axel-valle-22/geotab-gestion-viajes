@@ -9245,50 +9245,14 @@ window.initialize = function(api, state, callback){
   if(typeof callback === 'function') callback();
 };
 
-/* 12/11: MODO NOCTURNO. Boton arriba a la derecha (barra de pestanas). Se invierten los colores del add-in con un
-   filtro (asi tambien se oscurecen los cientos de estilos fijos del HTML); mapas, fotos y videos se vuelven a invertir
-   para que se vean normales. La preferencia queda guardada en el navegador. La clase va en <html> solo mientras el
-   add-in esta abierto (focus/blur), asi no afecta al resto de MyGeotab. */
-var GV_DARK_KEY = 'gv_modo_nocturno';
-function gvDarkPref(){ try{ return localStorage.getItem(GV_DARK_KEY) === '1'; }catch(e){ return false; } }
-function gvDarkActivo(){ return document.documentElement.classList.contains('gv-dark'); }
-/* con el filtro puesto, los menus position:fixed que estan DENTRO de #gv-app se ubican respecto de #gv-app y no de la
-   ventana: hay que restarle su posicion */
-function gvOffFijo(){ if(!gvDarkActivo()) return { x: 0, y: 0 }; var a = document.getElementById('gv-app'); if(!a) return { x: 0, y: 0 }; var r = a.getBoundingClientRect(); return { x: r.left, y: r.top }; }
-function gvDarkAplicar(on){
-  document.documentElement.classList.toggle('gv-dark', !!on);
-  var b = document.getElementById('gv-dark-btn');
-  if(b){ b.innerHTML = on ? '<span class="gv-dark-ico">&#9728;&#65039;</span> Modo d&iacute;a' : '<span class="gv-dark-ico">&#127769;</span> Modo nocturno'; b.title = on ? 'Volver al modo dia' : 'Activar modo nocturno'; }
-}
-(function(){
-  if(!document.getElementById('gv-dark-css')){
-    var st = document.createElement('style'); st.id = 'gv-dark-css';
-    st.textContent =
-      'html.gv-dark #gv-app,html.gv-dark body>.gv-modal-overlay>*,html.gv-dark body>div[id^="gv-"]:not(#gv-app){filter:invert(.9) hue-rotate(180deg)}' +
-      'html.gv-dark #gv-app :is(img,video,.gm-style),html.gv-dark body>.gv-modal-overlay :is(img,video,.gm-style){filter:invert(1) hue-rotate(180deg)}' +
-      'html.gv-dark body>.gv-modal-overlay{background:rgba(0,0,0,.65)}' +
-      'html.gv-dark #gv-app{min-height:100vh}html.gv-dark #gv-dark-btn .gv-dark-ico{display:inline-block;filter:invert(1) hue-rotate(180deg)}' +
-      '#gv-dark-btn{margin-left:auto;border:1px solid var(--gv-border);background:#fff;color:#20232B;border-radius:999px;padding:6px 14px;font:600 .8rem inherit;cursor:pointer;white-space:nowrap}' +
-      '#gv-dark-btn:hover{background:#f3f4f6}';
-    document.head.appendChild(st);
-  }
-  function ponerBoton(){
-    var tabs = document.getElementById('gv-tabs');
-    if(!tabs || document.getElementById('gv-dark-btn')) return;
-    var b = document.createElement('button'); b.type = 'button'; b.id = 'gv-dark-btn';
-    b.addEventListener('click', function(){ var on = !gvDarkActivo(); try{ localStorage.setItem(GV_DARK_KEY, on ? '1' : '0'); }catch(e){} gvDarkAplicar(on); });
-    tabs.appendChild(b);
-    gvDarkAplicar(gvDarkPref());
-  }
-  ponerBoton();
-  if(!document.getElementById('gv-dark-btn')) document.addEventListener('DOMContentLoaded', ponerBoton);
-})();
+/* 12/11: el modo nocturno se probo y se saco a pedido de logistica. gvOffFijo queda porque lo usan los menus de filtro. */
+function gvOffFijo(){ return { x: 0, y: 0 }; }
 
 if(typeof geotab !== 'undefined' && geotab.addin){
   geotab.addin.GestionViajesDP = function(){
     return {
       initialize: function(api, state, callback){ doInit(api); if(typeof callback === 'function') callback(); },
-      focus: function(){ try{ gvDarkAplicar(gvDarkPref()); }catch(e){} }, blur: function(){ try{ document.documentElement.classList.remove('gv-dark'); }catch(e){} }
+      focus: function(){}, blur: function(){}
     };
   };
 }
