@@ -4343,9 +4343,10 @@ document.addEventListener('click', function(e){ var c = e.target && e.target.clo
    finalizados). Opciones (se pueden tildar varias): Grupo A y Grupo B (todo el grupo o clientes sueltos, segun la
    lista GV_ONCALL_SUBCLIENTES), ON CALL (grupos comodin ON CALL / BACK UP) y Pickups (grupo "Pick Up" de MyGeotab).
    Un viaje ON CALL con cliente asignado aparece en ON CALL y tambien en el grupo de ese cliente. Nada tildado = todo. */
-var gFiltroGen = { clientes: [], oncall: false, pickups: false };
-try{ var __fg = JSON.parse(localStorage.getItem('gv_filtro_gen') || 'null'); if(__fg && typeof __fg === 'object') gFiltroGen = { clientes: Array.isArray(__fg.clientes) ? __fg.clientes : [], oncall: !!__fg.oncall, pickups: !!__fg.pickups }; }catch(__eFg){}
-function gvFiltroGenActivo(){ return !!(gFiltroGen.clientes.length || gFiltroGen.oncall || gFiltroGen.pickups); }
+/* 12/11: ON CALL y BACK UP son opciones separadas (BACK UP va al final de la lista) */
+var gFiltroGen = { clientes: [], oncall: false, pickups: false, backup: false };
+try{ var __fg = JSON.parse(localStorage.getItem('gv_filtro_gen') || 'null'); if(__fg && typeof __fg === 'object') gFiltroGen = { clientes: Array.isArray(__fg.clientes) ? __fg.clientes : [], oncall: !!__fg.oncall, pickups: !!__fg.pickups, backup: !!__fg.backup }; }catch(__eFg){}
+function gvFiltroGenActivo(){ return !!(gFiltroGen.clientes.length || gFiltroGen.oncall || gFiltroGen.pickups || gFiltroGen.backup); }
 function gvNormCli(c){ var u = String(c || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim(); if(/^HASA$/.test(u) || /HALLIBURTON/.test(u)) return 'HASA'; return u; }
 /* cliente de la lista A/B que corresponde a un nombre de grupo de MyGeotab (ej. "SLB Neuquen" -> "SLB") */
 function gvClienteDeLista(nombre){
@@ -4357,8 +4358,8 @@ function gvPasaFiltroGen(vehId, viaje){
   if(!gvFiltroGenActivo()) return true;
   var cs = (vehId && (GV.__clientesPorVeh || {})[vehId]) || [];
   if(gFiltroGen.pickups && vehId && (GV.__vehPickupIds || {})[vehId]) return true;
-  var esOnCall = cs.some(function(c){ return !!gvComodinTipo(c); });
-  if(gFiltroGen.oncall && esOnCall) return true;
+  if(gFiltroGen.oncall && cs.some(function(c){ return gvComodinTipo(c) === 'ON CALL'; })) return true;
+  if(gFiltroGen.backup && cs.some(function(c){ return gvComodinTipo(c) === 'BACK UP'; })) return true;
   if(gFiltroGen.clientes.length){
     var reales = cs.filter(function(c){ return !gvComodinTipo(c); });
     if(viaje && viaje.onCallCliente) reales = reales.concat([viaje.onCallCliente]);
@@ -4370,7 +4371,7 @@ function gvFiltroGenTexto(){
   if(!gvFiltroGenActivo()) return 'Todos';
   var partes = [];
   GV_ONCALL_SUBCLIENTES.forEach(function(g){ var sel = g.clientes.filter(function(c){ return gFiltroGen.clientes.indexOf(c) >= 0; }); if(sel.length === g.clientes.length) partes.push(g.grupo); else if(sel.length) partes.push(sel.join(', ')); });
-  if(gFiltroGen.oncall) partes.push('ON CALL'); if(gFiltroGen.pickups) partes.push('Pickups');
+  if(gFiltroGen.oncall) partes.push('ON CALL'); if(gFiltroGen.pickups) partes.push('Pickups'); if(gFiltroGen.backup) partes.push('BACK UP');
   return partes.join(' + ');
 }
 function gvFiltroGenAplicar(){
@@ -4393,8 +4394,9 @@ function gvFiltroGenMenu(){
       '<button type="button" data-fg-abrir="' + gi + '" title="Ver los clientes del grupo" style="border:0;background:none;cursor:pointer;color:#6b7280;padding:4px 8px;font-size:.8rem">' + (ab ? '&#9662;' : '&#9656;') + '</button></div>';
     if(ab) g.clientes.forEach(function(c){ h += fila('data-fg="cli" data-c="' + GV.escapeHtml(c) + '"', gFiltroGen.clientes.indexOf(c) >= 0, GV.escapeHtml(c), '', true); });
   });
-  h += fila('data-fg="oncall"', gFiltroGen.oncall, 'ON CALL / BACK UP');
+  h += fila('data-fg="oncall"', gFiltroGen.oncall, 'ON CALL');
   h += fila('data-fg="pickups"', gFiltroGen.pickups, 'Pickups');
+  h += fila('data-fg="backup"', gFiltroGen.backup, 'BACK UP');
   m.innerHTML = h;
 }
 function gvFiltroGenInit(){
@@ -4412,8 +4414,9 @@ function gvFiltroGenInit(){
     var op = e.target.closest('[data-fg]'); if(!op) return;
     e.preventDefault();
     var t = op.getAttribute('data-fg');
-    if(t === 'todos') gFiltroGen = { clientes: [], oncall: false, pickups: false };
+    if(t === 'todos') gFiltroGen = { clientes: [], oncall: false, pickups: false, backup: false };
     else if(t === 'oncall') gFiltroGen.oncall = !gFiltroGen.oncall;
+    else if(t === 'backup') gFiltroGen.backup = !gFiltroGen.backup;
     else if(t === 'pickups') gFiltroGen.pickups = !gFiltroGen.pickups;
     else if(t === 'grupo'){
       var g = GV_ONCALL_SUBCLIENTES[+op.getAttribute('data-gi')];
@@ -5579,6 +5582,10 @@ function gvSlbRecalcularPropuestas(){
    el panel no puede resolver (unidad o chofer que no se encuentran, o un lugar sin ubicacion cargada): esos siguen
    apareciendo en Seguimiento con "Revisar". Cada viaje creado o cambiado deja un aviso en Alertas. */
 var GV_SLB_AUTO = true;
+/* 12/11 (caida de Outlook): cuando el correo vuelve despues de un corte, llegan juntos mails de servicios que ya
+   pasaron. Un pedido cuya salida programada quedo mas de GV_SLB_AUTO_ATRASO_H horas atras NO se crea solo: queda en
+   "Viajes en curso sin planificacion" como propuesta para revisar y cargar a mano (o descartar). */
+var GV_SLB_AUTO_ATRASO_H = 2;
 var __gvSlbAutoHecho = {}, __gvSlbCargaPanel = Date.now();
 function gvSlbAvisoAuto(v, tipo, textos){
   try{
@@ -5684,6 +5691,8 @@ function gvSlbAutoProcesar(){
     if(prop.paradas.some(function(x){ return !x.sitio; })){ hubo = true; gvSlbCrearSitiosProvisorios(prop); return; } /* se crea en la proxima vuelta, ya con los sitios "a confirmar" */
     var id = gvSlbIdViaje(prop);
     if(__gvSlbAutoHecho[id] || GV.Storage.getViaje(id)) return;
+    var __sal = new Date(prop.fechaSalida).getTime();
+    if(!isNaN(__sal) && Date.now() - __sal > GV_SLB_AUTO_ATRASO_H * 3600000){ prop.atrasado = true; return; } /* servicio vencido: solo a mano */
     __gvSlbAutoHecho[id] = 1; hubo = true;
     prop.__auto = true;
     gvSlbCrearViaje(prop).then(function(v){
