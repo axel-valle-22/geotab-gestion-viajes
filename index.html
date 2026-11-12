@@ -6921,7 +6921,8 @@ renderTrips(); renderTracking(); renderStats();
 function abrirIngresoFijo(idx){
 var __vI = GV.Storage.getViaje(v.id) || v;
 var par = (__vI.paradas || [])[idx]; if(!par) return;
-var __rowI = (__itinRows || []).filter(function(x){ return x.id === 'parada' + idx; })[0];
+var __filasI = (window.__gvItinFilas && window.__gvItinFilas.viajeId === v.id) ? (window.__gvItinFilas.rows || []) : [];
+var __rowI = __filasI.filter(function(x){ return x.id === 'parada' + idx; })[0];
 var __base = par.llegadaProgramada ? new Date(par.llegadaProgramada) : ((__rowI && __rowI.ingreso) ? new Date(__rowI.ingreso) : new Date(__vI.fechaSalida));
 var __p2 = function(n){ return (n < 10 ? '0' : '') + n; };
 var __fv = isNaN(__base.getTime()) ? '' : (__base.getFullYear() + '-' + __p2(__base.getMonth() + 1) + '-' + __p2(__base.getDate()));
