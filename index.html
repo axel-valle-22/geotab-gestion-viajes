@@ -3232,7 +3232,7 @@ abrirDetalleViaje(id);
     if(abrir){ gvRenderMasHoy(true); try{ b.scrollIntoView({ behavior: 'smooth', block: 'start' }); }catch(e){} }
   });
   document.getElementById('gv-mh-fin').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-viaje]'); if(el) abrirDetalleViaje(el.getAttribute('data-mh-viaje')); });
-  document.getElementById('gv-mh-sp').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); });
+  document.getElementById('gv-mh-sp').addEventListener('click', function(e){ var ub = e.target.closest('[data-mh-sp-ubic]'); if(ub){ gvLibreUbicacionPip(ub.getAttribute('data-mh-sp-ubic'), 'sp'); return; } var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); });
   (function(){ var __lib = document.getElementById('gv-mh-lib'); if(__lib) __lib.addEventListener('click', function(e){ var ub = e.target.closest('[data-mh-lib-ubic]'); if(ub){ gvLibreUbicacionPip(ub.getAttribute('data-mh-lib-ubic')); return; } var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); }); })();
   /* Desplegar / minimizar el mapa de Seguimiento. Al desplegarlo se vuelve a renderizar para
      que Google Maps tome el tamano real del contenedor (estaba oculto) y encuadre los viajes. */
@@ -4483,11 +4483,12 @@ function gvPintarSinPlan(){
   el.innerHTML = __slbHtml + claves.map(function(c){
     return '<div style="margin:8px 0 3px;display:flex;align-items:center;gap:6px">' + (c === 'Sin cliente' ? '<span style="font-size:.74rem;font-weight:700;color:#6b7280">Sin cliente</span>' : GV.clienteBadgeHtml(c)) + '<span style="font-size:.72rem;color:#6b7280">(' + grupos[c].length + ')</span></div>' +
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh); }).map(function(u){
-        return '<div data-mh-veh="' + u.vehId + '" title="Cargar viaje para esta unidad" style="cursor:pointer;padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px" onmouseover="this.style.background=\'#fffbeb\'" onmouseout="this.style.background=\'\'">' +
+        /* 12/11: click en la unidad -> ventanita con el mapa en vivo; click en "+ Cargar" -> Nuevo Viaje */
+        return '<div style="padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px">' +
           /* 12/11: con tres cuadros cada uno es mas angosto: todo en una linea, el chofer se corta con "..." */
-          '<b style="white-space:nowrap;flex:0 0 auto">' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + GV.escapeHtml(u.cond || 'chofer no identificado') + '">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">sin chofer</i>') + '</span>' +
+          '<b data-mh-sp-ubic="' + u.vehId + '" title="Ver en el mapa donde esta" style="white-space:nowrap;flex:0 0 auto;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px">' + GV.escapeHtml(u.veh) + '</b><span style="color:#374151;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + GV.escapeHtml(u.cond || 'chofer no identificado') + '">' + (u.cond ? GV.escapeHtml(u.cond) : '<i style="color:#9ca3af">sin chofer</i>') + '</span>' +
           /* 12/11: ya no se muestra "Detenida ..." (mas limpio); si esta circulando se sigue viendo la velocidad */
-          (u.detenida ? '' : ('<span style="flex:0 0 auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span style="flex:0 0 auto;color:#0d9488;font-weight:600;white-space:nowrap">+ Cargar</span></div>';
+          (u.detenida ? '' : ('<span style="flex:0 0 auto;color:#d97706;white-space:nowrap">' + u.vel + ' km/h</span>')) + '<span data-mh-veh="' + u.vehId + '" title="Cargar un viaje para esta unidad" style="flex:0 0 auto;color:#0d9488;font-weight:600;white-space:nowrap;cursor:pointer">+ Cargar</span></div>';
       }).join('');
   }).join('');
   gvSlbEnlazarBotones(el);
@@ -4516,15 +4517,17 @@ function gvPintarLibres(){
    se ve la velocidad (y si ya salio de la base). Sirve para corroborar que de verdad esta en esa base. */
 var gLibPip = null;
 function gvLibrePipCerrar(){ if(gLibPip && gLibPip.timer) clearInterval(gLibPip.timer); gLibPip = null; var el = document.getElementById('gv-lib-pip'); if(el) el.remove(); }
-function gvLibreUbicacionPip(vehId){
-  var u = gMhLibres.filter(function(x){ return x.vehId === vehId; })[0]; if(!u) return;
+function gvLibreUbicacionPip(vehId, origen){
+  /* origen 'sp' = cuadro "Viajes en curso sin planificacion" (la ventanita se abre a su derecha) */
+  var esSp = origen === 'sp';
+  var u = (esSp ? gMhSinPlan : gMhLibres).filter(function(x){ return x.vehId === vehId; })[0]; if(!u) return;
   gvLibrePipCerrar();
   var pip = document.createElement('div'); pip.id = 'gv-lib-pip';
   pip.style.cssText = 'position:absolute;width:320px;max-width:calc(100vw - 40px);z-index:1000;background:#fff;border:1px solid #d1d5db;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);overflow:hidden;font-family:inherit;text-align:left';
   /* 12/11: se abre AL LADO del cuadro de Unidades libres, encima del de "sin planificacion" y alineada arriba con los
      cuadros. Va dentro del bloque de abajo (MyGeotab desplaza un contenedor interno, no la ventana), asi acompana la
      pagina al desplazarse. */
-  var __mh = document.getElementById('gv-mas-hoy'), __caja = (document.getElementById('gv-mh-lib') || {}).parentElement;
+  var __mh = document.getElementById('gv-mas-hoy'), __caja = (document.getElementById(esSp ? 'gv-mh-sp' : 'gv-mh-lib') || {}).parentElement;
   if(__mh && __caja){
     if(getComputedStyle(__mh).position === 'static') __mh.style.position = 'relative';
     __mh.appendChild(pip);
@@ -4544,7 +4547,7 @@ function gvLibreUbicacionPip(vehId){
       '<span id="gv-lib-pip-dir" style="flex:1;min-width:0;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Buscando direccion...</span>' +
       '<span id="gv-lib-pip-act" style="flex:0 0 auto;background:#ecfdf5;color:#065f46;border-radius:999px;padding:3px 8px;font-size:.66rem;white-space:nowrap"></span></div>';
   pip.querySelector('#gv-lib-pip-x').addEventListener('click', gvLibrePipCerrar);
-  var st = gLibPip = { desmov: !!u.desmov, desde: u.desde || '', vehId: vehId, veh: u.veh, base: u.base, baseLat: u.baseLat, baseLng: u.baseLng, lat: u.lat, lng: u.lng, t: u.t, vel: 0, mov: false, map: null, marker: null, linea: null, camino: [{ lat: u.lat, lng: u.lng }], dirPos: null, timer: null };
+  var st = gLibPip = { sp: esSp, desmov: !!u.desmov, desde: u.desde || '', vehId: vehId, veh: u.veh, base: u.base, baseLat: u.baseLat, baseLng: u.baseLng, lat: u.lat, lng: u.lng, t: u.t, vel: 0, mov: false, map: null, marker: null, linea: null, camino: [{ lat: u.lat, lng: u.lng }], dirPos: null, timer: null };
   function p2(n){ return (n < 10 ? '0' : '') + n; }
   function pintarTexto(){
     if(gLibPip !== st) return;
@@ -4554,7 +4557,8 @@ function gvLibreUbicacionPip(vehId){
     var est = document.getElementById('gv-lib-pip-est');
     if(est){
       var enBase = (typeof st.baseLat === 'number') ? ((GV.distKm({ lat: st.lat, lng: st.lng }, { lat: st.baseLat, lng: st.baseLng }) || 0) <= 0.5) : true;
-      if(st.desmov && !enBase){ est.style.color = '#d97706'; est.textContent = 'Desmovilizando desde ' + st.desde + (st.mov ? (' - ' + st.vel + ' km/h') : ''); }
+      if(st.sp){ est.style.color = st.mov ? '#d97706' : '#6b7280'; est.textContent = st.mov ? ('En movimiento ' + st.vel + ' km/h') : 'Detenido'; }
+      else if(st.desmov && !enBase){ est.style.color = '#d97706'; est.textContent = 'Desmovilizando desde ' + st.desde + (st.mov ? (' - ' + st.vel + ' km/h') : ''); }
       else if(st.mov){ est.style.color = '#d97706'; est.textContent = 'En movimiento ' + st.vel + ' km/h' + (enBase ? '' : ' - salio de ' + st.base); }
       else if(!enBase){ est.style.color = '#d97706'; est.textContent = 'Detenido fuera de ' + st.base; }
       else { est.style.color = '#059669'; est.textContent = 'Libre en ' + st.base; }
