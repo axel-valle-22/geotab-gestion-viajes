@@ -1283,7 +1283,11 @@ const GD = (function () {
       });
       if (conPat.length === 1) return conPat[0];
       if (conPat.length > 1) return null;
+      // Solo las que NO tienen patente propia se buscan por interno.
       const porInt = libres.filter((e) => {
+        const pe = np(e.patente) || np(String(e.descripcion || "").split(" - ")[1]);
+        const ie0 = np(e.interno) || np(String(e.descripcion || "").split(" - ")[0]);
+        if (pe && pe !== ie0 && pe.length >= 6) return false;
         const ie = np(e.interno) || np(String(e.descripcion || "").split(" - ")[0]);
         return ie && (iDev === ie || (iDev.length === ie.length + 1 && /^[A-Z]/.test(iDev) && iDev.slice(1) === ie));
       });
