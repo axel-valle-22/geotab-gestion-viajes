@@ -509,6 +509,10 @@ const GD = (function () {
     saveToLS();
     corregirFechasViejas();
     notify();
+    if (!_sgAuto && typeof document !== "undefined" && document.getElementById("gd-content")) {
+      _sgAuto = true;
+      sincronizarSinGeotab().catch((e) => console.warn("Unidades sin Geotab:", e));
+    }
     if ((hayLegado || legAud.length) && !_migrando) {
       _migrando = true;
       persistir().finally(() => { _migrando = false; });
@@ -1186,6 +1190,53 @@ const GD = (function () {
   // Se dispara al abrir el Add-In (en vez de una Cloud Function nocturna),
   // porque no tenemos backend. Usa la sesión de Geotab que ya nos dio el
   // Add-In (mismo objeto `api` que MyGeotab inyecta).
+  // ── Unidades SIN Geotab ─────────────────────────────────────────────────
+  // Los camiones, grúas y remolques que no tienen equipo en MyGeotab se dan de
+  // alta en el módulo de Mantenimiento (gm_data/main → manuales). Acá se
+  // crean como entidades (id "sg_<clave>", sin geotabId) para poder cargarles
+  // la VTV y demás documentos; Mantenimiento las cruza por nombre. Si en
+  // Mantenimiento se elimina la unidad, acá queda inactiva (sus documentos no
+  // se borran). Si una entidad se eliminó acá a mano, no se vuelve a crear.
+  // Si el camión después recibe un equipo GO con el mismo nombre, la
+  // sincronización con Geotab reutiliza esta misma entidad.
+  let _sgAuto = false;
+  async function sincronizarSinGeotab() {
+    if (!_fbDb || !_todoCargado()) return { nuevas: 0 };
+    const snap = await _fbDb.collection("gm_data").doc("main").get();
+    if (!snap.exists) return { nuevas: 0 };
+    let p = null;
+    try { p = JSON.parse(snap.data().payload || "null"); } catch (e) { return { nuevas: 0 }; }
+    if (!p || !Array.isArray(p.manuales)) return { nuevas: 0 };
+    const norm = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const vivas = {};
+    let nuevas = 0, bajas = 0, cambios = 0;
+    p.manuales.forEach((m) => {
+      if (!m || !m.k || !m.interno) return;
+      const id = `sg_${m.k}`;
+      vivas[id] = 1;
+      const nombre = gdNombreEntidad(m.interno + (m.patente && m.patente !== m.interno ? ` - ${m.patente}` : ""));
+      const tipo = m.tipo === "Eq de arrastre" ? "AnexoVehicular" : "Vehiculo";
+      let ent = _data.entidades.find((e) => e.id === id);
+      if (!ent) {
+        // Ya existe con ese nombre (por ejemplo, ya tiene Geotab): no se duplica.
+        if (_data.entidades.some((e) => e.tipo !== "Operador" && e.activo !== false && norm(e.descripcion) === norm(nombre))) return;
+        ent = { id, tipo, descripcion: nombre, activo: true, funciones: [], sinGeotab: true, sinGeotabId: `m_${m.k}` };
+        _data.entidades.push(ent);
+        nuevas++;
+      } else if (!ent.geotabId && ent.activo !== false && (ent.descripcion !== nombre || ent.tipo !== tipo)) {
+        ent.descripcion = nombre; ent.tipo = tipo; cambios++;
+      }
+    });
+    _data.entidades.forEach((e) => {
+      if (e.sinGeotab && !e.geotabId && e.activo !== false && !vivas[e.id]) { e.activo = false; bajas++; }
+    });
+    if (nuevas || bajas || cambios) {
+      await persistir();
+      notify();
+    }
+    return { nuevas, bajas, cambios };
+  }
+
   async function sincronizarConGeotab() {
     if (!_api) return { vehiculos: 0, choferes: 0 };
     const [devices, users] = await Promise.all([
@@ -1290,6 +1341,7 @@ const GD = (function () {
         cho.nombre = u.name;
       });
 
+    try { await sincronizarSinGeotab(); } catch (e) { console.warn("Unidades sin Geotab:", e); }
     await persistir();
     notify();
     return { vehiculos: nuevosVehiculos, choferes: nuevosChoferes, totalVehiculos: activos.length, totalChoferes: nuevosChoferes, fusionados };
@@ -1339,6 +1391,7 @@ const GD = (function () {
     contarPorEstado,
     recalcularEstados,
     sincronizarConGeotab,
+    sincronizarSinGeotab,
   };
 })();
 
