@@ -541,7 +541,8 @@ function gmCargarManuales(p,fi,sembrar){
    checklists manuales, engrases, cubiertas y prioridad del Panel. La unidad sin Geotab se quita. */
 function gmMatchGeotab(m){
   var geo=S.units.filter(function(u){return !u.manual}),pm=normP(m.patente),im=normP(m.interno);
-  if(pm&&pm!==im&&pm.length>=6){var c=geo.filter(function(u){return normP(u.patente)===pm||normP(u.gt&&u.gt.name).indexOf(pm)>=0});if(c.length===1)return c[0];if(c.length>1)return null}
+  if(pm&&pm!==im&&pm.length>=6){var c=geo.filter(function(u){return normP(u.patente)===pm||normP(u.gt&&u.gt.name).indexOf(pm)>=0});return c.length===1?c[0]:null}
+  /* sin patente propia: por interno (igual o con una letra adelante) */
   if(!im)return null;
   var c2=geo.filter(function(u){var n=normP(u.nombre);return n===im||(n.length===im.length+1&&/^[A-Z]/.test(n)&&n.slice(1)===im)});
   return c2.length===1?c2[0]:null}
