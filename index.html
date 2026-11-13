@@ -4606,7 +4606,9 @@ function gvRenderMasHoy(forzar){
   }, function(){ var el = document.getElementById('gv-mh-sp'); if(el) el.innerHTML = '<div style="font-size:.8rem;color:#dc2626;padding:8px">No se pudo consultar la posicion de la flota.</div>'; });
 }
 function gvPintarSinPlan(){
-  var __lista = gMhSinPlan.filter(function(u){ return gvPasaFiltroGen(u.vehId); });
+  gvGmSuscribir();
+  /* 13/11: las unidades que estan en Mantenimiento (por ejemplo en un taller externo) no figuran en ningun cuadro */
+  var __lista = gMhSinPlan.filter(function(u){ return gvPasaFiltroGen(u.vehId) && !gGmEnTaller[u.vehId]; });
   var __verSlb = !gvFiltroGenActivo() || gFiltroGen.clientes.indexOf('SLB') >= 0;
   var el = document.getElementById('gv-mh-sp'), n = document.getElementById('gv-mh-sp-n');
   if(!el) return;
@@ -4671,6 +4673,7 @@ function gvGmSuscribir(){
     gGmRef.onSnapshot(function(snap){
       try{ gGmData = snap.exists ? JSON.parse(snap.data().payload || 'null') : null; gGmEnTaller = gGmData ? gvGmCalcular(gGmData) : {}; }catch(e){ console.warn('[GV] gm_data:', e); }
       try{ gvPintarLibres(); }catch(e){}
+      try{ gvPintarSinPlan(); }catch(e){}
     }, function(err){ console.warn('[GV] gm_data onSnapshot:', err); });
   }).catch(function(e){ console.warn('[GV] gm_data:', e); gGmSub = false; });
 }
