@@ -138,7 +138,7 @@ window.GD_VIEWS.entidades = async function render(container, params = {}) {
             ({ e, cantidad, cargados }) => `
         <tr>
           <td>${e.descripcion}</td>
-          <td>${e.tipo}</td>
+          <td>${e.tipo}${e.sinGeotab && !e.geotabId ? ' <span style="font-size:.7rem;font-weight:700;color:#b45309;background:#fef3c7;border-radius:8px;padding:1px 6px">Sin Geotab</span>' : ""}</td>
           <td title="${cargados.join(", ")}">${
             cantidad
               ? `${cantidad} documento(s)`
