@@ -621,6 +621,8 @@ function renderAlertas(){
       var d = e.target.closest('[data-gm-dia]'); if(d){ var ds = d.getAttribute('data-gm-dia'); gGerDia = (gGerDia === ds) ? null : ds; renderGerenciamientos(); return; }
       var t = e.target.closest('[data-gm-todo]'); if(t){ gGerDia = null; renderGerenciamientos(); return; }
       var rc = e.target.closest('[data-gm-rec]'); if(rc){ e.stopPropagation(); gvGerVerRecorrido(rc.getAttribute('data-gm-rec')); return; }
+      var ap = e.target.closest('[data-gm-apr]'), re = e.target.closest('[data-gm-rech]');
+      if(ap || re){ e.stopPropagation(); var b = ap || re; gvGerResolver(b.getAttribute(ap ? 'data-gm-apr' : 'data-gm-rech'), !!ap, b); return; }
       var dt = e.target.closest('[data-gm-det]'); if(dt){ abrirDetalleGerenciamiento(dt.getAttribute('data-gm-det')); return; }
     });
   }
@@ -708,11 +710,41 @@ function renderAlertas(){
         '<td>' + GV.fmtDate(g.fecha) + '</td><td>' + GV.escapeHtml(g.conductor || '') + '</td><td>' + GV.escapeHtml(g.vehiculo || '') + '</td>' +
         '<td><span class="gv-status" style="' + cls + '">' + label + '</span></td>' +
         '<td>' + (gvGerNocturno(g) ? 'Nocturno' : 'Diurno') + '</td>' +
-        '<td><span class="gv-status" style="' + es.c + '">' + GV.escapeHtml(es.t) + '</span></td>' +
+        '<td><span class="gv-status" style="' + es.c + '">' + GV.escapeHtml(es.t) + '</span>' +
+          /* 13/11: los pendientes / frenados se pueden aprobar o rechazar desde aca (antes solo desde Alertas) */
+          (es.k === 'pendiente' ? ('<div style="display:flex;gap:6px;margin-top:5px">' +
+            '<button type="button" class="gv-btn gv-btn-suc gv-btn-sm" data-gm-apr="' + g.id + '" title="Aprobar como ' + GV.escapeHtml(gvUsuarioPanel.nombre || 'usuario actual') + '">Aprobar</button>' +
+            '<button type="button" class="gv-btn gv-btn-danger gv-btn-sm" data-gm-rech="' + g.id + '">Rechazar</button></div>') : '') + '</td>' +
         '<td style="font-size:.78rem;max-width:280px">' + GV.escapeHtml((g.motivos || []).join('; ')) + '</td>' +
         '<td>' + (puedeRec ? '<button type="button" class="gv-btn gv-btn-sec gv-btn-sm" data-gm-rec="' + g.id + '">Ver recorrido</button>' : '') + '</td></tr>';
     }).join('');
     lst.innerHTML = '<div style="overflow-x:auto"><table class="gv-det-table"><thead><tr><th>#</th><th>Fecha</th><th>Chofer</th><th>Unidad</th><th>Riesgo</th><th>Turno</th><th>Aprobacion</th><th>Motivos</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>';
+  }
+  /* 13/11: aprobar / rechazar un gerenciamiento desde la pestana Gerenciamientos. Hace lo mismo que los botones de
+     Alertas: respeta quien puede aprobar segun el riesgo (ALTO solo Jefe de Operaciones o Responsable de logistica),
+     guarda la decision en el viaje (o en el registro, si fue un gerenciamiento sin viaje) y saca la solicitud de
+     autorizacion de Alertas. */
+  function gvGerResolver(id, aprobar, btn){
+    var g = (((GV.Storage.getGerenciamientos && GV.Storage.getGerenciamientos()) || []).filter(function(x){ return x.id === id; }))[0];
+    if(!g) return;
+    var v = gvGerViajeDe(g);
+    var alertas = GV.Storage.getAlertas().filter(function(a){ return a.tipo === 'autorizacion' && (a.gerId === g.id || (g.viajeId && a.viajeId === g.viajeId)); });
+    var nivel = alertas.length ? gvNivelAlerta(alertas[0]) : (g.resultado === 'rojo' ? 'alto' : 'medio');
+    if(!gvPuedeAprobar(nivel)){
+      alert('Este gerenciamiento (riesgo ' + (nivel === 'alto' ? 'ALTO' : 'MEDIO') + ') solo lo puede aprobar o rechazar ' + gvQuienAprueba(nivel) + '.' + (gvUsuarioPanel.cargado ? ('\nUsuario actual: ' + (gvUsuarioPanel.nombre || gvUsuarioPanel.userName || '?')) : '\nTodavia no se pudo identificar al usuario actual; proba de nuevo en unos segundos.'));
+      return;
+    }
+    if(!aprobar && !confirm('¿Rechazar el gerenciamiento de ' + (g.conductor || '') + ' - ' + (g.vehiculo || '') + '?')) return;
+    var ahora = new Date().toISOString(), quien = gvUsuarioPanel.nombre || gvUsuarioPanel.userName;
+    var patch = aprobar ? { autorizadoPor: 'supervisor', autorizadoEn: ahora, autorizadoPorNombre: quien, autorizadoPorUsuario: gvUsuarioPanel.userName, autorizadoNivel: nivel }
+                        : { rechazado: true, rechazadoEn: ahora, rechazadoPorNombre: quien, rechazadoPorUsuario: gvUsuarioPanel.userName };
+    if(btn){ btn.disabled = true; btn.textContent = aprobar ? 'Aprobando...' : 'Rechazando...'; }
+    var pr = (v && g.viajeId)
+      ? GV.Storage.updateViaje(g.viajeId, { gerenciamiento: Object.assign({}, (GV.Storage.getViaje(g.viajeId) || v).gerenciamiento, patch) })
+      : GV.Storage.updateGerenciamiento(g.id, patch);
+    pr.then(function(){ return alertas.reduce(function(acc, a){ return acc.then(function(){ return GV.Storage.removeAlerta(a.id); })['catch'](function(){}); }, Promise.resolve()); })
+      .then(function(){ try{ renderGerenciamientos(); renderAlertas(); renderEventsWidget(); renderTrips(); }catch(e){} })
+      ['catch'](function(err){ if(btn){ btn.disabled = false; btn.textContent = aprobar ? 'Aprobar' : 'Rechazar'; } alert('No se pudo guardar: ' + ((err && err.message) || err)); });
   }
   /* recorrido del gerenciamiento: con viaje -> detalle del viaje (mapa, itinerario y reproduccion); sin viaje -> recorrido GPS */
   function gvGerVerRecorrido(id){
