@@ -667,7 +667,7 @@ function applyDocs(data){try{var ds={};((data&&data.documentos)||[]).forEach(fun
 function applyDocs0(data){
   S.docs=[];if(!data){return}
   var ents=data.entidades||[],docs=data.documentos||[],byId={};ents.forEach(function(e){byId[e.id]=e});
-  var byGt={},byName={};ents.forEach(function(e){if(e.geotabId)byGt[e.geotabId]=e;byName[normName(e.descripcion)]=e});
+  var byGt={},byName={};ents.forEach(function(e){if(e.geotabId)byGt[e.geotabId]=e;if(e.sinGeotabId&&e.activo!==false)byGt[e.sinGeotabId]=e;byName[normName(e.descripcion)]=e});
   var tn={};(data.tiposDocumento||[]).forEach(function(t){tn[t.id]=t.nombre});
   var dn=function(d){return d.tipoDocumentoNombre||tn[d.tipoDocumentoId]||''};
   var vtv=/vtv/i,best={};ADDIN.raw.docSample=docs.filter(function(d){return vtv.test(dn(d))})[0];
@@ -1592,7 +1592,7 @@ function avisos(){
    y unidades con VTV vencida o por vencer. Se ordenan arrastrando o con las flechas;
    el orden se guarda en gm_data (prioMant / prioVtv) y lo ven todos. */
 function panListaMant(){return S.units.map(function(u){return {u:u,i:operInfo(u)}}).filter(function(x){return x.i.sit==='En reparación'||x.i.sit==='Fuera de servicio'})}
-function panListaVtv(){return S.units.map(function(u){return {u:u,i:vtvInfo(u)}}).filter(function(x){return x.i.e==='Vencido'||x.i.e==='Preaviso'})}
+function panListaVtv(){return S.units.map(function(u){return {u:u,i:vtvInfo(u)}}).filter(function(x){return x.i.e==='Vencido'})}
 function panOrdenar(L,key,def){var p=S[key]||[],pos={};p.forEach(function(id,k){pos[id]=k});
   return L.slice().sort(function(a,b){var pa=pos[a.u.id],pb=pos[b.u.id];if(pa!=null&&pb!=null)return pa-pb;if(pa!=null)return -1;if(pb!=null)return 1;return def(a,b)})}
 function panDefMant(a,b){return ((a.i.sit==='Fuera de servicio'?0:1)-(b.i.sit==='Fuera de servicio'?0:1))||((b.i.dias||0)-(a.i.dias||0))||a.u.nombre.localeCompare(b.u.nombre)}
@@ -1624,7 +1624,7 @@ function vPan(){
   var L=panLista(tab),hayOrden=(S[tab==='vtv'?'prioVtv':'prioMant']||[]).length;
   var head='<div class="bar" style="margin-bottom:10px"><div class="tabs" role="tablist" style="margin:0"><button type="button" role="tab" aria-selected="'+(tab==='mant')+'" data-act="tab" data-k="panTab" data-v="mant">Mantenimiento ('+nM+')</button><button type="button" role="tab" aria-selected="'+(tab==='vtv')+'" data-act="tab" data-k="panTab" data-v="vtv">VTV ('+nV+')</button></div><span class="sp"></span>'+(hayOrden?'<button type="button" class="btn sm" data-act="panReset" data-t="'+tab+'">Volver al orden automático</button>':'')+'</div>';
   var dos=L.length>10,filas=Math.ceil(L.length/2);
-  var body=L.length?'<div class="pan-list'+(dos?' dos':'')+'"'+(dos?' style="grid-template-rows:repeat('+filas+',auto)"':'')+'>'+L.map(function(x,k){return panCard(x,k,L.length,tab)}).join('')+'</div>':'<div class="muted" style="text-align:center;padding:30px">'+(tab==='vtv'?'No hay unidades con VTV vencida o por vencer.':'No hay unidades en mantenimiento en este momento.')+'</div>';
+  var body=L.length?'<div class="pan-list'+(dos?' dos':'')+'"'+(dos?' style="grid-template-rows:repeat('+filas+',auto)"':'')+'>'+L.map(function(x,k){return panCard(x,k,L.length,tab)}).join('')+'</div>':'<div class="muted" style="text-align:center;padding:30px">'+(tab==='vtv'?'No hay unidades con la VTV vencida.':'No hay unidades en mantenimiento en este momento.')+'</div>';
   return '<section class="card">'+head+body+'</section>'}
 (function(){var drag=null;
   function card(e){return e.target&&e.target.closest?e.target.closest('.pan-card'):null}
