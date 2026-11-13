@@ -3271,7 +3271,7 @@ abrirDetalleViaje(id);
   });
   document.getElementById('gv-mh-fin').addEventListener('click', function(e){ var el = e.target.closest('[data-mh-viaje]'); if(el) abrirDetalleViaje(el.getAttribute('data-mh-viaje')); });
   document.getElementById('gv-mh-sp').addEventListener('click', function(e){ var ub = e.target.closest('[data-mh-sp-ubic]'); if(ub){ gvLibreUbicacionPip(ub.getAttribute('data-mh-sp-ubic'), 'sp'); return; } var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); });
-  (function(){ var __lib = document.getElementById('gv-mh-lib'); if(__lib) __lib.addEventListener('click', function(e){ var ub = e.target.closest('[data-mh-lib-ubic]'); if(ub){ gvLibreUbicacionPip(ub.getAttribute('data-mh-lib-ubic')); return; } var el = e.target.closest('[data-mh-veh]'); if(el) gvNuevoViajeDesdeUnidad(el.getAttribute('data-mh-veh')); }); })();
+  (function(){ var __lib = document.getElementById('gv-mh-lib'); if(__lib) __lib.addEventListener('click', function(e){ var ub = e.target.closest('[data-mh-lib-ubic]'); if(ub){ gvLibreUbicacionPip(ub.getAttribute('data-mh-lib-ubic')); return; } var el = e.target.closest('[data-mh-veh]'); if(el) gvLibreMenu(el, el.getAttribute('data-mh-veh')); }); })();
   /* Desplegar / minimizar el mapa de Seguimiento. Al desplegarlo se vuelve a renderizar para
      que Google Maps tome el tamano real del contenedor (estaba oculto) y encuadre los viajes. */
   document.getElementById('gv-btn-toggle-track-map').addEventListener('click', function(){
@@ -4630,7 +4630,9 @@ function gvPintarSinPlan(){
   gvSlbEnlazarBotones(el);
 }
 function gvPintarLibres(){
-  var __lista = gMhLibres.filter(function(u){ return gvPasaFiltroGen(u.vehId); });
+  gvGmSuscribir();
+  /* 13/11: las unidades que estan en Mantenimiento (en reparacion / fuera de servicio, o con una orden en curso) no son libres */
+  var __lista = gMhLibres.filter(function(u){ return gvPasaFiltroGen(u.vehId) && !gGmEnTaller[u.vehId]; });
   var el = document.getElementById('gv-mh-lib'), n = document.getElementById('gv-mh-lib-n');
   if(!el) return;
   if(n) n.textContent = '(' + __lista.length + ')';
@@ -4643,10 +4645,128 @@ function gvPintarLibres(){
       grupos[c].sort(function(a, b){ return a.veh.localeCompare(b.veh, 'es', { numeric: true }); }).map(function(u){
         /* 12/11: click en la unidad -> Nuevo Viaje; click en "Libre en ..." -> ventanita con el mapa de donde esta */
         return '<div style="padding:5px 8px;border-bottom:1px solid #f3f4f6;font-size:.8rem;display:flex;gap:6px;align-items:baseline;border-radius:6px">' +
-          '<b data-mh-veh="' + u.vehId + '" title="Cargar un viaje para esta unidad" style="white-space:nowrap;cursor:pointer" onmouseover="this.style.color=\'var(--gv-accent)\'" onmouseout="this.style.color=\'\'">' + GV.escapeHtml(u.veh) + '</b>' +
+          '<b data-mh-veh="' + u.vehId + '" title="Crear un viaje o una orden de mantenimiento para esta unidad" style="white-space:nowrap;cursor:pointer" onmouseover="this.style.color=\'var(--gv-accent)\'" onmouseout="this.style.color=\'\'">' + GV.escapeHtml(u.veh) + '</b>' +
           '<span data-mh-lib-ubic="' + u.vehId + '" title="Ver en el mapa donde esta' + (u.libreMs ? (' (detenida hace ' + GV.fmtDurMin(u.libreMs) + ')') : '') + '" style="margin-left:auto;color:' + (u.desmov ? '#d97706' : '#059669') + ';font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px">' + (u.desmov ? ('Desmovilizando desde ' + GV.escapeHtml(u.desde)) : ('Libre en ' + GV.escapeHtml(u.base))) + '</span></div>';
       }).join('');
   }).join('');
+}
+
+/* ================= 13/11: GESTION DE VIAJES <-> MANTENIMIENTO =================
+   Se lee el documento del modulo de Mantenimiento (gm_data/main) para saber que unidades estan en el taller y
+   para crear desde aca una orden de trabajo. La orden se guarda "En proceso" (la unidad entra al taller), asi
+   que deja de figurar como libre y aparece en Mantenimiento (Panel, Estado de la flota, Ordenes de trabajo).
+   Cuando Mantenimiento cierra la orden, la unidad vuelve a figurar como libre sola. */
+var gGmData = null, gGmEnTaller = {}, gGmSub = false, gGmRef = null, gGmDb = null;
+function gvGmCalcular(p){
+  var enT = {}, fi = (p && p.fichas) || {};
+  Object.keys(fi).forEach(function(k){ var e = fi[k] && fi[k].estado; if(e === 'En taller' || e === 'Fuera de servicio') enT[k] = e; });
+  ((p && p.ots) || []).forEach(function(o){ if(o && (o.estado === 'En proceso' || o.estado === 'Pausada')){ var k = String(o.unitId || '').replace(/^g_/, ''); if(!enT[k]) enT[k] = 'Orden #' + o.nro; } });
+  return enT;
+}
+function gvGmSuscribir(){
+  if(gGmSub) return; gGmSub = true;
+  GV.loadFirebase().then(function(firebase){
+    if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(GV.FIREBASE_CONFIG);
+    gGmDb = firebase.firestore(); gGmRef = gGmDb.collection('gm_data').doc('main');
+    gGmRef.onSnapshot(function(snap){
+      try{ gGmData = snap.exists ? JSON.parse(snap.data().payload || 'null') : null; gGmEnTaller = gGmData ? gvGmCalcular(gGmData) : {}; }catch(e){ console.warn('[GV] gm_data:', e); }
+      try{ gvPintarLibres(); }catch(e){}
+    }, function(err){ console.warn('[GV] gm_data onSnapshot:', err); });
+  }).catch(function(e){ console.warn('[GV] gm_data:', e); gGmSub = false; });
+}
+function gvLibreMenuCerrar(){ var m = document.getElementById('gv-lib-menu'); if(m) m.remove(); }
+function gvLibreMenu(anchor, vehId){
+  gvLibreMenuCerrar();
+  var u = gMhLibres.filter(function(x){ return x.vehId === vehId; })[0];
+  var r = anchor.getBoundingClientRect(), m = document.createElement('div');
+  m.id = 'gv-lib-menu';
+  m.style.cssText = 'position:fixed;z-index:100002;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);padding:6px;min-width:230px;font-family:inherit';
+  var bst = 'display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:600;font-size:.85rem;color:#111827';
+  m.innerHTML = '<div style="font-size:.72rem;color:#6b7280;padding:4px 10px 6px">' + GV.escapeHtml(u ? u.veh : '') + '</div>' +
+    '<button type="button" data-lm="viaje" style="' + bst + '"><span style="color:#0d9488;font-size:1rem">&#43;</span> Crear nuevo viaje</button>' +
+    '<button type="button" data-lm="ot" style="' + bst + '"><span style="color:#d97706;font-size:1rem">&#128295;</span> Crear orden de mantenimiento</button>';
+  document.body.appendChild(m);
+  var top = r.bottom + 4, left = r.left; if(top + 120 > window.innerHeight) top = Math.max(8, r.top - 124); if(left + 240 > window.innerWidth) left = window.innerWidth - 248;
+  m.style.top = top + 'px'; m.style.left = left + 'px';
+  [].forEach.call(m.querySelectorAll('button'), function(b){ b.addEventListener('mouseover', function(){ b.style.background = '#f3f4f6'; }); b.addEventListener('mouseout', function(){ b.style.background = 'none'; }); });
+  m.addEventListener('click', function(e){ var b = e.target.closest('[data-lm]'); if(!b) return; gvLibreMenuCerrar(); if(b.getAttribute('data-lm') === 'viaje') gvNuevoViajeDesdeUnidad(vehId); else gvOrdenMantModal(vehId); });
+  setTimeout(function(){ document.addEventListener('mousedown', function fx(ev){ if(!ev.target.closest('#gv-lib-menu')){ gvLibreMenuCerrar(); document.removeEventListener('mousedown', fx); } }); }, 0);
+}
+function gvOrdenMantModal(vehId){
+  var u = gMhLibres.filter(function(x){ return x.vehId === vehId; })[0], nom = u ? u.veh : vehId;
+  var ov = document.createElement('div'); ov.className = 'gv-modal-overlay'; ov.style.zIndex = '100001';
+  function cerrar(){ ov.remove(); }
+  if(!gGmData){
+    ov.innerHTML = '<div class="gv-modal" style="max-width:420px"><h3 style="margin:0 0 8px">Orden de mantenimiento</h3><div style="font-size:.85rem;color:#374151">Todavia no se pudo leer el modulo de Mantenimiento. Proba de nuevo en unos segundos.</div><div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-ot-x">Cerrar</button></div></div>';
+    document.body.appendChild(ov); document.getElementById('gv-ot-x').addEventListener('click', cerrar); gvGmSuscribir(); return;
+  }
+  var tall = (gGmData.talleres || []).filter(function(t){ return !t.eliminado; });
+  var avs = (gGmData.averias || []).filter(function(a){ return a.unitId === 'g_' + vehId && a.estado === 'Pendiente'; });
+  var hoy = new Date(), iso = hoy.getFullYear() + '-' + ('0' + (hoy.getMonth() + 1)).slice(-2) + '-' + ('0' + hoy.getDate()).slice(-2);
+  var esc = GV.escapeHtml, inp = 'width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font:inherit';
+  var row = function(lbl, html, full){ return '<div class="gv-form-row" style="' + (full ? 'grid-column:1/-1' : '') + '"><label>' + lbl + '</label>' + html + '</div>'; };
+  ov.innerHTML = '<div class="gv-modal" style="max-width:680px;width:100%;max-height:90vh;overflow:auto">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0">Nueva orden de trabajo</h3><span style="font-size:.75rem;font-weight:700;color:#d97706;background:#fef3c7;border-radius:999px;padding:3px 10px">Mantenimiento</span></div>' +
+    '<div style="font-size:.8rem;color:#6b7280;margin:4px 0 12px">La unidad entra al taller: deja de figurar como libre y aparece en Mantenimiento con esta orden.</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">' +
+      row('Unidad', '<div style="padding:8px 0;font-weight:700">' + esc(nom) + '</div>') +
+      row('Tipo', '<select id="gv-ot-tipo" style="' + inp + '"><option>Correctivo</option><option>Preventivo</option></select>') +
+      row('Descripcion<span class="gv-req">*</span>', '<input id="gv-ot-tit" type="text" style="' + inp + '" placeholder="Ej: Cambio de pastillas de freno">', true) +
+      row('Taller', '<select id="gv-ot-taller" style="' + inp + '">' + tall.map(function(t){ return '<option value="' + esc(t.id) + '">' + esc(t.nombre) + '</option>'; }).join('') + '</select>') +
+      row('Fecha de inicio', '<input id="gv-ot-fi" type="date" value="' + iso + '" style="' + inp + '">') +
+      row('Odometro (km)', '<input id="gv-ot-odo" type="number" step="1" min="0" style="' + inp + '">') +
+      row('Horometro (hs)', '<input id="gv-ot-hs" type="number" step="0.1" min="0" style="' + inp + '">') +
+      row('Importe ($)', '<input id="gv-ot-imp" type="number" step="1" min="0" style="' + inp + '">') +
+      '<div></div>' +
+      row('Mecanicos', '<div id="gv-ot-mec" style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.85rem"></div>', true) +
+      (avs.length ? row('Averias pendientes que resuelve esta orden', '<div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">' + avs.map(function(a){ return '<label style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" class="gv-ot-av" value="' + a.nro + '"> #' + a.nro + ' &middot; ' + esc(a.titulo || '') + (a.importancia === 'CRITICA' ? ' <b style="color:#dc2626">(critica)</b>' : '') + '</label>'; }).join('') + '</div>', true) : '') +
+      row('Tareas (una por linea)', '<textarea id="gv-ot-tareas" rows="3" style="' + inp + '"></textarea>', true) +
+      row('Notas', '<textarea id="gv-ot-notas" rows="2" style="' + inp + '"></textarea>', true) +
+    '</div>' +
+    '<div id="gv-ot-msg" style="display:none;font-size:.8rem;padding:8px 10px;border-radius:6px;margin-top:10px;background:#fee2e2;color:#991b1b"></div>' +
+    '<div class="gv-modal-actions"><button type="button" class="gv-btn gv-btn-sec gv-btn-sm" id="gv-ot-cancel">Cancelar</button><button type="button" class="gv-btn gv-btn-primary gv-btn-sm" id="gv-ot-save">Crear orden</button></div></div>';
+  document.body.appendChild(ov);
+  var $ = function(id){ return document.getElementById(id); };
+  function pintarMec(){ var t = tall.filter(function(x){ return x.id === $('gv-ot-taller').value; })[0], ms = (t && t.mec) || [];
+    $('gv-ot-mec').innerHTML = ms.length ? ms.map(function(m){ return '<label style="display:flex;gap:5px;align-items:center;font-weight:400"><input type="checkbox" class="gv-ot-m" value="' + esc(m) + '">' + esc(m) + '</label>'; }).join('') : '<span style="color:#9ca3af">Taller sin mecanicos cargados.</span>'; }
+  pintarMec(); $('gv-ot-taller').addEventListener('change', pintarMec);
+  [].forEach.call(ov.querySelectorAll('.gv-ot-av'), function(c){ c.addEventListener('change', function(){ var t = $('gv-ot-tit'); if(c.checked && !t.value.trim()){ var a = avs.filter(function(x){ return String(x.nro) === c.value; })[0]; if(a) t.value = a.titulo || ''; } }); });
+  $('gv-ot-cancel').addEventListener('click', cerrar);
+  ov.addEventListener('click', function(e){ if(e.target === ov) cerrar(); });
+  $('gv-ot-tit').focus();
+  $('gv-ot-save').addEventListener('click', function(){
+    var msg = $('gv-ot-msg'), tit = $('gv-ot-tit').value.trim();
+    if(!tit){ msg.style.display = 'block'; msg.textContent = 'Escribi una descripcion para la orden.'; return; }
+    var num = function(id){ var v = $(id).value; return v === '' ? null : +v; };
+    var avIds = [].filter.call(ov.querySelectorAll('.gv-ot-av'), function(c){ return c.checked; }).map(function(c){ return +c.value; });
+    var tareas = $('gv-ot-tareas').value.split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
+    avs.forEach(function(a){ if(avIds.indexOf(a.nro) >= 0 && tareas.indexOf(a.titulo) < 0) tareas.push(a.titulo); });
+    var d = new Date(), st = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    var base = { unitId: 'g_' + vehId, estado: 'En proceso', fFin: null, facturas: [], tipo: $('gv-ot-tipo').value, titulo: tit, tallerId: $('gv-ot-taller').value || null,
+      mec: [].filter.call(ov.querySelectorAll('.gv-ot-m'), function(c){ return c.checked; }).map(function(c){ return c.value; }),
+      fInicio: $('gv-ot-fi').value || iso, odo: num('gv-ot-odo'), horas: num('gv-ot-hs'), importe: num('gv-ot-imp'), notas: $('gv-ot-notas').value.trim(),
+      tareas: tareas.map(function(t){ return { t: t, d: false }; }), planId: null, svcIdx: null, avIds: avIds, pausas: [], origen: 'Gestion de Viajes' };
+    var btn = $('gv-ot-save'); btn.disabled = true; btn.textContent = 'Guardando...';
+    gGmDb.runTransaction(function(tx){
+      return tx.get(gGmRef).then(function(snap){
+        if(!snap.exists) throw new Error('No existe el documento de Mantenimiento.');
+        var p = JSON.parse(snap.data().payload);
+        var nro = p.nextOT || 1; p.nextOT = nro + 1;
+        var o = Object.assign({ id: 'o' + nro, nro: nro }, base, { audit: [{ f: st, u: 'Logistica', a: 'Orden creada desde Gestion de Viajes (unidad ingresada al taller)' }] });
+        (p.ots = p.ots || []).push(o);
+        (p.averias || []).forEach(function(a){ if(avIds.indexOf(a.nro) >= 0){ a.estado = 'Asignada'; a.ordenId = o.id; } });
+        var str = JSON.stringify(p);
+        if(str.length > 1000000) throw new Error('El documento de Mantenimiento supera el limite.');
+        tx.set(gGmRef, { payload: str, _writer: 'gestion-viajes', _savedAt: Date.now() });
+        return nro;
+      });
+    }).then(function(nro){
+      gGmEnTaller[vehId] = 'Orden #' + nro; cerrar(); gvPintarLibres();
+      var t = document.createElement('div'); t.textContent = 'Orden #' + nro + ' creada: ' + nom + ' paso a Mantenimiento.';
+      t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100003;background:#111827;color:#fff;padding:10px 16px;border-radius:10px;font-size:.85rem;box-shadow:0 8px 24px rgba(0,0,0,.25)';
+      document.body.appendChild(t); setTimeout(function(){ t.remove(); }, 4500);
+    }).catch(function(err){ btn.disabled = false; btn.textContent = 'Crear orden'; msg.style.display = 'block'; msg.textContent = 'No se pudo crear la orden: ' + ((err && err.message) || err); });
+  });
 }
 /* 12/11: ventanita flotante (tipo PIP, chica) con la ubicacion EN VIVO de una unidad libre, como la tarjeta de Activo
    de MyGeotab: mapa con la posicion, direccion y hora del ultimo reporte. Mientras esta abierta se vuelve a consultar
