@@ -1667,7 +1667,7 @@ function panCard(x,k,n,tab){var u=x.u,i=x.i,cli=(u.clientes||[]).join(', ');
   var col=k===0?'#dc2626':k<3?'#d97706':'#0078A1',mid;
   if(tab==='vtv'){
     mid='<span class="pill '+(i.e==='Vencido'?'bad':'warn')+'">'+(i.e==='Vencido'?'Vencida':'Por vencer')+'</span>'+
-      '<span class="pan-dd">'+(i.dias==null?'—':i.dias<0?'hace '+n0(-i.dias)+' d':i.dias===0?'hoy':'en '+n0(i.dias)+' d')+'</span>'+
+      '<span class="pan-dd">'+(i.dias==null?'—':i.dias<0?n0(-i.dias)+' d':i.dias===0?'hoy':'en '+n0(i.dias)+' d')+'</span>'+
       '<span class="pan-ot muted">Vence '+(i.hasta?fd(i.hasta):'—')+'</span>';
   }else{
     var o=i.ots[0],ot=o?'<a href="#" data-act="otOpen" data-id="'+o.id+'">#'+o.nro+'</a> '+esc(o.titulo||'Sin descripción')+(i.ots.length>1?' <b>+'+(i.ots.length-1)+'</b>':''):'<span class="muted">Sin OT abierta</span>';
