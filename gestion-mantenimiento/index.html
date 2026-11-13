@@ -471,7 +471,8 @@ function persistObj(){var fi={};
     if(!u.tel||u.horasFuente==='Manual'){f.hs=u.horas;f.hsF=u.horasFecha}
     fi[u.gt.id]=f});
   return {v:1,cfg:S.cfg,talleres:S.talleres,planes:S.planes,svc:S.svc,ots:S.ots,averias:S.averias,vales:S.vales,cubiertas:S.cubiertas,cubLib:S.cubLib||null,nextOT:S.nextOT,nextAv:S.nextAv,nextChk:S.nextChk,audit:S.audit||[],engrases:S.engrases||[],ypfCfg:S.ypfCfg||null,
-    fichas:fi,manualChecks:S.checks.filter(function(c){return c.origen==='Manual'})}}
+    fichas:fi,manualChecks:S.checks.filter(function(c){return c.origen==='Manual'}),
+    manuales:S.manuales||[],manualesBorrados:S.manualesBorrados||[],manualesSembrados:!!S.manualesSembrados}}
 function persistAddin(){
   clearTimeout(ADDIN.saveT);
   ADDIN.saveT=setTimeout(function(){
@@ -506,6 +507,43 @@ function mkUnit(dev,isTrailer,groupName,fich){
   u._f=f;return u}
 function actDev(l){var now=Date.now();return (l||[]).filter(function(d){return !d.activeTo||new Date(d.activeTo).getTime()>now})}
 
+/* 13/11: UNIDADES SIN GEOTAB. Unidades que estaban en el sistema de mantenimiento anterior pero no existen en MyGeotab
+   (camiones, gruas, camionetas y equipos dados de alta solo en mantenimiento). Se cargan solo en este modulo: viven en
+   gm_data (S.manuales) y tienen ficha, planes, ordenes, averias y lecturas manuales como cualquier otra unidad. La
+   primera vez se cargan las 95 de la comparacion con el sistema anterior (GM_SIN_GEOTAB); despues se pueden eliminar
+   una por una (y no vuelven a aparecer: quedan en S.manualesBorrados). Formato: [clave, interno, patente, marca,
+   modelo, tipo, funcion, flota]. */
+var GM_SIN_GEOTAB=[["t283ac777qr","T283","AC777QR","Volvo","FM 380","Camión","","Pesados"],["t285ac797dh","T285","AC797DH","Volvo","FM 380","Camión","","Pesados"],["t286ac797di","T286","AC797DI","Volvo","FM 380","Camión","","Pesados"],["t279ac777qn","T279","AC777QN","Volvo","FM 380","Camión","","Pesados"],["p275ac913wx","P275","AC913WX","Kenworth","kenworth","Camión","","Pesados"],["l42ad022kw","L42","AD022KW","Toyota","Hilux 4d","Camioneta","Utilitario","Livianos"],["g173jjb941","G173","JJB941","Liebherr","Grua","Grúa","Grúa móvil","Maquinaria"],["g246osw054","G246","OSW054","XCMG","QY70K-1","Grúa","Grúa móvil","Maquinaria"],["g203ndp438","G203","NDP438","Terex","Grua 80 T","Grúa","Grúa móvil","Maquinaria"],["p170gzo609","P170","GZO609","Scania","P 380","Camión","","Pesados"],["p188mkm847","P188","MKM847","Scania","P 380","Camión","","Pesados"],["h263ab206ah","H263","AB206AH","Iveco","Cursor","Camión","","Pesados"],["m267ac033au","M267","AC033AU","Iveco","Cursor","Camión","","Pesados"],["t265ac033ar","T265","AC033AR","Iveco","Cursor","Camión","","Pesados"],["t271ac033az","T271","AC033AZ","Iveco","Cursor","Camión","","Pesados"],["h270ac033ay","H270","AC033AY","Iveco","Cursor","Camión","","Pesados"],["p208myj325","P208","MYJ325","Iveco","Trakker","Camión","","Pesados"],["p177kgx792","P177","KGX792","Scania","P 380","Camión","","Pesados"],["h262ab206ag","H262","AB206AG","Iveco","Cursor","Camión","","Pesados"],["t266ac033at","T266","AC033AT","Iveco","Cursor","Camión","","Pesados"],["p176kcr823","P176","KCR823","Scania","P 380","Camión","","Pesados"],["t250ozc239","T250","OZC239","Iveco","Stralis","Camión","","Pesados"],["t292ad496us","T292","AD496US","Volvo","FM 330","Camión","","Pesados"],["t290ad496uq","T290","AD496UQ","Volvo","FM 330","Camión","","Pesados"],["t268ac033av","T268","AC033AV","Iveco","Cursor","Camión","","Pesados"],["g253zz000av","G253","ZZ000AV","XCMG","QY70K-1","Grúa","Grúa móvil","Maquinaria"],["h294ad542fc","H294","AD542FC","Volvo","FM 330","Camión","","Pesados"],["h274ac060wc","H274","AC060WC","Iveco","Cursor","Camión","","Pesados"],["p209mxj963","P209","MXJ963","Iveco","Trakker","Camión","","Pesados"],["a212cpt63","A212","CPT63","Catepillar","Caterpiller Zampon","Grúa","Grúa móvil","Maquinaria"],["a276dje69","A276","DJE69","","Sampy","Grúa","Grúa móvil","Maquinaria"],["g175kdy430","G175","KDY430","Manitou","Manitou - Grua - Generica","Grúa","Grúa móvil","Maquinaria"],["t296ad647ei","T296","AD647EI","Volvo","460","Camión","","Pesados"],["g171bhh69","G171","BHH69","Terex","RT555-1","Grúa","Grúa móvil","Maquinaria"],["p204mud929","P204","MUD929","Iveco","Bus","Camión","","Pesados"],["g192mud875","G192","MUD875","TEREX DEMAG","AC50-1","Grúa","Grúa móvil","Maquinaria"],["g287ad409bd","G287","AD409BD","Sany","SACC1300S","Grúa","Grúa móvil","Maquinaria"],["p297ad914sl","P297","AD914SL","Volvo","460","Camión","","Pesados"],["g247ost422","G247","OST422","XCMG","Grua XCMG","Grúa","Grúa móvil","Maquinaria"],["g264ab376up","G264","AB376UP","Terex","DEMAG AC140","Grúa","Grúa móvil","Maquinaria"],["g301zz000bl","G301","ZZ000BL","Sany","SACC1300S","Grúa","Grúa móvil","Maquinaria"],["p299zz000bk","P299","ZZ000BK","Hino","500","Camión","","Pesados"],["p300zz000bj","P300","ZZ000BJ","Hino","500","Camión","","Pesados"],["l49ae833jc","L49","AE833JC","Toyota","Hilux","Camioneta","Utilitario","Livianos"],["t307ae939lx","T307","AE939LX","Volvo","460","Camión","","Pesados"],["m308ae962lw","M308","AE962LW","Volvo","460","Camión","","Pesados"],["h319af883be","H319","AF883BE","Iveco","Eurotracker","Camión","","Pesados"],["t320ag004tm","T320","AG004TM","Iveco","Eurotech","Camión","","Pesados"],["t322ag004tl","T322","AG004TL","Iveco","Eurotracker","Camión","","Pesados"],["m324ag004td","M324","AG004TD","Iveco","Pesado","Camión","","Pesados"],["t326ag124iz","T326","AG124IZ","Iveco","Pesado","Camión","","Pesados"],["t327ag168zb","T327","AG168ZB","Iveco","Pesado","Camión","","Pesados"],["t325ag124iy","T325","AG124IY","Iveco","Pesado","Camión","","Pesados"],["fiorinoad707ix","Fiorino","AD707IX","Fiat","Fiorino","Camioneta","Utilitario","Livianos"],["m328ag189cz","M328","AG189CZ","Iveco","Pesado","Camión","","Pesados"],["t331ag325mm","T331","AG325MM","Iveco","Pesado","Camión","","Pesados"],["l24mjw872","L24","MJW872","Ford","Ranger","Camioneta","Utilitario","Livianos"],["h332ag438er","H332","AG438ER","Iveco","Eurotech","Camión","","Pesados"],["t334ag500oi","T334","AG500OI","Iveco","Eurotech","Camión","","Pesados"],["t338ag500oe","T338","AG500OE","Iveco","Eurocargo","Camión","","Pesados"],["h333ag438et","H333","AG438ET","Iveco","Stralis","Camión","","Pesados"],["t342ag525ky","T342","AG525KY","Iveco","Pesado","Camión","","Pesados"],["t341ag525kw","T341","AG525KW","Iveco","Pesado","Camión","","Pesados"],["t344ag589en","T344","AG589EN","Iveco","Eurocargo","Camión","","Pesados"],["t345ag589eo","T345","AG589EO","Iveco","Eurocargo","Camión","","Pesados"],["t347ag642kj","T347","AG642KJ","Iveco","Eurocargo","Camión","","Pesados"],["m350ag944sg","M350","AG944SG","Iveco","Eurotech","Camión","","Pesados"],["c355ah134mh","C355","AH134MH","Iveco","Euroc","Camión","","Pesados"],["t354ah134mg","T354","AH134MG","Iveco","Euroc","Camión","","Pesados"],["t356ah205wd","T356","AH205WD","Iveco","Eurotech","Camión","","Pesados"],["a363karcb25114","A363","KARCB25114","Iron Group","H 85 Iron Group","Maquinaria","Retroexcavadora","Maquinaria"],["t359ah300cm","T359","AH300CM","Iveco","Euroc","Camión","","Pesados"],["t357ah300cj","T357","AH300CJ","Iveco","Euroc","Camión","","Pesados"],["t358ah300ck","T358","AH300CK","Iveco","Euroc","Camión","","Pesados"],["g361zz001pk","G361","ZZ001PK","XCMG","Grua XCMG","Grúa","Grúa móvil","Maquinaria"],["t366ah423ss","T366","AH423SS","Iveco","Euroc","Camión","","Pesados"],["h365ah423sr","H365","AH423SR","Iveco","Eurotracker","Camión","","Pesados"],["g360zz001nw","G360","ZZ001NW","Sany","SACC1300S","Grúa","Grúa móvil","Maquinaria"],["t373ah455sg","T373","AH455SG","Iveco","Euroc","Camión","","Pesados"],["t372ah455sf","T372","AH455SF","Iveco","Pesado","Camión","","Pesados"],["t369ah455sa","T369","AH455SA","Iveco","Pesado","Camión","Transporte de personal","Pesados"],["t370ah455sb","T370","AH455SB","Iveco","Pesado","Camión","","Pesados"],["t371ah455se","T371","AH455SE","Iveco","Pesado","Camión","","Pesados"],["a362kvrcb26711","A362","KVRCB26711","Mitsubishi","Autoelevador Mitsubishi","Autoelevador","Autoelevador","Maquinaria"],["t282ac777qq","T282","AC777QQ","Volvo","FM 380","Camión","","Pesados"],["t288ad496uo","T288","AD496UO","Volvo","FM 380","Camión","","Pesados"],["t269ac033aw","T269","AC033AW","Iveco","Cursor","Camión","","Pesados"],["h272ac060wa","H272","AC060WA","Iveco","Cursor","Camión","","Pesados"],["h0032h0032","H0032","H0032","","","Eq de arrastre","","Equipos de arrastre"],["h0022h0022","H0022","H0022","","","Eq de arrastre","","Equipos de arrastre"],["a302edi61","A302","EDI61","ENSING","YX67","Camión","","Pesados"],["r28eki152","R28","EKI152","RANDON","SRRB","Camión","","Pesados"],["r32elf320","R32","ELF320","RANDON","SRRB","Camión","","Pesados"],["181lxs278","181","LXS278","SALTO","SRBV","Camión","","Pesados"],["a211a211","A211","A211","","","Eq de arrastre","","Equipos de arrastre"]];
+function mkManual(m,fich){
+  var f=fich||{},tipo=m.tipo||'Camión',rem=tipo==='Eq de arrastre';
+  var u={id:'m_'+m.k,nombre:m.interno,patente:m.patente||'',marca:m.marca||'',modelo:m.modelo||'',tipo:f.tipo||tipo,funcion:f.funcion!=null?f.funcion:(m.funcion||''),flota:f.flota!=null?f.flota:(m.flota||''),anio:f.anio||yearFromPlate(m.patente)||null,
+    odo:null,horas:null,odoFuente:null,horasFuente:null,odoFecha:null,horasFecha:null,tel:false,gt:{id:'m_'+m.k,name:m.interno+(m.patente&&m.patente!==m.interno?' - '+m.patente:''),tipo:'SinGeotab'},
+    planes:f.planes||[],estado:f.estado||'Habilitado',motor:f.motor!=null?f.motor:!rem,ultRep:null,motor7:null,km7:null,vida:f.vida||null,comb:f.comb||{area:35,ruta:32,urb:38,ral:3,l100:40},clientes:[],manual:true};
+  if(f.odo!=null){u.odo=f.odo;u.odoFuente='Manual';u.odoFecha=f.odoF||iso(today())}
+  if(f.hs!=null){u.horas=f.hs;u.horasFuente='Manual';u.horasFecha=f.hsF||iso(today())}
+  u._f=f;u._m=m;return u}
+/* agrega a S.units las unidades sin Geotab guardadas (y, la primera vez, las del sistema anterior) */
+function gmCargarManuales(p,fi,sembrar){
+  S.manuales=(p.manuales||[]).slice();S.manualesBorrados=(p.manualesBorrados||[]).slice();S.manualesSembrados=!!p.manualesSembrados;
+  var sembro=false;
+  if(sembrar&&!S.manualesSembrados){
+    var pl={};S.units.forEach(function(u){var k=normP(u.patente);if(k)pl[k]=1});
+    var ya={};S.manuales.forEach(function(m){ya[m.k]=1});
+    GM_SIN_GEOTAB.forEach(function(a){var m={k:a[0],interno:a[1],patente:a[2],marca:a[3],modelo:a[4],tipo:a[5],funcion:a[6],flota:a[7]};
+      if(ya[m.k]||S.manualesBorrados.indexOf(m.k)>=0)return;if(m.patente&&m.patente!==m.interno&&pl[normP(m.patente)])return;S.manuales.push(m)});
+    S.manualesSembrados=true;sembro=true}
+  var hay={};S.units.forEach(function(u){hay[u.id]=1});
+  S.manuales.forEach(function(m){if(hay['m_'+m.k])return;S.units.push(mkManual(m,fi['m_'+m.k]))});
+  return sembro}
+function gmEliminarManual(id){
+  var u=unitById(id);if(!u||!u.manual)return;
+  if(!confirm('¿Eliminar la unidad '+u.nombre+(u.patente&&u.patente!==u.nombre?' ('+u.patente+')':'')+' del módulo de Mantenimiento?\n\nSe borran su ficha y sus planes. Las órdenes de trabajo y averías que ya tenga quedan en el historial. No afecta a MyGeotab.'))return;
+  S.units=S.units.filter(function(x){return x.id!==id});
+  S.manuales=(S.manuales||[]).filter(function(m){return 'm_'+m.k!==id});
+  var k=id.replace(/^m_/,'');if((S.manualesBorrados||(S.manualesBorrados=[])).indexOf(k)<0)S.manualesBorrados.push(k);
+  Object.keys(S.svc||{}).forEach(function(key){if(key.indexOf(id+'|')===0)delete S.svc[key]});
+  if(ADDIN.byGt)delete ADDIN.byGt[id];
+  save();closeModal();render();toast('Unidad '+u.nombre+' eliminada del módulo.')}
 function buildState(devs,trs,groups,users,persist){
   var def=adDefaults(),p=persist||{},gname={};(groups||[]).forEach(function(g){gname[g.id]=g.name});
   /* Ajuste 15/10: cliente de cada unidad = subgrupos de "Clientes" en MyGeotab (SLB, SIDERCA, HALLIBURTON...). */
@@ -524,6 +562,9 @@ function buildState(devs,trs,groups,users,persist){
   ADDIN.dupTr=devs?actDev(devs).length-devOk.length:0;
   devOk.forEach(function(d){S.units.push(mkUnit(d,false,gname,fi[d.id]))});
   trl.forEach(function(d){S.units.push(mkUnit(d,true,gname,fi[d.id]||fi[aliasRev[d.id]]))});
+  /* 13/11: unidades sin Geotab (solo en este modulo). Se siembran la primera vez solo si gm_data se leyo del servidor,
+     para no pisar nada con datos a medias. */
+  ADDIN.sembroManuales=gmCargarManuales(p,fi,!!ADDIN.persistServidor);
   var ord=function(u){var m=u.nombre.match(/^([A-Za-z]+)(\d+)/);return m?[m[1],+m[2]]:[u.nombre,0]};
   S.units.sort(function(a,b){var x=ord(a),y=ord(b);return x[0]<y[0]?-1:x[0]>y[0]?1:x[1]-y[1]});
   S.geotab=S.units.map(function(u){return {id:u.gt.id,name:u.gt.name,plate:u.patente,tipo:u.gt.tipo,marca:u.marca,modelo:u.modelo}});
@@ -651,8 +692,8 @@ window.GM_START=function(api){
   var g=function(t){return aCall('Get',{typeName:t,search:{}}).catch(function(e){aErr('Get '+t,e);return []})};
   Promise.all([g('Device'),g('Trailer'),g('Group'),aCall('Get',{typeName:'User',search:{isDriver:true}}).catch(function(e){aErr('Get User',e);return []}),fbP]).then(function(r){
     return Promise.all([persistP.catch(function(e){aErr('gm_data',e);return null}),gdP.catch(function(e){aErr('gd_data',e);return null})]).then(function(pp){
-      var p=pp[0]||readLS();ADDIN.raw.counts={dispositivos:(r[0]||[]).length,remolques:(r[1]||[]).length,grupos:(r[2]||[]).length,usuarios:(r[3]||[]).length};
-      buildState(r[0],r[1],r[2],r[3],p);ADDIN.gd=pp[1];applyDocs(pp[1]);render();try{subscribe()}catch(e){aErr('suscripción',e)}phase2()})
+      var p=pp[0]||readLS();ADDIN.persistServidor=!!pp[0];ADDIN.raw.counts={dispositivos:(r[0]||[]).length,remolques:(r[1]||[]).length,grupos:(r[2]||[]).length,usuarios:(r[3]||[]).length};
+      buildState(r[0],r[1],r[2],r[3],p);ADDIN.gd=pp[1];applyDocs(pp[1]);render();if(ADDIN.sembroManuales){save();toast('Se cargaron '+S.manuales.length+' unidades sin Geotab del sistema anterior.')}try{subscribe()}catch(e){aErr('suscripción',e)}phase2()})
   }).catch(function(e){aErr('arranque',e);ADDIN.step='No se pudo leer MyGeotab: '+((e&&e.message)||e);render()})
 };
 function step(name,f){return function(){return Promise.resolve().then(f).catch(function(e){aErr(name,e)}).then(function(){softRender()})}}
@@ -661,6 +702,8 @@ function phase2(){ADDIN.phase2=true;render();
 function subscribe(){
   if(ADDIN.docRef)ADDIN.docRef.onSnapshot(function(s){if(!s.exists)return;var d=s.data();if(d._writer===ADDIN.writer)return;
     try{var p=JSON.parse(d.payload);['cfg','talleres','planes','svc','ots','averias','vales','cubiertas','cubLib','nextOT','nextAv','nextChk','audit','engrases','ypfCfg'].forEach(function(k){if(p[k]!==undefined)S[k]=p[k]});
+      try{if(p.manuales){var vivos={};p.manuales.forEach(function(m){vivos['m_'+m.k]=1});S.units=S.units.filter(function(u){return !u.manual||vivos[u.id]});var hay0={};S.units.forEach(function(u){hay0[u.id]=1});
+        S.manuales=p.manuales.slice();S.manualesBorrados=(p.manualesBorrados||[]).slice();S.manualesSembrados=!!p.manualesSembrados;p.manuales.forEach(function(m){if(!hay0['m_'+m.k])S.units.push(mkManual(m,(p.fichas||{})['m_'+m.k]))})}}catch(eM){aErr('unidades sin Geotab',eM)}
       var fi=p.fichas||{};S.units.forEach(function(u){var f=fi[u.gt.id];if(!f)return;['tipo','funcion','flota','anio','motor','planes','estado','vida','comb'].forEach(function(k){if(f[k]!==undefined)u[k]=f[k]});if(!u.tel&&f.odo!==undefined){u.odo=f.odo;u.odoFecha=f.odoF;u.odoFuente='Manual'}if(!u.tel&&f.hs!==undefined){u.horas=f.hs;u.horasFecha=f.hsF;u.horasFuente='Manual'}});
       if(!$('#gm-modal').innerHTML)softRender()}catch(e){aErr('sincronización',e)}},function(e){aErr('onSnapshot gm',e)});
   if(ADDIN.gdRef)ADDIN.gdRef.onSnapshot(function(s){if(!s.exists)return;ADDIN.gd=s.data();applyDocs(ADDIN.gd);softRender()},function(e){aErr('onSnapshot gd',e)});
@@ -1106,11 +1149,11 @@ function vCfg(){
   '<section class="card"><header><h2>De dónde sale cada dato</h2></header><div class="note" style="margin-bottom:12px">Con "Datos reales de Geotab" el prototipo muestra solo tus activos de MyGeotab y arranca vacío en lo demás; con "Datos de demostración" carga ejemplos para probar todas las pantallas. En el Add-In, los datos marcados Geotab se leen de la API de MyGeotab con los mismos permisos que ya usan Gestión de Viajes y Documentación.</div>'+tbl(['Dato','Fuente','Origen','Comentario'],MAP.map(function(m){return '<tr><td>'+esc(m[0])+'</td><td class="mono small">'+esc(m[1])+'</td><td>'+pill(m[2]==='Geotab'?'Preventivo':'Externo',m[2])+'</td><td class="muted">'+esc(m[3])+'</td></tr>'}))+'</section>'}
 
 function vtvCell(u){var i=vtvInfo(u);return i.hasta?pill(i.e)+'<div class="muted small">'+fd(i.hasta)+'</div>':pill('Sin dato')}
-function orgPill(u){return u.tel?'<span class="org gt" title="'+esc(u.gt.name)+'">Equipo GO</span>':'<span class="org mn">'+(u.gt&&u.gt.tipo==='Remolque'?'Remolque':'Sin equipo')+'</span>'}
+function orgPill(u){return u.tel?'<span class="org gt" title="'+esc(u.gt.name)+'">Equipo GO</span>':u.manual?'<span class="org mn" title="Cargada solo en Mantenimiento: no existe en MyGeotab">Sin Geotab</span>':'<span class="org mn">'+(u.gt&&u.gt.tipo==='Remolque'?'Remolque':'Sin equipo')+'</span>'}
 function normP(p){return String(p||'').toUpperCase().replace(/[^A-Z0-9]/g,'')}
 function pendingDevices(){var have={};S.units.forEach(function(u){have[u.gt.id]=1});return S.geotab.filter(function(d){return !have[d.id]})}
 function fichaIncompleta(u){return !u.funcion||(!u.planes.length&&u.motor)}
-function gtTipoTxt(t){return t==='GO'?'Equipo GO':t==='Remolque'?'Remolque':'Dispositivo personalizado'}
+function gtTipoTxt(t){return t==='GO'?'Equipo GO':t==='Remolque'?'Remolque':t==='SinGeotab'?'Sin Geotab (solo en Mantenimiento)':'Dispositivo personalizado'}
 
 /* ================= ENTIDADES (traídas de Geotab) ================= */
 function vEnt(){
@@ -1507,8 +1550,8 @@ function planNewModal(){modal(mhead('Nuevo plan de mantenimiento')+'<form class=
 /* ---- entidades (ficha complementaria de lo que trae Geotab) ---- */
 function entModal(id){
   var u=unitById(id),pl=planesActivos().map(function(p){return '<label><input class="en-pl" type="checkbox" value="'+p.id+'"'+(u.planes.indexOf(p.id)>=0?' checked':'')+'>'+esc(p.nombre)+'</label>'}).join('');
-  modal(mhead('Ficha de mantenimiento · '+esc(u.nombre),orgPill(u))+'<div class="note">Estos datos vienen de MyGeotab y se cambian allá: <b>'+esc(u.gt.name)+'</b> · '+esc(u.patente)+' · '+esc(u.marca+' '+u.modelo)+' · '+esc(gtTipoTxt(u.gt.tipo))+'.</div><div class="note" style="margin-top:10px"><b>VTV Nacional (de Gestión Documental):</b> '+(vtvInfo(u).hasta?fd(vtvInfo(u).hasta)+' · '+esc(vtvInfo(u).e):'sin documento cargado')+'. No se edita acá.</div><form id="enf" class="form" autocomplete="off">'+sel('en-t','Tipo de entidad',['Camión','Camioneta','Grúa','Maquinaria','Autoelevador','Eq de arrastre'],u.tipo)+fld('en-fu','Función',u.funcion)+fld('en-fl','Flota',u.flota)+fld('en-a','Año de fabricación',u.anio,'number')+sel('en-m','Tiene motor',[['1','Sí'],['0','No (remolque, semirremolque)']],u.motor?'1':'0')+
-  (u.tel?'':fld('en-o','Odómetro actual (km, manual)',u.odo,'number','step="1" min="0"')+fld('en-h','Horómetro actual (hs, manual)',u.horas,'number','step="0.1" min="0"'))+'</form><div><div class="muted small" style="margin-bottom:4px">Planes de mantenimiento</div><div class="checks">'+pl+'</div></div><div class="mf">'+(u.planes.length?'<button class="btn" data-act="svcEdit" data-u="'+id+'">Último service y preaviso</button>':'')+'<button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="entSave" data-id="'+id+'">Guardar ficha</button></div>')}
+  modal(mhead('Ficha de mantenimiento · '+esc(u.nombre),orgPill(u))+(u.manual?'<div class="note warn"><b>Unidad sin Geotab</b>, cargada solo en este módulo (venía del sistema anterior): <b>'+esc(u.gt.name)+'</b> · '+esc(u.marca+' '+u.modelo)+'. Si ya no está en la flota, usá <b>Eliminar unidad</b>.</div>':'<div class="note">Estos datos vienen de MyGeotab y se cambian allá: <b>'+esc(u.gt.name)+'</b> · '+esc(u.patente)+' · '+esc(u.marca+' '+u.modelo)+' · '+esc(gtTipoTxt(u.gt.tipo))+'.</div>')+'<div class="note" style="margin-top:10px"><b>VTV Nacional (de Gestión Documental):</b> '+(vtvInfo(u).hasta?fd(vtvInfo(u).hasta)+' · '+esc(vtvInfo(u).e):'sin documento cargado')+'. No se edita acá.</div><form id="enf" class="form" autocomplete="off">'+sel('en-t','Tipo de entidad',['Camión','Camioneta','Grúa','Maquinaria','Autoelevador','Eq de arrastre'],u.tipo)+fld('en-fu','Función',u.funcion)+fld('en-fl','Flota',u.flota)+fld('en-a','Año de fabricación',u.anio,'number')+sel('en-m','Tiene motor',[['1','Sí'],['0','No (remolque, semirremolque)']],u.motor?'1':'0')+
+  (u.tel?'':fld('en-o','Odómetro actual (km, manual)',u.odo,'number','step="1" min="0"')+fld('en-h','Horómetro actual (hs, manual)',u.horas,'number','step="0.1" min="0"'))+'</form><div><div class="muted small" style="margin-bottom:4px">Planes de mantenimiento</div><div class="checks">'+pl+'</div></div><div class="mf">'+(u.manual?'<button class="btn" data-act="entDel" data-id="'+id+'" style="margin-right:auto;color:#b91c1c;border-color:#fca5a5">Eliminar unidad</button>':'')+(u.planes.length?'<button class="btn" data-act="svcEdit" data-u="'+id+'">Último service y preaviso</button>':'')+'<button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="entSave" data-id="'+id+'">Guardar ficha</button></div>')}
 function entSave(id){
   var u=unitById(id);u.tipo=val('en-t');u.funcion=val('en-fu').trim();u.flota=val('en-fl');u.anio=numv('en-a')||u.anio;u.motor=val('en-m')==='1';
   if(!u.tel){var odo=numv('en-o'),hs=numv('en-h');if(odo!==u.odo){u.odo=odo;if(odo!=null){u.odoFuente='Manual';u.odoFecha=iso(TD)}}if(hs!==u.horas){u.horas=hs;if(hs!=null){u.horasFuente='Manual';u.horasFecha=iso(TD)}}}
@@ -1590,6 +1633,7 @@ var ACT={
  chkF:function(d,el,arg){UI.chkF=UI.chkF===arg?'':arg;render()},
  entEdit:function(d){entModal(d.id)},
  entSave:function(d){entSave(d.id)},
+ entDel:function(d){gmEliminarManual(d.id)},
  entSync:function(){syncGeotab()},
  chkOpen:function(d,el,arg,e){if(e&&e.preventDefault)e.preventDefault();chkModal(d.id)},
  chkManual:function(){chkManualModal()},
