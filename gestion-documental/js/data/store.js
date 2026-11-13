@@ -511,7 +511,9 @@ const GD = (function () {
     notify();
     if (!_sgAuto && typeof document !== "undefined" && document.getElementById("gd-content")) {
       _sgAuto = true;
-      sincronizarSinGeotab().catch((e) => console.warn("Unidades sin Geotab:", e));
+      // Al abrir el panel se sincroniza solo con Geotab (unidades nuevas, equipos
+      // instalados a unidades sin Geotab) y con las unidades sin Geotab de Mantenimiento.
+      (_api ? sincronizarConGeotab() : sincronizarSinGeotab()).catch((e) => console.warn("Sincronización automática:", e));
     }
     if ((hayLegado || legAud.length) && !_migrando) {
       _migrando = true;
@@ -1220,11 +1222,11 @@ const GD = (function () {
       if (!ent) {
         // Ya existe con ese nombre (por ejemplo, ya tiene Geotab): no se duplica.
         if (_data.entidades.some((e) => e.tipo !== "Operador" && e.activo !== false && norm(e.descripcion) === norm(nombre))) return;
-        ent = { id, tipo, descripcion: nombre, activo: true, funciones: [], sinGeotab: true, sinGeotabId: `m_${m.k}` };
+        ent = { id, tipo, descripcion: nombre, activo: true, funciones: [], sinGeotab: true, sinGeotabId: `m_${m.k}`, interno: m.interno || "", patente: m.patente || "" };
         _data.entidades.push(ent);
         nuevas++;
-      } else if (!ent.geotabId && ent.activo !== false && (ent.descripcion !== nombre || ent.tipo !== tipo)) {
-        ent.descripcion = nombre; ent.tipo = tipo; cambios++;
+      } else if (!ent.geotabId && ent.activo !== false && (ent.descripcion !== nombre || ent.tipo !== tipo || ent.interno !== (m.interno || "") || ent.patente !== (m.patente || ""))) {
+        ent.descripcion = nombre; ent.tipo = tipo; ent.interno = m.interno || ""; ent.patente = m.patente || ""; cambios++;
       }
     });
     _data.entidades.forEach((e) => {
@@ -1239,6 +1241,7 @@ const GD = (function () {
 
   async function sincronizarConGeotab() {
     if (!_api) return { vehiculos: 0, choferes: 0 };
+    const _antes = JSON.stringify([_data.entidades, _data.choferes]);
     const [devices, users] = await Promise.all([
       new Promise((resolve) => _api.call("Get", { typeName: "Device", search: {} }, resolve, () => resolve([]))),
       new Promise((resolve) => _api.call("Get", { typeName: "User", search: {} }, resolve, () => resolve([]))),
@@ -1263,6 +1266,30 @@ const GD = (function () {
     const esRemolque = (nombre) => /^\s*[RA]\d+\s*[-\u2013\u2014]/i.test(nombre || "");
     const vehiculoDe = (e) => (e.tipo === "Vehiculo" || e.tipo === "AnexoVehicular") && e.activo !== false;
 
+    // Unidad cargada "sin Geotab" (desde Mantenimiento) a la que se le instaló el equipo:
+    // se reconoce por la patente o, si no tiene, por el interno aunque en Geotab tenga
+    // una letra adelante (T283 -> AT283). Se reutiliza esa entidad con sus documentos.
+    const np = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const sgLibres = () => _data.entidades.filter((e) => e.sinGeotab && !e.geotabId && e.activo !== false);
+    const sgDe = (dev) => {
+      const partes = String(dev.name || "").split(" - ");
+      const pDev = np(dev.licensePlate) || np(partes[1]);
+      const iDev = np(partes[0]);
+      const libres = sgLibres();
+      const conPat = libres.filter((e) => {
+        const pe = np(e.patente) || np(String(e.descripcion || "").split(" - ")[1]);
+        const ie = np(e.interno) || np(String(e.descripcion || "").split(" - ")[0]);
+        return pe && pe !== ie && pe.length >= 6 && (pe === pDev || np(dev.name).includes(pe));
+      });
+      if (conPat.length === 1) return conPat[0];
+      if (conPat.length > 1) return null;
+      const porInt = libres.filter((e) => {
+        const ie = np(e.interno) || np(String(e.descripcion || "").split(" - ")[0]);
+        return ie && (iDev === ie || (iDev.length === ie.length + 1 && /^[A-Z]/.test(iDev) && iDev.slice(1) === ie));
+      });
+      return porInt.length === 1 ? porInt[0] : null;
+    };
+
     let nuevosVehiculos = 0;
     activos.forEach((dev) => {
       let ent =
@@ -1272,7 +1299,8 @@ const GD = (function () {
         _data.entidades.find((e) => (e.tipo === "Vehiculo" || e.tipo === "AnexoVehicular") && e.geotabId === dev.id) ||
         _data.entidades.find((e) => e.id === `veh_${dev.id}`) ||
         // Cambio de equipo: mismo nombre, pero la entidad apunta a un equipo que ya no está activo.
-        _data.entidades.find((e) => vehiculoDe(e) && !idsActivos.has(e.geotabId) && normNombre(e.descripcion) === normNombre(dev.name));
+        _data.entidades.find((e) => vehiculoDe(e) && !idsActivos.has(e.geotabId) && normNombre(e.descripcion) === normNombre(dev.name)) ||
+        sgDe(dev);
       if (!ent) {
         ent = { id: `veh_${dev.id}`, tipo: esRemolque(dev.name) ? "AnexoVehicular" : "Vehiculo", activo: true, funciones: [] };
         _data.entidades.push(ent);
@@ -1342,7 +1370,7 @@ const GD = (function () {
       });
 
     try { await sincronizarSinGeotab(); } catch (e) { console.warn("Unidades sin Geotab:", e); }
-    await persistir();
+    if (JSON.stringify([_data.entidades, _data.choferes]) !== _antes) await persistir();
     notify();
     return { vehiculos: nuevosVehiculos, choferes: nuevosChoferes, totalVehiculos: activos.length, totalChoferes: nuevosChoferes, fusionados };
   }
