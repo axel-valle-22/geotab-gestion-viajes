@@ -1478,6 +1478,38 @@ function collect(){
   if($('#o-pmot')){M.pmot=val('o-pmot');M.pfr=val('o-pfr')}
   var nt=$('#o-nt');if(nt&&nt.value.trim()){M.tareas.push({t:nt.value.trim(),d:false});nt.value=''}
 }
+/* 13/11: checklist de Geotab dentro de la orden de trabajo. "Ver checklist" muestra las ultimas inspecciones
+   de la unidad (Geotab Drive) con sus defectos, y cada defecto pendiente se puede vincular a la orden:
+   su averia queda asignada a esta orden y se agrega como tarea. Al cerrar la orden, los defectos vinculados
+   quedan reparados (igual que con las averias). */
+function otChecks(u){return S.checks.filter(function(c){return c.unitId===u.id||c.remId===u.id}).sort(function(a,b){return ((b.fecha||'')+(b.hora||''))<((a.fecha||'')+(a.hora||''))?-1:1}).slice(0,8)}
+function otChkHtml(u,ro){
+  var L=otChecks(u);
+  var btn='<button type="button" class="btn sm'+(M.verChk?' primary':'')+'" data-act="otChk"'+(L.length?'':' disabled')+'>'+(M.verChk?'Ocultar checklist':'Ver checklist')+'</button>';
+  var head='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="muted small">Checklist de Geotab</span>'+btn+(L.length?'<span class="muted small">Último: '+fd(L[0].fecha)+' '+esc(L[0].hora||'')+' · '+(L[0].defectos.length?L[0].defectos.length+' defecto'+(L[0].defectos.length===1?'':'s')+(chkPend(L[0])?' ('+chkPend(L[0])+' sin reparar)':''):'sin defectos')+'</span>':'<span class="muted small">La unidad no tiene checklist en Geotab.</span>')+'</div>';
+  if(!M.verChk||!L.length)return '<div>'+head+'</div>';
+  var c=L.filter(function(x){return x.id===M.chkSel})[0]||L[0];M.chkSel=c.id;
+  var selC='<select data-mchg="otChkSel" aria-label="Checklist">'+L.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===c.id?' selected':'')+'>'+fd(x.fecha)+' '+esc(x.hora||'')+' · '+esc(x.conductor||'')+' · '+(x.defectos.length?x.defectos.length+' defecto'+(x.defectos.length===1?'':'s'):'sin defectos')+'</option>'}).join('')+'</select>';
+  var pendLink=0;
+  var rows=c.defectos.map(function(d,i){var a=d.avNro?avByNro(d.avNro):null,o=a&&a.ordenId&&a.ordenId!==M.id?otById(a.ordenId):null,acc;
+    if(d.reparado)acc=d.rep==='No necesaria'?pill('Seguro & Revisado','No es necesaria'):pill('Reparado');
+    else if(a&&M.avIds.indexOf(a.nro)>=0)acc='<span class="pill ok">Vinculado a esta orden</span>'+(ro?'':' <button type="button" class="btn sm" data-act="otChkUn" data-n="'+a.nro+'">Quitar</button>');
+    else if(o&&o.estado!=='Cerrada')acc='<span class="muted small">En la orden #'+o.nro+'</span>';
+    else{pendLink++;acc=ro?pill('Sin reparar'):'<button type="button" class="btn sm primary" data-act="otChkLink" data-c="'+esc(c.id)+'" data-i="'+i+'">Vincular a esta orden</button>'}
+    return '<tr><td><b>'+esc(d.cat&&d.cat!==d.t?d.cat+' → '+d.t:d.t)+'</b><div>'+pill(d.sev)+'</div></td><td>'+esc(d.obs||'—')+'</td><td>'+acc+'</td></tr>'});
+  var info='<div class="muted small" style="margin:6px 0">'+esc(c.tipo||'')+' · firmado por '+esc(c.conductor||'—')+(c.odo!=null?' · '+n1(c.odo)+' km':'')+(c.remId&&c.remId!==u.id&&unitById(c.remId)?' · remolque '+esc(unitById(c.remId).nombre):'')+(c.unitId!==u.id&&unitById(c.unitId)?' · hecho desde '+esc(unitById(c.unitId).nombre):'')+'</div>';
+  var all=(!ro&&pendLink>1)?'<button type="button" class="btn sm" data-act="otChkAll" data-c="'+esc(c.id)+'">Vincular todos los pendientes ('+pendLink+')</button>':'';
+  return '<div style="border:1px solid var(--line,#e5e7eb);border-radius:12px;padding:10px 12px;background:var(--surface2,#f8fafc)">'+head+
+    '<div class="bar" style="margin-top:8px">'+selC+'<span class="sp"></span>'+all+'</div>'+info+
+    (c.defectos.length?tbl(['Defecto','Observación del conductor','En esta orden'],rows):'<div class="note ok">Esta inspección no encontró defectos.</div>')+'</div>'}
+function otChkVincular(c,i){var d=c.defectos[i];if(!d||d.reparado)return;
+  var a=d.avNro?avByNro(d.avNro):null;
+  if(!a){a={nro:S.nextAv++,unitId:M.unitId,titulo:d.cat&&d.cat!==d.t?d.cat+' → '+d.t:d.t,fecha:c.fecha,operador:c.conductor,estado:'Pendiente',ordenId:null,importancia:d.sev==='Grave'?'CRITICA':'MODERADA',neglig:false,origen:'Geotab Drive',categoria:d.cat||'',detalle:d.obs||''};S.averias.push(a);d.avNro=a.nro}
+  if(a.ordenId&&a.ordenId!==M.id){var o=otById(a.ordenId);if(o&&o.estado!=='Cerrada')return}
+  if(a.unitId!==M.unitId)a.unitId=M.unitId;
+  if(M.avIds.indexOf(a.nro)<0)M.avIds.push(a.nro);
+  if(!M.tareas.some(function(x){return x.t===a.titulo}))M.tareas.push({t:a.titulo,d:false});
+  if(!M.titulo)M.titulo=a.titulo;M.tipo='Correctivo'}
 function showOT(){
   var u=unitById(M.unitId),ro=M.estado==='Cerrada',dis=ro?' disabled':'',t=tallerById(M.tallerId),isNew=!M.id;
   var svcs=svcRows(u),svcOpts=[['','Sin servicio vinculado']].concat(svcs.map(function(r){return [r.key,r.p.nombre+' · '+svcLabel(r.p,r.sv)+' ('+r.estado+')']}));
@@ -1491,6 +1523,7 @@ function showOT(){
     (M.tipo==='Preventivo'||M.svcKey?sel('o-svc','Servicio del plan',svcOpts,M.svcKey,'data-mchg="svc"').replace('<label class="f">','<label class="f full">'):'')+'</div>'+
     '<div><div class="muted small" style="margin-bottom:4px">Mecánicos de '+esc(t.nombre)+'</div>'+(t.mec.length?'<div class="checks">'+t.mec.map(function(m){return '<label><input class="o-mec" type="checkbox" value="'+esc(m)+'"'+(M.mec.indexOf(m)>=0?' checked':'')+'>'+esc(m)+'</label>'}).join('')+'</div>':'<div class="muted small">Taller sin mecánicos cargados.</div>')+'</div>'+
     (avs.length?'<div><div class="muted small" style="margin-bottom:4px">Averías que resuelve esta orden</div><div class="checks" style="flex-direction:column;gap:4px">'+avs.map(function(a){return '<label><input class="o-av" type="checkbox" value="'+a.nro+'"'+(M.avIds.indexOf(a.nro)>=0?' checked':'')+'>#'+a.nro+' · '+esc(a.titulo)+' <span class="muted small">('+(a.importancia==='CRITICA'?'crítica':a.importancia.toLowerCase())+')</span></label>'}).join('')+'</div></div>':'')+
+    otChkHtml(u,ro)+
     '<div><div class="muted small" style="margin-bottom:4px">Tareas</div>'+(M.tareas.length?M.tareas.map(function(x,i){return '<div class="tarea'+(x.d?' done':'')+'"><input type="checkbox" data-act-change="otTog" data-i="'+i+'"'+(x.d?' checked':'')+' aria-label="Tarea realizada"><span style="flex:1">'+esc(x.t)+'</span>'+(ro?'':'<button type="button" class="btn sm" data-act="otDelT" data-i="'+i+'" aria-label="Quitar tarea">Quitar</button>')+'</div>'}).join(''):'<div class="muted small">Todavía no hay tareas.</div>')+
     (ro?'':'<div class="bar" style="margin-top:8px"><input id="o-nt" placeholder="Agregar tarea" style="flex:1;min-width:180px"><button type="button" class="btn sm" data-act="otAddT">Agregar</button></div>')+'</div>'+
     '<label class="f">Notas<textarea id="o-notas">'+esc(M.notas)+'</textarea></label>'+
@@ -1751,6 +1784,10 @@ var ACT={
  otDelNo:function(){M.delArmed=false;showOT()},
  otDelDo:function(){var o=otById(M.id);S.averias.forEach(function(a){if(a.ordenId===o.id){a.estado='Pendiente';a.ordenId=null}});S.ots=S.ots.filter(function(x){return x.id!==o.id});save();var n=o.nro;closeModal();render();toast('Orden #'+n+' eliminada. Sus averías volvieron a pendientes.')},
  otAddT:function(){collect();showOT()},
+ otChk:function(){collect();M.verChk=!M.verChk;showOT()},
+ otChkLink:function(d){collect();var c=S.checks.filter(function(x){return x.id===d.c})[0];if(c)otChkVincular(c,+d.i);showOT()},
+ otChkAll:function(d){collect();var c=S.checks.filter(function(x){return x.id===d.c})[0];if(c)c.defectos.forEach(function(x,i){otChkVincular(c,i)});showOT()},
+ otChkUn:function(d){collect();var n=+d.n,a=avByNro(n);M.avIds=M.avIds.filter(function(x){return x!==n});if(a)M.tareas=M.tareas.filter(function(x){return x.d||x.t!==a.titulo});showOT()},
  otDelT:function(d){collect();M.tareas.splice(+d.i,1);showOT()},
  otCopy:function(){collect();copyText(otSummary(M.id?otById(M.id):M),'Resumen copiado.')},
  otCsv:function(){var L=otFiltered(),rows=[['Nro','Unidad','Patente','Descripcion','Tipo','Taller','Mecanicos','Inicio','Fin','Importe','Estado']].concat(L.map(function(o){var u=unitById(o.unitId);return [o.nro,u.nombre,u.patente,o.titulo,o.tipo,tallerById(o.tallerId).nombre,o.mec.join(' / '),fd(o.fInicio),fd(o.fFin),o.importe==null?'':o.importe,o.estado]}));copyText(rows.map(function(r){return r.map(function(c){return '"'+String(c).replace(/"/g,'""')+'"'}).join(';')}).join('\n'),L.length+' órdenes copiadas. Pegalas en una planilla.')},
@@ -1822,6 +1859,7 @@ var CHG={
  otFac:function(el){if(el.files&&el.files[0]){collect();M.facturas.push(el.files[0].name);var o=otById(M.id);o.facturas=M.facturas.slice();logA(o,'Factura adjunta: '+el.files[0].name);save();showOT()}}
 };
 var MCHG={
+ otChkSel:function(el){collect();M.chkSel=el.value;showOT()},
  plUv:function(el){if(el.value==='')return;var tr=el.closest('tr'),c=tr&&tr.querySelector('.pl-u');if(c)c.checked=true},
  unit:function(){collect();var u=unitById(val('o-unit'));M.unitId=u.id;M.odo=u.odo;M.horas=u.horas;M.svcKey='';M.avIds=[];showOT()},
  taller:function(){collect();M.mec=[];showOT()},
