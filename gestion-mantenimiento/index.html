@@ -535,6 +535,33 @@ function gmCargarManuales(p,fi,sembrar){
   var hay={};S.units.forEach(function(u){hay[u.id]=1});
   S.manuales.forEach(function(m){if(hay['m_'+m.k])return;S.units.push(mkManual(m,fi['m_'+m.k]))});
   return sembro}
+/* 13/11: cuando a una unidad "Sin Geotab" se le instala el equipo, aparece en MyGeotab y quedaba duplicada.
+   Se reconoce por la patente (o, si no tiene patente, por el interno aunque Geotab le agregue una letra adelante,
+   ej. T283 -> AT283) y se le pasa todo a la unidad de Geotab: ficha, planes, services, ordenes, averias, vales,
+   checklists manuales, engrases, cubiertas y prioridad del Panel. La unidad sin Geotab se quita. */
+function gmMatchGeotab(m){
+  var geo=S.units.filter(function(u){return !u.manual}),pm=normP(m.patente),im=normP(m.interno);
+  if(pm&&pm!==im&&pm.length>=6){var c=geo.filter(function(u){return normP(u.patente)===pm||normP(u.gt&&u.gt.name).indexOf(pm)>=0});if(c.length===1)return c[0];if(c.length>1)return null}
+  if(!im)return null;
+  var c2=geo.filter(function(u){var n=normP(u.nombre);return n===im||(n.length===im.length+1&&/^[A-Z]/.test(n)&&n.slice(1)===im)});
+  return c2.length===1?c2[0]:null}
+function gmMoverDatos(from,to){
+  ['ots','averias','vales','checks','engrases','cubiertas'].forEach(function(k){(S[k]||[]).forEach(function(x){if(x&&x.unitId===from)x.unitId=to})});
+  Object.keys(S.svc||{}).forEach(function(key){if(key.indexOf(from+'|')===0){var nk=to+key.slice(from.length);if(S.svc[nk]===undefined)S.svc[nk]=S.svc[key];delete S.svc[key]}});
+  ['prioMant','prioVtv'].forEach(function(k){var L=S[k]||[];if(L.indexOf(from)<0)return;S[k]=L.map(function(id){return id===from?to:id}).filter(function(id,i,a){return a.indexOf(id)===i})});
+  if(S.ypfCfg&&S.ypfCfg.cap&&S.ypfCfg.cap[from]!=null){if(S.ypfCfg.cap[to]==null)S.ypfCfg.cap[to]=S.ypfCfg.cap[from];delete S.ypfCfg.cap[from]}}
+function gmFusionarManuales(fi){
+  var hechas=[];(S.manuales||[]).slice().forEach(function(m){
+    var mu=unitById('m_'+m.k),gu=gmMatchGeotab(m);if(!mu||!gu)return;
+    if(!fi[gu.gt.id]){['tipo','funcion','flota','anio','estado','vida','comb'].forEach(function(k){if(mu[k]!=null&&mu[k]!=='')gu[k]=mu[k]});
+      gu.planes=(gu.planes||[]).concat((mu.planes||[]).filter(function(x){return (gu.planes||[]).indexOf(x)<0}))}
+    if(!gu.tel){if(gu.odo==null&&mu.odo!=null){gu.odo=mu.odo;gu.odoFecha=mu.odoFecha;gu.odoFuente='Manual'}if(gu.horas==null&&mu.horas!=null){gu.horas=mu.horas;gu.horasFecha=mu.horasFecha;gu.horasFuente='Manual'}}
+    gmMoverDatos(mu.id,gu.id);
+    S.units=S.units.filter(function(u){return u!==mu});
+    S.manuales=S.manuales.filter(function(x){return x.k!==m.k});if(S.manualesBorrados.indexOf(m.k)<0)S.manualesBorrados.push(m.k);
+    (S.audit=S.audit||[]).push({f:nowStamp(),u:'Sistema',a:'Unidad '+mu.nombre+' (sin Geotab) unificada con '+gu.gt.name+' de MyGeotab'});
+    hechas.push(mu.nombre+' → '+gu.nombre)});
+  return hechas}
 function gmEliminarManual(id){
   var u=unitById(id);if(!u||!u.manual)return;
   if(!confirm('¿Eliminar la unidad '+u.nombre+(u.patente&&u.patente!==u.nombre?' ('+u.patente+')':'')+' del módulo de Mantenimiento?\n\nSe borran su ficha y sus planes. Las órdenes de trabajo y averías que ya tenga quedan en el historial. No afecta a MyGeotab.'))return;
@@ -565,6 +592,7 @@ function buildState(devs,trs,groups,users,persist){
   /* 13/11: unidades sin Geotab (solo en este modulo). Se siembran la primera vez solo si gm_data se leyo del servidor,
      para no pisar nada con datos a medias. */
   ADDIN.sembroManuales=gmCargarManuales(p,fi,!!ADDIN.persistServidor);
+  ADDIN.fusiones=ADDIN.persistServidor?gmFusionarManuales(fi):[];
   var ord=function(u){var m=u.nombre.match(/^([A-Za-z]+)(\d+)/);return m?[m[1],+m[2]]:[u.nombre,0]};
   S.units.sort(function(a,b){var x=ord(a),y=ord(b);return x[0]<y[0]?-1:x[0]>y[0]?1:x[1]-y[1]});
   S.geotab=S.units.map(function(u){return {id:u.gt.id,name:u.gt.name,plate:u.patente,tipo:u.gt.tipo,marca:u.marca,modelo:u.modelo}});
@@ -693,7 +721,7 @@ window.GM_START=function(api){
   Promise.all([g('Device'),g('Trailer'),g('Group'),aCall('Get',{typeName:'User',search:{isDriver:true}}).catch(function(e){aErr('Get User',e);return []}),fbP]).then(function(r){
     return Promise.all([persistP.catch(function(e){aErr('gm_data',e);return null}),gdP.catch(function(e){aErr('gd_data',e);return null})]).then(function(pp){
       var p=pp[0]||readLS();ADDIN.persistServidor=!!pp[0];ADDIN.raw.counts={dispositivos:(r[0]||[]).length,remolques:(r[1]||[]).length,grupos:(r[2]||[]).length,usuarios:(r[3]||[]).length};
-      buildState(r[0],r[1],r[2],r[3],p);ADDIN.gd=pp[1];applyDocs(pp[1]);render();if(ADDIN.sembroManuales){save();toast('Se cargaron '+S.manuales.length+' unidades sin Geotab del sistema anterior.')}try{subscribe()}catch(e){aErr('suscripción',e)}phase2()})
+      buildState(r[0],r[1],r[2],r[3],p);ADDIN.gd=pp[1];applyDocs(pp[1]);render();if(ADDIN.sembroManuales){save();toast('Se cargaron '+S.manuales.length+' unidades sin Geotab del sistema anterior.')}if(ADDIN.fusiones&&ADDIN.fusiones.length){save();toast('Ya tienen Geotab y se unificaron: '+ADDIN.fusiones.join(', '))}try{subscribe()}catch(e){aErr('suscripción',e)}phase2()})
   }).catch(function(e){aErr('arranque',e);ADDIN.step='No se pudo leer MyGeotab: '+((e&&e.message)||e);render()})
 };
 function step(name,f){return function(){return Promise.resolve().then(f).catch(function(e){aErr(name,e)}).then(function(){softRender()})}}
